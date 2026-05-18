@@ -33,9 +33,9 @@ class TopmodelConfigurationGenerator(ConfigurationGenerator):
                 "0",
                 f'{cat_name}',
                 f"./forcing/{cat_name}.csv",
-                f'{topmodel_dir}/subcat_{cat_name}.dat',
-                f'{topmodel_dir}/params_{cat_name}.dat',
-                f'{topmodel_dir}/topmod_{cat_name}.out',
+                f'{topmodel_dir}/subcat_{tag}_{cat_name}.dat',
+                f'{topmodel_dir}/params_{tag}_{cat_name}.dat',
+                f'{topmodel_dir}/topmod_{tag}_{cat_name}.out',
                 f'{topmodel_dir}/hyd_{cat_name}.out'
             ]
 
