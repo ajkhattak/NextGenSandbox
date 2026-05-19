@@ -20,7 +20,7 @@ from src.python.configuration import get_config_generator
 
 class Generate:
     def __init__(self, sandbox_dir, gpkg_file, forcing_dir, ngen_dir,
-                 sim_time, formulation, formulations_supported, output_dir,
+                 sim_time, formulation, model_variants, output_dir,
                  forcing_format, ngen_cal_type, schema, domain,
                  disable_divide_output,
                  ensemble_enabled=False, ensemble_models = None
@@ -36,12 +36,13 @@ class Generate:
         self.domain      = domain
 
         self.simulation_time = sim_time
-        self.formulation_in  = formulation.replace(" ", "") # remove space if any
+        self.formulation     = formulation
+        self.model_variants  = model_variants
         self.forcing_format  = forcing_format
         self.ngen_cal_type   = ngen_cal_type
 
         self.ensemble_enabled = ensemble_enabled
-        self.ensemble_size = len([m.strip() for m in ensemble_models.split(",")]) if self.ensemble_enabled else 1
+        self.ensemble_size    = len([m.strip() for m in ensemble_models.split(",")]) if self.ensemble_enabled else 1
         self.ensemble_models  = ensemble_models
 
         self.disable_divide_output     = disable_divide_output
@@ -51,24 +52,6 @@ class Generate:
 
         if not os.path.exists(self.forcing_dir):
             sys.exit(f'The forcing directory does not exist: ', self.forcing_dir)
-
-        self.formulations_supported = formulations_supported
-        formulation_in_lower       = self.formulation_in.lower()
-
-        # Check if T-ROUTE is present (case-insensitive)
-        has_troute = "t-route" in formulation_in_lower
-
-        formulation_test = formulation_in_lower if has_troute else f"{self.formulation_in},T-ROUTE"
-
-        if formulation_test.upper() in formulations_supported:
-            #self.formulation = formulation_test.upper()
-            self.formulation = self.formulation_in
-        else:
-            raise ValueError(
-                f"\nUnsupported formulation: {self.formulation_in} \n"
-                f"Supported: {self.formulations_supported} \n"
-                "[INFO]: Formulations that omit T-ROUTE are allowed, however, all other formulation components must be specified exactly as supported."
-            )
 
 
         # Ensemble loop (or single run)
@@ -86,6 +69,7 @@ class Generate:
             output_dir=self.output_dir,
             ngen_dir=self.ngen_dir,
             formulation=self.formulation,
+            model_variants=self.model_variants,
             simulation_time=self.simulation_time,
             verbosity=1,
             ngen_cal_type=self.ngen_cal_type,
@@ -115,6 +99,7 @@ class Generate:
             forcing_dir        = self.forcing_dir,
             output_dir         = self.output_dir,
             formulation        = self.formulation,
+            model_variants=self.model_variants,
             simulation_time    = self.simulation_time,
             forcing_format     = self.forcing_format,
             ngen_cal_type      = self.ngen_cal_type,

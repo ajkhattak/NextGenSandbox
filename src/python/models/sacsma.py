@@ -1,28 +1,59 @@
 import os
 import sys
+import yaml
 
 from src.python.registry import register_model
 from src.python.configuration import ConfigurationGenerator
 
 
-@register_model("SAC-SMA")
 @register_model("SACSMA")
 class SACSMAGenerator(ConfigurationGenerator):
+    def __init__(self, ctx):
+        super().__init__(ctx)
+
+        default_variant = [
+            {
+                "name": "sacsma",
+                "basefile": "config_sacsma.namelist.input"
+            }
+        ]
+
+        self.variants = (
+            self.ctx.model_variants.get("SACSMA")
+            if getattr(self.ctx, "model_variants", None)
+            else None
+        )
+
+        if not self.variants:
+            self.variants = default_variant
 
     def _write_input_files(self, member_id, tag):
-        self.write_sacsma_input_files(member_id=member_id, tag=tag)
+        for variant_cfg in self.variants:
+            name = variant_cfg["name"]
+            basefile = variant_cfg["basefile"]
 
-    def write_sacsma_input_files(self, member_id=1, tag="cfg"):
+            basefile_path = os.path.join(self.ctx.sandbox_dir, f"configs/basefiles/{basefile}")
+
+            if not os.path.exists(basefile_path):
+                raise FileNotFoundError(f"Missing SACSMA basefile: {basefile_path}")
+
+            with open(basefile_path, "r") as f:
+                self.cfe_template = yaml.safe_load(f) or {}
+
+
+            self.write_sacsma_input_files(name, member_id=member_id, tag=tag)
+
+    def write_sacsma_input_files(self, name, member_id=1, tag="cfg"):
 
         # ensemble logic
-        if self.ctx.ensemble_enabled and "SAC-SMA" in (self.ctx.ensemble_models or "").upper():
+        if self.ctx.ensemble_enabled and "SACSMA" in (self.ctx.ensemble_models or "").upper():
             pass
         elif member_id == 1:
             tag = "cfg"
         else:
             return
 
-        sacsma_dir = os.path.join(self.ctx.output_dir, "configs", "sacsma")
+        sacsma_dir = os.path.join(self.ctx.output_dir, f"configs/{name}")
         self.create_directory(sacsma_dir)
 
         sacsma_basefile = os.path.join(

@@ -44,7 +44,8 @@ class Runner:
         dformul = self.config['formulation']
         self.ngen_dir     = Path(os.environ.get("NGEN_DIR"))
         self.formulation  = dformul['models'].upper()
-
+        self.model_variants = dformul.get('model_variants', {})
+        
         dsim = self.config['simulation']
         self.ngen_cal_type    = dsim.get('task_type', 'control')
         self.calibration_time = pd.NaT
@@ -280,6 +281,7 @@ class Runner:
             troute_output_file   = troute_output_file,
             ngen_cal_type        = ngen_cal_type,
             formulation          = self.formulation,
+            model_variants       = self.model_variants,
             simulation_time      = sim_time,
             evaluation_time      = eval_time,
             ngen_cal_basefile    = self.config_calib,

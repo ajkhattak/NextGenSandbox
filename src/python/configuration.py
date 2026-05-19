@@ -65,7 +65,7 @@ def get_config_generator(formulation, **kwargs):
 class ConfigurationContext:
 
     def __init__(self, sandbox_dir, gpkg_file, forcing_dir, output_dir,
-                 ngen_dir, formulation, simulation_time,
+                 ngen_dir, formulation, model_variants, simulation_time,
                  verbosity, ngen_cal_type, schema_type = None,
                  ensemble_enabled = False,
                  ensemble_models  = None):
@@ -76,6 +76,7 @@ class ConfigurationContext:
         self.output_dir         = output_dir
         self.ngen_dir           = ngen_dir
         self.formulation        = formulation
+        self.model_variants     = model_variants
         self.simulation_time    = simulation_time
         self.verbosity          = verbosity
         self.ngen_cal_type      = ngen_cal_type
@@ -277,7 +278,6 @@ class ConfigurationGenerator:
         self.catids = context.catids
 
         # shared derived fields
-        #self.pet_method = self._load_pet_method()
         self.soil_params_NWM_dir = os.path.join(
             self.ctx.ngen_dir,
             "extern/noah-owp-modular/noah-owp-modular/parameters"
@@ -329,7 +329,7 @@ class CompositeConfigurationGenerator(ConfigurationGenerator):
 
 class ConfigurationCalib:
     def __init__(self, gpkg_file, output_dir, ngen_dir, sandbox_dir, realization_file_par,
-                 troute_output_file, ngen_cal_basefile, ngen_cal_type, formulation,
+                 troute_output_file, ngen_cal_basefile, ngen_cal_type, formulation, model_variants,
                  restart_dir, simulation_time, evaluation_time, num_proc,
                  ensemble_enabled, ensemble_models,
                  ensemble_calib_params_groups):
@@ -341,6 +341,7 @@ class ConfigurationCalib:
         self.simulation_time    = simulation_time
         self.evaluation_time    = evaluation_time
         self.formulation        = formulation
+        self.model_variants     = model_variants
         self.ngen_cal_type      = ngen_cal_type
         self.num_proc           = num_proc
         self.ngen_cal_basefile  = ngen_cal_basefile
@@ -443,17 +444,29 @@ class ConfigurationCalib:
         }
 
         if "CFE" in self.formulation:
-            yaml_path = os.path.join(self.sandbox_dir, "configs/basefiles/config_cfe.yaml")
+            default_variants = [
+                {
+                    "name": "cfe-s"
+                }
+            ]
 
-            if not os.path.exists(yaml_path):
-                raise FileNotFoundError(f"Missing CFE basefile: {yaml_path}")
+            cfe_variants = (
+                self.model_variants.get("CFE")
+                if self.model_variants
+                else None
+            )
 
-            with open(yaml_path, "r") as f:
-                cfe_template = yaml.safe_load(f)
+            if not cfe_variants:
+                cfe_variants = default_variants
+        
+            for variant_cfg in cfe_variants:
 
-            model_param_map["CFE"] = "cfes_params"
-            if cfe_template["surface_water_partitioning_scheme"].lower() == "xinanjiang":
-                model_param_map["CFE"] = "cfex_params"
+                variant_name = variant_cfg["name"]
+
+                if variant_name == "cfe-s":
+                    model_param_map["CFE"] = "cfes_params"
+                elif variant_name == "cfe-x":
+                    model_param_map["CFE"] = "cfex_params"
             
         # Add calibratable parameter blocks
         for model in self.formulation.split(","):

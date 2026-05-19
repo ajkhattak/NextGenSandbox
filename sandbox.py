@@ -125,7 +125,7 @@ formulations_supported = [
     "SNOW17,PET,CFE-X,T-ROUTE",
     "SNOW17,PET,TOPMODEL,T-ROUTE",
     "LSTM,T-ROUTE",
-    "SNOW17,PET,SAC-SMA,T-ROUTE",
+    "SNOW17,PET,SACSMA,T-ROUTE",
     "DHBV,T-ROUTE",
 ]
 

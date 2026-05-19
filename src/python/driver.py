@@ -41,11 +41,12 @@ class Driver:
         self.output_dir   = Path(self.config['general'].get('output_dir'))
         
         dformul = self.config['formulation']
-        self.ngen_dir      = Path(os.environ.get("NGEN_DIR"))
-        self.formulation   = dformul['models'].upper()
-        self.clean         = self.process_clean_input_param(dformul.get('clean', "none"))
-        self.verbosity     = dformul.get('verbosity', 0)
-        self.schema_type   = dformul.get('schema_type', "noaa-owp")
+        self.ngen_dir       = Path(os.environ.get("NGEN_DIR"))
+        self.formulation    = dformul['models'].upper().replace(" ","")
+        self.model_variants = dformul.get('model_variants', {})
+        self.clean          = self.process_clean_input_param(dformul.get('clean', "none"))
+        self.verbosity      = dformul.get('verbosity', 0)
+        self.schema_type    = dformul.get('schema_type', "noaa-owp")
 
         # Forcing block
         dforcing = self.config['forcings']
@@ -123,6 +124,20 @@ class Driver:
             self.ensemble_enabled = False
             self.ensemble_models  = []
 
+        # check if formulation is supported
+        formulation_in_lower      = self.formulation.lower()
+
+        # Check if T-ROUTE is present (case-insensitive)
+        has_troute = "t-route" in formulation_in_lower
+
+        formulation_test = formulation_in_lower if has_troute else f"{self.formulation},T-ROUTE"
+
+        if not formulation_test.upper() in self.formulations_supported:
+            raise ValueError(
+                f"\nUnsupported formulation: {self.formulation} \n"
+                f"Supported: {self.formulations_supported} \n"
+                "[INFO]: Formulations that omit T-ROUTE are allowed, however, all other formulation components must be specified exactly as supported."
+            )
 
     def load_gage_ids(self, gage_ids_input):
         if gage_ids_input is None:
@@ -289,7 +304,7 @@ class Driver:
                                     ngen_dir    = self.ngen_dir,
                                     sim_time    = self.simulation_time,
                                     formulation = self.formulation,
-                                    formulations_supported = self.formulations_supported,
+                                    model_variants = self.model_variants,
                                     output_dir     = o_dir,
                                     forcing_format = self.forcing_format,
                                     ngen_cal_type  = self.task_type,

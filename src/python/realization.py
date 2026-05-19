@@ -20,22 +20,24 @@ import shutil
 import json
 from pathlib import Path
 
+from src.python.model_registry import build_model_registry
+
 class RealizationGenerator:
     def __init__(self, ngen_dir, forcing_dir,  output_dir, formulation,
-                 simulation_time, forcing_format, verbosity, ngen_cal_type,
-                 domain, ensemble_enabled, ensemble_member_id,
+                 model_variants, simulation_time, forcing_format, verbosity,
+                 ngen_cal_type, domain, ensemble_enabled, ensemble_member_id,
                  ensemble_models, disable_divide_output=True):
         
         self.ngen_dir    = ngen_dir
         self.forcing_dir = forcing_dir
         self.output_dir  = output_dir
         self.formulation = formulation
+        self.model_variants  = model_variants
         self.simulation_time = simulation_time
         self.config_dir      = os.path.join(output_dir,"configs")
         self.forcing_format  = forcing_format
         self.verbosity       = verbosity
         self.ngen_cal_type   = ngen_cal_type
-        self.lib_files       = self.get_lib_files()
         self.domain          = domain.lower()
         self.ensemble_enabled   = ensemble_enabled
         self.ensemble_size      = len([m.strip() for m in ensemble_models.split(",")]) if self.ensemble_enabled else 1
@@ -68,46 +70,29 @@ class RealizationGenerator:
         if not os.path.exists(self.forcing_dir):
             sys.exit(f"Forcing directory does not exist: {self.forcing_dir}")
 
-        cfe_dir = os.path.join(self.output_dir, "configs", "cfe")
-        if 'CFE' in self.formulation and not os.path.exists(cfe_dir):
-            print(f"CFE config files directory does not exist. {cfe_dir}")
-            sys.exit(0)
+        self.model_registry = build_model_registry(
+            formulation=self.formulation,
+            model_variants=self.model_variants
+        )
 
-        topmodel_dir = os.path.join(self.output_dir, "configs", "topmodel")
-        if 'TOPMODEL' in self.formulation and not os.path.exists(topmodel_dir):
-            print(f"TopModel config files directory does not exist. {topmodel_dir}")
-            sys.exit(0)
+        
+        self.configure_model_instances()
 
-        sft_dir = os.path.join(self.output_dir, "configs", "sft")
-        if 'SFT' in self.formulation and not os.path.exists(sft_dir):
-            print(f"SFT config files directory does not exist. {sft_dir}")
-            sys.exit(0)
+    def get_model_instances(self, model_name):
+        """
+        Return all configured instances for a model.
+        
+        Example:
+        get_model_instances("CFE")
+        """
+        
+        return self.model_registry.get(model_name.upper(), [])
 
-        smp_dir = os.path.join(self.output_dir, "configs", "smp")
-        if 'SMP' in self.formulation and not os.path.exists(smp_dir):
-            print(f"SMP config files directory does not exist. {smp_dir}")
-            sys.exit(0)
-
-        casam_dir = os.path.join(self.output_dir, "configs", "casam")
-        if 'CASAM' in self.formulation and not os.path.exists(casam_dir):
-            print(f"CASAM config files directory does not exist. {casam_dir}")
-            sys.exit(0)
-
-        snow17_dir = os.path.join(self.output_dir, "configs", "snow17")
-        if 'SNOW17' in self.formulation and not os.path.exists(snow17_dir):
-            print(f"SNOW17 config files directory does not exist. {snow17_dir}")
-            sys.exit(0)
-
-        lstm_dir = os.path.join(self.output_dir, "configs", "lstm")
-        if 'LSTM' in self.formulation and not os.path.exists(lstm_dir):
-            print(f"LSTM config files directory does not exist. {lstm_dir}")
-            sys.exit(0)
-
-        dhbv_dir = os.path.join(self.output_dir, "configs", "dhbv")
-        if 'DHBV' in self.formulation and not os.path.exists(dhbv_dir):
-            print(f"dHBV config files directory does not exist. {dhbv_dir}")
-            sys.exit(0)
-
+    def get_model_instance_names(self, model_name):
+        return [
+            instance["name"]
+            for instance in self.get_model_instances(model_name)
+        ]
 
     def write_realization_file(self):
 
@@ -165,58 +150,73 @@ class RealizationGenerator:
         model_type_name = self.formulation.replace(",","_")
 
         modules = []
-        if not "SAC-SMA" in self.formulation and not "LSTM" in self.formulation \
-           and not "DHBV" in self.formulation:
-            modules = [self.get_sloth_block()]
+
+        excluded = {"SACSMA", "LSTM", "DHBV"}  # don't add sloth
+
+        if excluded.isdisjoint(self.model_registry):
+
+            instance =  self.model_registry.get("SLOTH")[0]
+            modules = [self.get_sloth_block(instance)]
+
 
         output_variables = []
         output_header_fields = []
 
-        if ("NOM" in self.formulation):
-           modules.append(self.get_noah_owp_modular_block())
+        # NOM
+        for instance in self.model_registry.get("NOM", []):
+            modules.append(self.get_noah_owp_modular_block(instance))
 
-        if ("PET" in self.formulation):
-            modules.append(self.get_pet_block(var_names_map=True))
+        # PET
+        for instance in self.model_registry.get("PET", []):
+            modules.append(self.get_pet_block(instance, var_names_map=True))
 
-        if ("SNOW17" in self.formulation):
-           modules.append(self.get_snow17_block())
+        # SNOW17
+        for instance in self.model_registry.get("SNOW17", []):
+            modules.append(self.get_snow17_block(instance))
 
-        if ("SAC-SMA" in self.formulation):
+        # SAC-SMA
+        for instance in self.model_registry.get("SACSMA", []):
             main_output_variable = "tci"
             output_variables = ["tci"]
-            modules.append(self.get_sacsma_block())
-           
-        if ("TOPMODEL" in self.formulation):
+            modules.append(self.get_sacsma_block(instance))
+
+        # TOPMODEL
+        for instance in self.model_registry.get("TOPMODEL", []):
             main_output_variable = "Qout"
-            output_variables = ["Qout"]
-            modules.append(self.get_topmodel_block())
+            #output_variables = ["Qout"]
+            modules.append(self.get_topmodel_block(instance))
 
-        if ("CFE" in self.formulation):
+
+        # CFE
+        for instance in self.model_registry.get("CFE", []):
             main_output_variable = "Q_OUT"
-            output_variables = ["Q_OUT"]
-            modules.append(self.get_cfe_block())
+            modules.append(self.get_cfe_block(instance))
 
-        if ("CASAM" in self.formulation):
+        # CASAM
+        for instance in self.model_registry.get("CASAM", []):
             main_output_variable = "total_discharge"
             output_variables = ["total_discharge"]
-            output_header_fields = ["Qout"]
-            modules.append(self.get_casam_block())
+            modules.append(self.get_casam_block(instance))
 
-        if ("SMP" in self.formulation):
-            modules.append(self.get_smp_block())
+        # SMP
+        for instance in self.model_registry.get("SMP", []):
+            modules.append(self.get_smp_block(instance))
 
-        if ("SFT" in self.formulation):
-            modules.append(self.get_sft_block())
+        # SFT
+        for instance in self.model_registry.get("SFT", []):
+            modules.append(self.get_sft_block(instance))
 
-        if ("LSTM" in self.formulation):
+        # LSTM
+        for instance in self.model_registry.get("LSTM", []):
             main_output_variable = "land_surface_water__runoff_depth"
-            output_variables = ["land_surface_water__runoff_depth"] #["land_surface_water__runoff_volume_flux"]
-            modules.append(self.get_lstm_block())
+            output_variables = ["land_surface_water__runoff_depth"]
+            modules.append(self.get_lstm_block(instance))
 
-        if ("DHBV" in self.formulation):
+
+        # DHBV
+        for instance in self.model_registry.get("DHBV", []):
             main_output_variable = "land_surface_water__runoff_volume_flux"
-            #output_variables = ["land_surface_water__runoff_volume_flux"]
-            modules.append(self.get_dhbv_block())
+            modules.append(self.get_dhbv_block(instance))
 
         #output_header_fields = ["rain_rate", "q_out", "PET", "AET"]
 
@@ -243,44 +243,64 @@ class RealizationGenerator:
 
         with open(self.realization_file, 'w') as outfile:
             json.dump(root, outfile, indent=4, separators=(", ", ": "), sort_keys=False)
-            
-    def get_lib_files(self):
-        lib_files = {}
-        extern_path = Path(self.ngen_dir) / "extern"
 
-        # Determine library extension
-        ext = "lib*.so" if sys.platform.startswith("linux") else "lib*.dylib"
+    def configure_model_instances(self):
 
-        model_names = [
-            'SoilFreezeThaw', 'cfe', 'SoilMoistureProfiles', 'CASAM', 'sloth',
-            'evapotranspiration', 'noah-owp-modular', 'topmodel', 'snow17', 'sac-sma'
-        ]
+        if not hasattr(self, "model_registry"):
+            return
 
-        for m in model_names:
-            model_base = extern_path / m
-            
-            # Build location differs for some models
-            if m in ['sloth', 'noah-owp-modular', 'topmodel']:
-                build_dir = model_base / "cmake_build"
-            else:
-                build_dir = model_base / m / "cmake_build"
+        for model_name, instances in self.model_registry.items():
 
-            if build_dir.exists():
-                matches = glob.glob(str(build_dir / ext))
+            if model_name in {"T-ROUTE"}:
+                continue
 
-                # Sort so unversioned library comes first, for example: libsftbmi.dylib before libsftbmi.1.0.0.dylib
-                matches = sorted(matches, key=lambda x: len(os.path.basename(x)))
+            for instance in instances:
 
-                if matches:
-                    lib_files[m] = os.path.splitext(matches[0])[0]   # just store the full path to the .so/.dylib file
+                instance.config_dir = Path(self.output_dir) / "configs"  / instance.name
+
+                if not instance.config_dir.exists() and not model_name == "SLOTH":
+                    print(
+                        f"{model_name} config directory does not exist: "
+                        f"{instance.config_dir}"
+                    )
+                    sys.exit(0)
+
+                # Resolve executable/library directory
+                if getattr(instance, "exe_dir", None):
+                    exe_dir = Path(instance.exe_dir)
                 else:
-                    lib_files[m] = ""
-            else:
-                lib_files[m] = ""
-            
-        return lib_files
+                    exe_dir = Path(self.ngen_dir) / "extern" / instance.repo_name
 
-    def get_pet_block(self, var_names_map=False):
+                if not exe_dir.exists():
+                    instance.exe_dir = ""
+                    continue
+
+                # Search recursively for shared libraries
+                pattern = "lib*.so" if sys.platform.startswith("linux") else "lib*.dylib"
+                matches = list(exe_dir.rglob(pattern))
+
+                if not matches:
+                    instance.exe_dir = ""
+                    continue
+
+                # Prefer shortest / unversioned library
+                matches = sorted(matches, key=lambda x: len(x.name))
+
+                # Handle special cases
+                if instance.repo_name in ['noah-owp-modular',"snow17"]:
+                    if instance.repo_name == "noah-owp-modular":
+                        preferred = [m for m in matches if "surfacebmi" in m.name]
+                        if preferred:
+                            matches = preferred
+                    if instance.repo_name == "snow17":
+                        preferred = [m for m in matches if "snow17" in m.name]
+                        if preferred:
+                            matches = preferred
+
+                instance.exe_dir = str(matches[0])
+
+
+    def get_pet_block(self, instance, var_names_map=False):
 
         tag = self.tag if (self.ensemble_enabled and "pet" in self.ensemble_models) else "cfg"
 
@@ -290,7 +310,7 @@ class RealizationGenerator:
             "params": {
                 "name": "bmi_c",
                 "model_type_name": "PET",
-                "library_file": self.lib_files['evapotranspiration'],
+                "library_file": instance.exe_dir,
                 "forcing_file": "",
                 "init_config": os.path.join(self.config_dir, f'pet/pet_{tag}_{{{{id}}}}.txt'),
                 "allow_exceed_end_time": "true",
@@ -338,17 +358,18 @@ class RealizationGenerator:
         return block
 
 
-    def get_noah_owp_modular_block(self):
+    def get_noah_owp_modular_block(self, instance):
 
         tag = self.tag if (self.ensemble_enabled and "nom" in self.ensemble_models) else "cfg"
-
+        print ("EE1 ", instance.exe_dir)
         block = {
             "name": "bmi_fortran",
             "params": {
                 "name": "bmi_fortran",
                 "model_type_name": "NoahOWP",
                 "main_output_variable": "QINSUR",
-                "library_file": self.lib_files['noah-owp-modular'],
+                #"library_file": self.lib_files['noah-owp-modular'],
+                "library_file": instance.exe_dir,
                 "init_config": os.path.join(self.config_dir, f'noahowp/noahowp_{tag}_{{{{id}}}}.input'),
                 "allow_exceed_end_time": True,
                 "fixed_time_step": False,
@@ -381,7 +402,7 @@ class RealizationGenerator:
 
         return block
 
-    def get_snow17_block(self):
+    def get_snow17_block(self, instance):
 
         tag = self.tag if (self.ensemble_enabled and "snow17" in self.ensemble_models) else "cfg"
 
@@ -391,7 +412,7 @@ class RealizationGenerator:
                 "name": "bmi_fortran",
                 "model_type_name": "Snow17",
                 "main_output_variable": "raim",
-                "library_file": self.lib_files['snow17'],
+                "library_file": instance.exe_dir,
                 "init_config": os.path.join(self.config_dir, f'snow17/snow17_{tag}_{{{{id}}}}.namelist.input'),
                 "allow_exceed_end_time": True,
                 "fixed_time_step": False,
@@ -412,7 +433,7 @@ class RealizationGenerator:
 
         return block
 
-    def get_sacsma_block(self):
+    def get_sacsma_block(self, instance):
 
         tag = self.tag if (self.ensemble_enabled and "sacsma" in self.ensemble_models) else "cfg"
             
@@ -422,7 +443,7 @@ class RealizationGenerator:
                 "name": "bmi_fortran",
                 "model_type_name": "SacSMA",
                 "main_output_variable": "tci",
-                "library_file": self.lib_files['sac-sma'],
+                "library_file": instance.exe_dir,
                 "init_config": os.path.join(self.config_dir, f'sacsma/sacsma_{tag}_{{{{id}}}}.namelist.input'),
                 "allow_exceed_end_time": True,
                 "fixed_time_step": False,
@@ -448,8 +469,10 @@ class RealizationGenerator:
 
         return block
     
-    def get_cfe_block(self, cfe_standalone=False):
+    def get_cfe_block(self, instance, cfe_standalone=False):
 
+        variant_name = instance.name
+        
         tag = self.tag if (self.ensemble_enabled and "cfe" in self.ensemble_models) else "cfg"
 
         block = {
@@ -459,7 +482,7 @@ class RealizationGenerator:
                 "model_type_name": "CFE",
                 "main_output_variable": "Q_OUT",
                 "library_file": self.lib_files['cfe'],
-                "init_config": os.path.join(self.config_dir, f'cfe/cfe_{tag}_{{{{id}}}}.txt'),
+                "init_config": os.path.join(self.config_dir, f'{variant_name}/cfe_{tag}_{{{{id}}}}.txt'),
                 "allow_exceed_end_time": True,
                 "fixed_time_step": False,
                 "uses_forcing_file": False,
@@ -482,10 +505,6 @@ class RealizationGenerator:
         if "NOM" in self.formulation and not "PET" in self.formulation:
             block["params"]["variables_names_map"]["water_potential_evaporation_flux"] = "EVAPOTRANS"
 
-        # for hybrid formulation
-        #if "NOM" in self.formulation and "PET" in self.formulation:
-        #    block["params"]["variables_names_map"]["water_potential_evaporation_flux"] = "EVAPOTRANS"
-
         if "NOM" in self.formulation:
             block["params"]["variables_names_map"]["atmosphere_water__liquid_equivalent_precipitation_rate"] = "QINSUR"
 
@@ -497,17 +516,17 @@ class RealizationGenerator:
 
         return block
 
-    def get_topmodel_block(self):
+    def get_topmodel_block(self, instance):
 
         tag = self.tag if (self.ensemble_enabled and "topmodel" in self.ensemble_models) else "cfg"
-
+        print ("TT ", tag)
         block = {
             "name": "bmi_c",
             "params": {
                 "name": "bmi_c",
                 "model_type_name": "TOPMODEL",
                 "main_output_variable": "Qout",
-                "library_file": self.lib_files['topmodel'],
+                "library_file": instance.exe_dir, #self.lib_files['topmodel'],
                 "init_config": os.path.join(self.config_dir, f'topmodel/topmod_{tag}_{{{{id}}}}.run'),
                 "allow_exceed_end_time": True,
                 "fixed_time_step": False,
@@ -530,7 +549,7 @@ class RealizationGenerator:
             
         return block
 
-    def get_sft_block(self):
+    def get_sft_block(self, instance):
 
         tag = self.tag if (self.ensemble_enabled and "sft" in self.ensemble_models) else "cfg"
 
@@ -551,7 +570,7 @@ class RealizationGenerator:
         }
         return block
 
-    def get_smp_block(self):
+    def get_smp_block(self, instance):
 
         tag = self.tag if (self.ensemble_enabled and "smp" in self.ensemble_models) else "cfg"
 
@@ -591,7 +610,7 @@ class RealizationGenerator:
         block["params"]["variables_names_map"] = name_map
         return block
 
-    def get_casam_block(self):
+    def get_casam_block(self, instance):
 
         tag = self.tag if (self.ensemble_enabled and "casam" in self.ensemble_models) else "cfg"
 
@@ -621,14 +640,15 @@ class RealizationGenerator:
 
         return block
 
-    def get_sloth_block(self):
+    def get_sloth_block(self, instance):
+        print ("EE2 ", instance)
         block = {
             "name": "bmi_c++",
             "params": {
                 "name": "bmi_c++",
                 "model_type_name": "SLOTH",
                 "main_output_variable": "z",
-                "library_file": self.lib_files['sloth'],
+                "library_file": instance.exe_dir, #self.lib_files['sloth'],
                 "init_config": '/dev/null',
                 "allow_exceed_end_time": True,
                 "fixed_time_step": False,
@@ -678,7 +698,7 @@ class RealizationGenerator:
 
         return block
 
-    def get_lstm_block(self):
+    def get_lstm_block(self, instance):
 
         tag = self.tag if (self.ensemble_enabled and "lstm" in self.ensemble_models) else "cfg"
 
@@ -708,7 +728,7 @@ class RealizationGenerator:
         return block
 
 
-    def get_dhbv_block(self):
+    def get_dhbv_block(self, instance):
 
         tag = self.tag if (self.ensemble_enabled and "lstm" in self.ensemble_models) else "cfg"
 

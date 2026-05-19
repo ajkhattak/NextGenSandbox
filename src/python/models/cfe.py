@@ -13,20 +13,41 @@ class CFEConfigurationGenerator(ConfigurationGenerator):
     def __init__(self, ctx):
         super().__init__(ctx)
 
-        yaml_path = os.path.join(self.ctx.sandbox_dir, "configs/basefiles/config_cfe.yaml")
+        default_variant = [
+            {
+                "name": "cfe-s",
+                "basefile": "config_cfe-s.yaml"
+            }
+        ]
 
-        if not os.path.exists(yaml_path):
-            raise FileNotFoundError(f"Missing CFE basefile: {yaml_path}")
+        self.variants = (
+            self.ctx.model_variants.get("CFE")
+            if getattr(self.ctx, "model_variants", None)
+            else None
+        )
 
-        with open(yaml_path, "r") as f:
-            self.cfe_template = yaml.safe_load(f) or {}
+        if not self.variants:
+            self.variants = default_variant
+
             
     def _write_input_files(self, member_id, tag):
-        self.write_cfe_input_files(member_id=member_id, tag=tag)
+        for variant_cfg in self.variants:
+            name = variant_cfg["name"]
+            basefile = variant_cfg["basefile"]
+
+            basefile_path = os.path.join(self.ctx.sandbox_dir, f"configs/basefiles/{basefile}")
+
+            if not os.path.exists(basefile_path):
+                raise FileNotFoundError(f"Missing CFE basefile: {basefile_path}")
+
+            with open(basefile_path, "r") as f:
+                self.cfe_template = yaml.safe_load(f) or {}
+
+            self.write_cfe_input_files(name, member_id=member_id, tag=tag)
 
         
 
-    def write_cfe_input_files(self, member_id=1, tag="cfg"):
+    def write_cfe_input_files(self, name, member_id=1, tag="cfg"):
 
         if self.ctx.ensemble_enabled and "CFE" in self.ctx.ensemble_models:
             pass
@@ -35,7 +56,7 @@ class CFEConfigurationGenerator(ConfigurationGenerator):
         else:
             return
         
-        cfe_dir = os.path.join(self.ctx.output_dir, "configs/cfe")
+        cfe_dir = os.path.join(self.ctx.output_dir, f"configs/{name}")
         self.create_directory(cfe_dir, member_id)
 
         
@@ -53,14 +74,6 @@ class CFEConfigurationGenerator(ConfigurationGenerator):
                 value = self.cfe_template[key]
 
                 if key in ["spatial"]:          # Skip, meta keys (not model params)
-                    continue
-
-                # Skip keys that only matter for CFE-X
-                if key in ["a_Xinanjiang_inflection_point_parameter",
-                           "b_Xinanjiang_shape_parameter",
-                           "x_Xinanjiang_shape_parameter",
-                           "urban_decimal_fraction"
-                           ] and self.cfe_template["surface_water_partitioning_scheme"].lower() == "schaake":
                     continue
 
                 if key in ["sft_coupled", "ice_content_threshold"] and "SFT" not in self.ctx.formulation:

@@ -198,7 +198,7 @@ build_models() {
 
         noah-owp-modular)
             git submodule update --remote "extern/$model/$model"
-            cmake_build "extern/$model" "extern/$model/$builddir" \
+            cmake_build "extern/$model" "extern/$model/$model/$builddir" \
                 -DCMAKE_BUILD_TYPE=Release -DNGEN_IS_MAIN_PROJECT=ON
             ;;
 
@@ -222,9 +222,9 @@ build_models() {
 
         snow17)
             clone_or_update "https://github.com/NOAA-OWP/snow17" "extern/$model/$model"
-            cp -r ./extern/iso_c_fortran_bmi "extern/$model/"
+            #cp -r ./extern/iso_c_fortran_bmi "extern/$model/"
             cmake_build "extern/$model/$model" "extern/$model/$model/$builddir" \
-                -DCMAKE_BUILD_TYPE=Release
+                -DCMAKE_BUILD_TYPE=Release -DISO_C_FORTRAN_BMI_PATH=$NGEN_DIR/extern/iso_c_fortran_bmi
             ;;
 
         sac-sma)

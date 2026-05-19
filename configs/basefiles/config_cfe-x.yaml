@@ -1,4 +1,4 @@
-
+  
 forcing_file: BMI
 
 soil_params.depth  : 2.0          # [m]
@@ -24,7 +24,7 @@ N_nash_subsurface       : 2
 K_lf                    : 0.01           # []
 nash_storage_subsurface : [0.0,0.0]
 
-surface_water_partitioning_scheme : Schaake           # Schaake (CFE-S) or Xinanjiang (CFE-X)
+surface_water_partitioning_scheme : Xinanjiang     # Schaake (CFE-S) or Xinanjiang (CFE-X)
 surface_runoff_scheme             : GIUH           # GIUH for CFEv1.0 and NASH_CASCADE for CFEv2.0
 
 giuh_ordinates       : null
@@ -33,6 +33,11 @@ K_nash_surface       : null                        # [h-1]
 nash_storage_surface : null
 #retention_depth_nash_surface : 0.0
 #Kinf_nash_surface       : 0.0
+
+a_Xinanjiang_inflection_point_parameter : null
+b_Xinanjiang_shape_parameter            : null
+x_Xinanjiang_shape_parameter            : null
+urban_decimal_fraction                  : null
 
 sft_coupled           : false
 ice_content_threshold : 0.3
