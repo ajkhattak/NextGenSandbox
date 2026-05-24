@@ -9,6 +9,8 @@ class ModelInstance:
     model: str
     name: str
     repo_name: str
+
+    calib_params_name: str
     
     basefile: Optional[str] = None
 

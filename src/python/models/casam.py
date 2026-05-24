@@ -3,21 +3,42 @@ import subprocess
 import json
 import numpy as np
 import pandas as pd
+import yaml
 
-from src.python.registry import register_model
+from src.python.models_registry import register_model
 from src.python.configuration import ConfigurationGenerator
 
 
 @register_model("CASAM")
 class CASAMConfigurationGenerator(ConfigurationGenerator):
+    def __init__(self, ctx, static_data, output_dir):
+        super().__init__(static_data)
+        self.ctx = ctx
+        self.static_data = static_data
+        self.output_dir = output_dir
 
+        self.variants = self.ctx.get_model_instances("CASAM")
+
+        
     def _write_input_files(self, member_id, tag):
-        self.write_casam_input_files(member_id=member_id, tag=tag)
 
-    def write_casam_input_files(self,
-                                sft_coupled=False,
-                                member_id=1,
-                                tag="cfg"):
+        for variant_cfg in self.variants:
+            config_dir = variant_cfg.config_dir
+            basefile = variant_cfg.basefile
+
+            basefile_path = os.path.join(self.ctx.sandbox_dir, f"configs/basefiles/{basefile}")
+
+            if not os.path.exists(basefile_path):
+                raise FileNotFoundError(f"Missing CASAM basefile: {basefile_path}")
+
+            with open(basefile_path, "r") as f:
+                self.casam_template = yaml.safe_load(f) or {}
+
+            self.write_casam_input_files(config_dir, basefile_path, member_id=member_id, tag=tag)
+            
+        
+
+    def write_casam_input_files(self, config_dir, basefile_path, member_id=1, tag="cfg"):
 
         # ensemble logic
         if self.ctx.ensemble_enabled and "CASAM" in (self.ctx.ensemble_models or "").upper():
@@ -27,9 +48,10 @@ class CASAMConfigurationGenerator(ConfigurationGenerator):
         else:
             return
 
-        casam_dir = os.path.join(self.ctx.output_dir, "configs", "casam")
+        casam_dir = os.path.join(self.output_dir, config_dir)
         self.create_directory(casam_dir)
 
+        
         casam_params_file = os.path.join(
             self.ctx.ngen_dir,
             "extern/CASAM/CASAM/data/vG_params_stat_nom_ordered.dat"
@@ -39,68 +61,70 @@ class CASAMConfigurationGenerator(ConfigurationGenerator):
         str_sub = f"cp -r {casam_params_file} {casam_dir}"
         subprocess.call(str_sub, shell=True)
 
-        sft_calib = "False"
-        soil_z = "10.0,15.0,18.0,23.0,29.0,36.0,44.0,55.0,69.0,86.0,107.0,134.0,166.0,207.0,258.0,322.0,401.0,500.0,600.0"
+        
+        for catID in self.static_data.catids:
 
-        casam_params_base = [
-            'verbosity=none',
-            f'soil_params_file={casam_params_file}',
-            'layer_thickness=200.0[cm]',
-            'initial_psi=2000.0[cm]',
-            'timestep=3600[sec]',
-            'endtime=1000000000.0[d]',
-            'forcing_resolution=3600[sec]',
-            'ponded_depth_max=0[cm]',
-            'use_closed_form_G=true',
-            'layer_soil_type=',
-            'max_valid_soil_types=25',
-            'wilting_point_psi=15495.0[cm]',
-            'field_capacity_psi=340.9[cm]',
-            'adaptive_timestep=true',
-            'giuh_ordinates=',
-            'a=0.0001',
-            'b=3.0',
-            'frac_to_GW=0.4',
-            'PET_affects_precip=false',
-            'spf_factor=0.6',
-            'free_drainage_enabled=true',
-            'allow_flux_caching=true',
-            'calib_params=true',
-            'log_mode=true'
-        ]
-
-        if sft_coupled:
-            casam_params_base.append("sft_coupled=true")
-            casam_params_base.append(f"soil_z={soil_z}[cm]")
-
-        if sft_coupled and (sft_calib in ["true", "True"]):
-            casam_params_base.append("calib_params=true")
-
-        if self.ctx.ngen_cal_type in ["calibration", "validation", "restart"]:
-            casam_params_base.append("calib_params=true")
-
-        soil_type_loc = casam_params_base.index("layer_soil_type=")
-        giuh_loc_id = casam_params_base.index("giuh_ordinates=")
-
-        for catID in self.ctx.catids:
             cat_name = "cat-" + str(catID)
-
-            casam_params = casam_params_base.copy()
-            casam_params[soil_type_loc] += str(self.ctx.gdf["ISLTYP"][cat_name])
-
-            giuh_cat = json.loads(self.ctx.gdf["giuh"][cat_name])
-            giuh_cat = pd.DataFrame(giuh_cat, columns=["v", "frequency"])
-
-            giuh_ordinates = ",".join(str(x) for x in np.array(giuh_cat["frequency"]))
-
-            any_nans = np.any(np.isnan(giuh_cat["frequency"]))
-            if any_nans:
-                giuh_ordinates = "1.0"
-
-            casam_params[giuh_loc_id] += giuh_ordinates
-
             fname_casam = f"casam_{tag}_{cat_name}.txt"
             casam_file = os.path.join(casam_dir, fname_casam)
 
+            dynamic_values = self._build_dynamic_values(cat_name, member_id, casam_params_file)
+
+            casam_params = []
+            
+            for key in self.casam_template:
+                value = self.casam_template[key]
+                
+                if value is None:
+                    if key not in dynamic_values:
+                        raise ValueError(
+                            f"CASAM basefile has key '{key}' set to null "
+                            f"but no dynamic value was computed."
+                        )
+                    value = dynamic_values[key]
+
+                if isinstance(value, list):
+                    value = ",".join(str(v) for v in value)
+
+                if isinstance(value, bool):
+                    value = str(value).lower()
+
+                casam_params.append(f"{key}={value}")
+
             with open(casam_file, "w") as f:
-                f.writelines("\n".join(casam_params))
+                f.write("\n".join(casam_params) + "\n")
+
+
+    def _build_dynamic_values(self, cat_name, member_id, casam_params_file):
+
+        gdf = self.static_data.gdf
+        
+        giuh_cat = json.loads(self.static_data.gdf["giuh"][cat_name])
+        giuh_cat = pd.DataFrame(giuh_cat, columns=["v", "frequency"])
+        
+        giuh_ordinates = ",".join(str(x) for x in np.array(giuh_cat["frequency"]))
+        
+        any_nans = np.any(np.isnan(giuh_cat["frequency"]))
+        if any_nans:
+            giuh_ordinates = "1.0"
+                    
+        dynamic = {
+            "soil_params_file" : casam_params_file,
+            "layer_soil_type": gdf["ISLTYP"][cat_name],
+            "giuh_ordinates": giuh_ordinates
+        }
+
+
+        # SFT coupling
+        if "SFT" in self.ctx.formulation:
+            dynamic.update({
+                "sft_coupled": True,
+                "soil_z": self.casam_template["soil_z"]
+            })
+
+        if self.ctx.task_type in ["calibration", "validation", "restart"]:
+            dynamic.update({
+                "calib_params": True
+            })
+        
+        return dynamic

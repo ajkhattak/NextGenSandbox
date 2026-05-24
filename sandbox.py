@@ -14,6 +14,7 @@ import platform
 
 
 from src.python import forcing, driver, runner
+from src.python.context import SandboxContext
 
 sandbox_dir = Path(sandbox.__file__).resolve().parent
 sys.path.insert(0, str(sandbox_dir))
@@ -77,9 +78,6 @@ if platform.system() == "Linux":
 else:
     # macOS / local development
     rscript = Path("Rscript")  # assume system R
-
-
-
 
 sandbox_build_dir = Path(os.environ.get("SANDBOX_BUILD_DIR"))
 
@@ -153,21 +151,32 @@ def Sandbox(args, sandbox_config, calib_config, dryrun=False):
         else:
             print ("DONE \u2713")
 
+    mode = "conf" if args.conf else "run"
+
+    ctx = SandboxContext(
+        sandbox_dir=Path(sandbox_dir),
+        sandbox_config_path=sandbox_config,
+        formulations_supported=formulations_supported,
+        calib_config_path=calib_config,
+        dryrun=dryrun,
+        mode=mode
+    )
+
+    
     if (args.conf):
         print ("Generating config files...")
-        _driver = driver.Driver(sandbox_dir, sandbox_config, formulations_supported)
-        status  = _driver.run()
+        status = driver.Driver(ctx).run()
 
         if (status):
             sys.exit("Failed during generating config files step...")
         else:
             print ("DONE \u2713")
-        
+    
     if (args.run):
         print ("Calling Runner...")
 
-        _runner = runner.Runner(sandbox_dir, sandbox_config, calib_config, dryrun)
-        status  = _runner.run()
+        status = runner.Runner(ctx).run()
+        #status  = _runner.run()
 
         if (status):
             sys.exit("Failed during ngen-cal execution...")
@@ -197,8 +206,7 @@ def main():
         print("\n".join(formulations_supported))
         print(
             "\n[INFO]: Formulations that omit T-ROUTE are allowed "
-            "(e.g., PET, CFE-S), as it is appended automatically; "
-            "however, all other formulation components must be "
+            "(e.g., NOM, CFE-S). All formulation components must be "
             "specified exactly as supported."
         )
         sys.exit(0)

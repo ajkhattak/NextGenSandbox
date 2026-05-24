@@ -5,35 +5,26 @@ import json
 import pandas as pd
 import numpy as np
 
-from src.python.registry import register_model
+from src.python.models_registry import register_model
 from src.python.configuration import ConfigurationGenerator
 
 @register_model("CFE")
 class CFEConfigurationGenerator(ConfigurationGenerator):
-    def __init__(self, ctx):
-        super().__init__(ctx)
+    def __init__(self, ctx, static_data, output_dir):
+        super().__init__(static_data)
+        self.ctx = ctx
+        self.static_data = static_data
+        self.output_dir = output_dir
 
-        default_variant = [
-            {
-                "name": "cfe-s",
-                "basefile": "config_cfe-s.yaml"
-            }
-        ]
-
-        self.variants = (
-            self.ctx.model_variants.get("CFE")
-            if getattr(self.ctx, "model_variants", None)
-            else None
-        )
-
-        if not self.variants:
-            self.variants = default_variant
+        #self.variants = self.ctx.model_registry.get("CFE")
+        self.variants = self.ctx.get_model_instances("CFE")
 
             
     def _write_input_files(self, member_id, tag):
+
         for variant_cfg in self.variants:
-            name = variant_cfg["name"]
-            basefile = variant_cfg["basefile"]
+            config_dir = variant_cfg.config_dir
+            basefile = variant_cfg.basefile
 
             basefile_path = os.path.join(self.ctx.sandbox_dir, f"configs/basefiles/{basefile}")
 
@@ -43,11 +34,11 @@ class CFEConfigurationGenerator(ConfigurationGenerator):
             with open(basefile_path, "r") as f:
                 self.cfe_template = yaml.safe_load(f) or {}
 
-            self.write_cfe_input_files(name, member_id=member_id, tag=tag)
+            self.write_cfe_input_files(config_dir, basefile_path, member_id=member_id, tag=tag)
 
         
 
-    def write_cfe_input_files(self, name, member_id=1, tag="cfg"):
+    def write_cfe_input_files(self, config_dir, basefile_path, member_id=1, tag="cfg"):
 
         if self.ctx.ensemble_enabled and "CFE" in self.ctx.ensemble_models:
             pass
@@ -56,11 +47,11 @@ class CFEConfigurationGenerator(ConfigurationGenerator):
         else:
             return
         
-        cfe_dir = os.path.join(self.ctx.output_dir, f"configs/{name}")
+        cfe_dir = os.path.join(self.output_dir, config_dir)
         self.create_directory(cfe_dir, member_id)
 
         
-        for catID in self.ctx.catids:
+        for catID in self.static_data.catids:
 
             cat_name = f"cat-{catID}"
             fname_cfe = f"cfe_{tag}_{cat_name}.txt"
@@ -105,7 +96,7 @@ class CFEConfigurationGenerator(ConfigurationGenerator):
 
     def _build_dynamic_values(self, cat_name, member_id):
 
-        gdf = self.ctx.gdf
+        gdf = self.static_data.gdf
         
         dynamic = {
             "soil_params.b": 1.1 if gdf["soil_b"][cat_name] == 1.0 else gdf["soil_b"][cat_name],
@@ -158,11 +149,11 @@ class CFEConfigurationGenerator(ConfigurationGenerator):
             dynamic.update({
                 "surface_water_partitioning_scheme": "Xinanjiang",
                 "a_Xinanjiang_inflection_point_parameter":
-                self.ctx.soil_class_NWM["AXAJ"][soil_id],
+                self.static_data.soil_class_NWM["AXAJ"][soil_id],
                 "b_Xinanjiang_shape_parameter":
-                self.ctx.soil_class_NWM["BXAJ"][soil_id],
+                self.static_data.soil_class_NWM["BXAJ"][soil_id],
                 "x_Xinanjiang_shape_parameter":
-                self.ctx.soil_class_NWM["XXAJ"][soil_id],
+                self.static_data.soil_class_NWM["XXAJ"][soil_id],
                 "urban_decimal_fraction":
                 gdf["impervious_mean"][cat_name],
             })

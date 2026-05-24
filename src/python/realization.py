@@ -20,42 +20,43 @@ import shutil
 import json
 from pathlib import Path
 
-from src.python.model_registry import build_model_registry
+from src.python.build_model_instances import build_model_instances
 
 class RealizationGenerator:
-    def __init__(self, ngen_dir, forcing_dir,  output_dir, formulation,
-                 model_variants, simulation_time, forcing_format, verbosity,
-                 ngen_cal_type, domain, ensemble_enabled, ensemble_member_id,
-                 ensemble_models, disable_divide_output=True):
-        
-        self.ngen_dir    = ngen_dir
+    def __init__(self,
+                 ctx,
+                 forcing_dir,
+                 output_dir,
+                 ensemble_member_id,
+                 ):
+        self.ctx = ctx
+        self.ngen_dir    = self.ctx.ngen_dir 
         self.forcing_dir = forcing_dir
         self.output_dir  = output_dir
-        self.formulation = formulation
-        self.model_variants  = model_variants
-        self.simulation_time = simulation_time
+        self.formulation = self.ctx.formulation
+        self.simulation_time = self.ctx.simulation_time
         self.config_dir      = os.path.join(output_dir,"configs")
-        self.forcing_format  = forcing_format
-        self.verbosity       = verbosity
-        self.ngen_cal_type   = ngen_cal_type
-        self.domain          = domain.lower()
-        self.ensemble_enabled   = ensemble_enabled
+        self.forcing_format  = self.ctx.forcing_format
+        self.verbosity       = self.ctx.verbosity
+        self.ngen_cal_type   = self.ctx.task_type
+        self.domain          = self.ctx.domain.lower()
+        self.ensemble_enabled   = self.ctx.ensemble_enabled
         self.ensemble_size      = len([m.strip() for m in ensemble_models.split(",")]) if self.ensemble_enabled else 1
         self.ensemble_member_id = ensemble_member_id
 
-        self.disable_divide_output = disable_divide_output
+        self.disable_divide_output = self.ctx.disable_divide_output
 
-        if isinstance(ensemble_models, str):
-            self.ensemble_models = ensemble_models.lower()
-        elif isinstance(ensemble_models, (list, tuple, set)):
-            self.ensemble_models = [m.lower() for m in ensemble_models]
+        if isinstance(self.ctx.ensemble_models, str):
+            self.ensemble_models = self.ctx.ensemble_models.lower()
+        elif isinstance(self.ctx.ensemble_models, (list, tuple, set)):
+            self.ensemble_models = [m.lower() for m in self.ctx.ensemble_models]
         else:
             self.ensemble_models = []
         
         realization_name = self.formulation.replace(",","_").lower()
 
         # the same tag is used in the config files names
-        self.tag = f"cfg_tile-{self.ensemble_member_id}" if ensemble_enabled else "cfg"
+        self.tag = f"cfg_tile-{self.ensemble_member_id}" if self.ensemble_enabled else "cfg"
 
         self.realization_file = (
             Path(self.output_dir)
@@ -70,29 +71,8 @@ class RealizationGenerator:
         if not os.path.exists(self.forcing_dir):
             sys.exit(f"Forcing directory does not exist: {self.forcing_dir}")
 
-        self.model_registry = build_model_registry(
-            formulation=self.formulation,
-            model_variants=self.model_variants
-        )
+        self.model_registry = self.ctx.model_registry
 
-        
-        self.configure_model_instances()
-
-    def get_model_instances(self, model_name):
-        """
-        Return all configured instances for a model.
-        
-        Example:
-        get_model_instances("CFE")
-        """
-        
-        return self.model_registry.get(model_name.upper(), [])
-
-    def get_model_instance_names(self, model_name):
-        return [
-            instance["name"]
-            for instance in self.get_model_instances(model_name)
-        ]
 
     def write_realization_file(self):
 
@@ -481,7 +461,7 @@ class RealizationGenerator:
                 "name": "bmi_c",
                 "model_type_name": "CFE",
                 "main_output_variable": "Q_OUT",
-                "library_file": self.lib_files['cfe'],
+                "library_file": instance.exe_dir,
                 "init_config": os.path.join(self.config_dir, f'{variant_name}/cfe_{tag}_{{{{id}}}}.txt'),
                 "allow_exceed_end_time": True,
                 "fixed_time_step": False,
@@ -622,7 +602,7 @@ class RealizationGenerator:
                 "name": "bmi_c++",
                 "model_type_name": "LGAR",
                 "main_output_variable": "precipitation_rate",
-                "library_file": self.lib_files['CASAM'],
+                "library_file": instance.exe_dir,
                 "init_config": os.path.join(self.config_dir, f'casam/casam_{tag}_{{{{id}}}}.txt'),
                 "allow_exceed_end_time": True,
                 "uses_forcing_file": False,
@@ -648,7 +628,7 @@ class RealizationGenerator:
                 "name": "bmi_c++",
                 "model_type_name": "SLOTH",
                 "main_output_variable": "z",
-                "library_file": instance.exe_dir, #self.lib_files['sloth'],
+                "library_file": instance.exe_dir,
                 "init_config": '/dev/null',
                 "allow_exceed_end_time": True,
                 "fixed_time_step": False,

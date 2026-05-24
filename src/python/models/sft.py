@@ -2,12 +2,17 @@ import os
 import sys
 import pandas as pd
 
-from src.python.registry import register_model
+from src.python.models_registry import register_model
 from src.python.configuration import ConfigurationGenerator
 
 
 @register_model("SFT")
 class SFTConfigurationGenerator(ConfigurationGenerator):
+    def __init__(self, ctx, static_data, output_dir):
+        super().__init__(static_data)
+        self.ctx = ctx
+        self.static_data = static_data
+        self.output_dir = output_dir
 
     def _write_input_files(self, member_id, tag):
         self.write_sft_input_files(member_id=member_id, tag=tag)

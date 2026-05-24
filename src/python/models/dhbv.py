@@ -4,18 +4,39 @@ import yaml
 import pandas as pd
 import requests
 
-from src.python.registry import register_model
+from src.python.models_registry import register_model
 from src.python.configuration import ConfigurationGenerator
 
 
 @register_model("dHBV")
 class dHBVConfigurationGenerator(ConfigurationGenerator):
+    def __init__(self, ctx, static_data, output_dir):
+        super().__init__(static_data)
+        self.ctx = ctx
+        self.static_data = static_data
+        self.output_dir = output_dir
+
+        self.variants = self.ctx.model_registry.get("DHBV")
 
     def _write_input_files(self, member_id, tag):
-        self.write_dhbv_input_files(member_id=member_id, tag=tag)
+        for variant_cfg in self.variants:
+
+            config_dir = variant_cfg.config_dir
+            basefile = variant_cfg.basefile
+
+            basefile_path = os.path.join(self.ctx.sandbox_dir, f"configs/basefiles/{basefile}")
+
+            if not os.path.exists(basefile_path):
+                raise FileNotFoundError(f"Missing dHBV basefile: {basefile_path}")
+
+            #with open(basefile_path, "r") as f:
+            #    self.pet_template = yaml.safe_load(f) or {}
+
+            self.write_dhbv_input_files(config_dir, basefile_path, member_id=member_id, tag=tag)
+
             
 
-    def write_dhbv_input_files(self, member_id=1, tag="cfg"):
+    def write_dhbv_input_files(self, config_dir, basefile_path, member_id=1, tag="cfg"):
 
         if self.ctx.ensemble_enabled and "dHBV" in self.ctx.ensemble_models:
             pass
@@ -24,22 +45,10 @@ class dHBVConfigurationGenerator(ConfigurationGenerator):
         else:
             return
         
-        dhbv_dir = os.path.join(self.ctx.output_dir, "configs", "dhbv")
+        dhbv_dir = os.path.join(self.output_dir, config_dir)
         self.create_directory(dhbv_dir)
 
-        dhbv_basefile = os.path.join(
-            self.ctx.sandbox_dir,
-            "configs",
-            "basefiles",
-            "config_dhbv.yaml"
-        )
-
-        if not os.path.exists(dhbv_basefile):
-            raise FileNotFoundError(
-                f"Sample dHBV config file does not exist: {dhbv_basefile}"
-            )
-
-        with open(dhbv_basefile, "r") as f:
+        with open(basefile_path, "r") as f:
             base_file = yaml.safe_load(f)
         
         model_dir = os.path.normpath(
@@ -58,7 +67,7 @@ class dHBVConfigurationGenerator(ConfigurationGenerator):
         static_attributes_cfg = base_file.get("static_attributes", {})
         static_attrs_parquet_mapping = static_attributes_cfg.get("training", {})
 
-        for catID in self.ctx.catids:
+        for catID in self.static_data.catids:
             cat_name = f"cat-{catID}"
             
             fname_dhbv = f'dhbv_{tag}_{cat_name}.yaml'
@@ -80,9 +89,9 @@ class dHBVConfigurationGenerator(ConfigurationGenerator):
             for dhbv_name, parquet_col in static_attrs_parquet_mapping.items():
                 
                 if dhbv_name == "catchsize":
-                    config[dhbv_name] = float(self.ctx.gdf.loc[cat_name, "divide_area"])
+                    config[dhbv_name] = float(self.static_data.gdf.loc[cat_name, "divide_area"])
                 elif dhbv_name == "lengthkm":
-                    config[dhbv_name] = float(self.ctx.gdf.loc[cat_name, "flowpath_length"])
+                    config[dhbv_name] = float(self.static_data.gdf.loc[cat_name, "flowpath_length"])
                 else:
                     config[dhbv_name] = float(df_attr_div.loc[cat_name][parquet_col])
 

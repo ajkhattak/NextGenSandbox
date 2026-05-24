@@ -20,130 +20,29 @@ from src.python import configuration
 from src.python import helper
 
 class Runner:
-    def __init__(self, sandbox_dir, config_workflow, config_calib, dryrun
-                 ):
+    def __init__(self, ctx):
+        self.ctx = ctx
         self.os_name         = platform.system()
-        self.sandbox_dir     = Path(sandbox_dir)
-        self.config_workflow = config_workflow
-        self.config_calib    = config_calib
-        self.dryrun          = dryrun
-
-        self.load_configuration()
 
         # Check whether `mpirun` exists on the system; if exists, then it assumes that ngen was built with MPI=ON
         self.mpirun_exists = shutil.which("mpirun") is not None
 
 
-    def load_configuration(self):
-        with open(self.config_workflow, 'r') as file:
-            self.config = yaml.safe_load(file)
-
-        self.input_dir    = self.config['general'].get('input_dir')
-        self.output_dir   = Path(self.config['general'].get('output_dir'))
-
-        dformul = self.config['formulation']
-        self.ngen_dir     = Path(os.environ.get("NGEN_DIR"))
-        self.formulation  = dformul['models'].upper()
-        self.model_variants = dformul.get('model_variants', {})
-        
-        dsim = self.config['simulation']
-        self.ngen_cal_type    = dsim.get('task_type', 'control')
-        self.calibration_time = pd.NaT
-        self.validation_time  = pd.NaT
-
-        if self.ngen_cal_type in ['calibration', 'calibvalid', 'restart']:
-            if "calibration_time" not in dsim or not isinstance(dsim["calibration_time"], dict):
-                raise ValueError("calibration_time is not provided or is not a valid dictionary.")
-
-            if "calib_eval_time" not in dsim or not isinstance(dsim["calib_eval_time"], dict):
-                raise ValueError("calib_eval_time is not provided or is not a valid dictionary.")
-
-            self.calibration_time = dsim["calibration_time"]
-            self.calib_eval_time  = dsim["calib_eval_time"]
-
-        if self.ngen_cal_type in ['validation', 'calibvalid']:
-            if "calibration_time" not in dsim or not isinstance(dsim["calibration_time"], dict):
-                raise ValueError("calibration_time is not provided or is not a valid dictionary.")
-
-            if "calib_eval_time" not in dsim or not isinstance(dsim["calib_eval_time"], dict):
-                raise ValueError("calib_eval_time is not provided or is not a valid dictionary.")
-            
-            self.validation_time = dsim["validation_time"]
-            self.valid_eval_time = dsim["valid_eval_time"]
-
-        self.restart_dir = "./"
-        if self.ngen_cal_type == 'restart':
-            self.restart_dir = dsim.get('restart_dir')
-            if self.restart_dir is None:
-                raise ValueError("ngen_cal_type is restart, however, restart_dir is None. It must be set to a valid directory.")
-            if not self.restart_dir:
-                raise FileNotFoundError(f"restart_dir does not exist, provided {self.restart_dir}.")
-
-        # Get gages IDs
-        self.gage_ids = self.load_gage_ids(dsim.get("gage_ids_input"))
-
-        suffix = dsim.get('sim_name_suffix')
-        if suffix and any(c.isspace() for c in suffix):
-            raise ValueError("sim_name_suffix must not contain whitespace")
-        self.sim_name_suffix = suffix
-
-        densemble = dformul.get('ensemble') or None
-        if (densemble):
-            self.ensemble_enabled = bool(densemble.get('enabled'))
-            
-            if self.ensemble_enabled:
-                self.ensemble_models  = self.formulation.replace("T-ROUTE", "").replace(" ,", ",").strip(", ").strip()
-                self.ensemble_calib_params_groups = densemble.get('calib_params_groups')
-            else:
-                self.ensemble_models = []
-                self.ensemble_calib_params_groups = {}
-
-        else:
-            self.ensemble_enabled = False
-            self.ensemble_models  = []
-            self.ensemble_calib_params_groups = {}
-
-
-
-    def load_gage_ids(self, gage_ids_input):
-        if gage_ids_input is None:
-            raise TypeError("gage_ids_input must be a CSV path, a string ID, or a list of IDs")
-
-        # Case 1: CSV file path
-        if isinstance(gage_ids_input, str) and gage_ids_input.lower().endswith(".csv"):
-            path = Path(gage_ids_input)
-
-            if not path.is_file():
-                raise FileNotFoundError(f"gage_ids file not found: {path}")
-
-            df = pd.read_csv(path, dtype=str)
-
-            if 'gage_id' not in df.columns:
-                raise ValueError("CSV must contain a 'gage_id' column")
-
-            return df['gage_id'].tolist()
-
-        # Case 2: single gage ID as string
-        if isinstance(gage_ids_input, str):
-            return [gage_ids_input]
-
-        # Case 3: list / tuple / set
-        if isinstance(gage_ids_input, (list, tuple, set)):
-            return [str(x) for x in gage_ids_input]
-
-        raise TypeError("gage_ids_input must be a CSV path, a string ID, or a list of IDs")
-
     def run(self):
 
-        if "LSTM" in self.formulation:
+        if "LSTM" in self.ctx.formulation:
             print("Running LSTM in NextGen ...")
             self.run_ngen_without_calibration()
             return
 
-        if self.ngen_cal_type in ['calibration', 'validation', 'calibvalid', 'restart']:
-            print(f'Running NextGen with task_type {self.ngen_cal_type}')
-            for gage in self.gage_ids:
-                self.run_ngen_with_calibration(gage)
+        if self.ctx.task_type in ['calibration', 'validation', 'calibvalid', 'restart']:
+            print(f'Running NextGen with task_type {self.ctx.task_type}')
+
+            tuple_list = list(zip(self.ctx.gage_ids, self.ctx.gpkg_dirs, self.ctx.output_dirs, self.ctx.forcing_files))
+            #for gage in self.ctx.gage_ids:
+            #    self.run_ngen_with_calibration(gage)
+            for tpl in tuple_list:
+                self.run_ngen_with_calibration(tpl)
         else:
             print("Running NextGen without calibration ...")
             self.run_ngen_without_calibration()
@@ -151,16 +50,16 @@ class Runner:
 
 
     def run_ngen_without_calibration(self):
-        ngen_exe = os.path.join(self.ngen_dir, "cmake_build/ngen")
+        ngen_exe = os.path.join(self.ctx.ngen_dir, "cmake_build/ngen")
 
 
-        for id in self.gage_ids:
+        for id in self.ctx.gage_ids:
 
-            o_dir = self.output_dir / id
-            if self.sim_name_suffix:
-                o_dir = self.output_dir / f"{id}_{self.sim_name_suffix}"
+            o_dir = self.ctx.output_dir / id
+            if self.ctx.sim_name_suffix:
+                o_dir = self.ctx/output_dir / f"{id}_{self.ctx.sim_name_suffix}"
 
-            i_dir = Path(self.input_dir) / id
+            i_dir = Path(self.ctx.input_dir) / id
 
             if not os.path.isdir(o_dir):
                 raise FileNotFoundError(f"directory {o_dir} does not exist, this dir is created at the config generation step")
@@ -182,8 +81,8 @@ class Runner:
             # defaults to serial run no-mpi mode
             run_cmd = f'{ngen_exe} {gpkg_file} all {gpkg_file} all {realization}'
 
-            file_par, num_cpus = helper.prepare_basin_partitioning(self.sandbox_dir, gpkg_file,
-                                                                   self.config["simulation"]['partitioning'])
+            file_par, num_cpus = helper.prepare_basin_partitioning(self.ctx.sandbox_dir, gpkg_file,
+                                                                   self.ctx.sandbox_config["simulation"]['partitioning'])
 
             self.file_par = os.path.join(o_dir, file_par) if file_par else None
             self.num_procs = int(num_cpus)
@@ -200,7 +99,7 @@ class Runner:
             if self.os_name == "Darwin":
                 run_cmd = f'PYTHONEXECUTABLE=$(which python) {run_cmd}'
 
-            if not self.dryrun:
+            if not self.ctx.dryrun:
                 print(f"Running basin {id} on cores {self.num_procs} ********", flush=True)
                 print(f"Run command: {run_cmd}", flush=True)
                 result = subprocess.call(run_cmd, shell=True)
@@ -208,15 +107,10 @@ class Runner:
                 print("Dry run: no simulation executed.")
 
 
-    def run_ngen_with_calibration(self, gage):
-        id = gage
-
-        o_dir = self.output_dir / id
-
-        if self.sim_name_suffix:
-            o_dir = self.output_dir / f"{id}_{self.sim_name_suffix}"
-
-        i_dir = Path(self.input_dir) / id
+    def run_ngen_with_calibration(self, dirs):
+        id = dirs[0]
+        i_dir = dirs[1]
+        o_dir = dirs[2]
 
         if not os.path.isdir(o_dir):
             raise FileNotFoundError(f"directory {o_dir} does not exist, this dir is created at the config generation step")
@@ -230,20 +124,22 @@ class Runner:
         gpkg_file = Path(glob.glob(str(i_dir / "data" / "*.gpkg"))[0])
         gpkg_name = gpkg_file.stem
 
-        file_par, num_cpus = helper.prepare_basin_partitioning(self.sandbox_dir, gpkg_file,
-                                                               self.config["simulation"]['partitioning'])
+        file_par, num_cpus = helper.prepare_basin_partitioning(self.ctx.sandbox_dir, gpkg_file,
+                                                               self.ctx.sandbox_config["simulation"]['partitioning'])
 
         self.file_par = os.path.join(o_dir, file_par) if file_par else None
 
         self.num_procs = int(num_cpus)
 
+        self.validate_configs(o_dir)
+
         print(f"Running basin {id} on cores {self.num_procs} ********", flush=True)
 
-        if self.ngen_cal_type in ['calibration', 'calibvalid', 'restart']:
-            mode = 'calibration' if self.ngen_cal_type == 'calibvalid' else self.ngen_cal_type
+        if self.ctx.task_type in ['calibration', 'calibvalid', 'restart']:
+            mode = 'calibration' if self.ctx.task_type == 'calibvalid' else self.ctx.task_type
             self.run_ngen_experiment(mode, gpkg_file, o_dir, self.file_par, id)
 
-        if self.ngen_cal_type in ['validation', 'calibvalid']:
+        if self.ctx.task_type in ['validation', 'calibvalid']:
             self.run_ngen_experiment('validation', gpkg_file, o_dir, self.file_par, id)
 
 
@@ -253,14 +149,14 @@ class Runner:
         """
 
         if mode in ['calibration', 'restart']:
-            sim_time = self.calibration_time
-            eval_time = self.calib_eval_time
+            sim_time = self.ctx.simulation_time
+            eval_time = self.ctx.calib_eval_time
             start_time = pd.Timestamp(sim_time['start_time']).strftime("%Y%m%d%H%M")
-            restart_dir = self.restart_dir.replace("{*}", id)
+            restart_dir = self.ctx.restart_dir.replace("{*}", id)
             ngen_cal_type = mode
 
         elif mode == 'validation':
-            sim_time = self.validation_time
+            sim_time = self.simulation_time
             eval_time = self.valid_eval_time
             start_time = pd.Timestamp(sim_time['start_time']).strftime("%Y%m%d%H%M")
             restart_dir = self.restart_dir
@@ -273,23 +169,14 @@ class Runner:
 
 
         ConfigGen = configuration.ConfigurationCalib(
+            ctx = self.ctx,
             gpkg_file            = gpkg_file,
             output_dir           = o_dir,
-            ngen_dir             = self.ngen_dir,
-            sandbox_dir          = self.sandbox_dir,
             realization_file_par = file_par,
             troute_output_file   = troute_output_file,
-            ngen_cal_type        = ngen_cal_type,
-            formulation          = self.formulation,
-            model_variants       = self.model_variants,
             simulation_time      = sim_time,
             evaluation_time      = eval_time,
-            ngen_cal_basefile    = self.config_calib,
-            restart_dir          = restart_dir,
-            num_proc             = self.num_procs,
-            ensemble_enabled     = self.ensemble_enabled,
-            ensemble_models      = self.ensemble_models,
-            ensemble_calib_params_groups = self.ensemble_calib_params_groups
+            num_procs            = self.num_procs
         )
 
         ConfigGen.write_calib_input_files()
@@ -308,7 +195,7 @@ class Runner:
             if self.ensemble_enabled:
                 run_command += " -routing configs/troute_config.yaml"
 
-        if not self.dryrun:
+        if not self.ctx.dryrun:
             result = subprocess.run(run_command, shell=True)
             if result.returncode != 0:
                 raise RuntimeError(f"{mode.capitalize()} step failed...")
@@ -316,3 +203,17 @@ class Runner:
             print("Dry run: no simulation executed.")
 
             return
+
+    def validate_configs(self, output_dir):
+            
+        for model_name, instances in self.ctx.model_registry.items():
+            
+            if model_name in {"T-ROUTE"} or model_name == "SLOTH":
+                continue
+
+            for instance in instances:
+
+                model_dir = Path(output_dir) / "configs" / instance.name
+                
+                if (not model_dir.exists()):
+                    raise FileNotFoundError(model_dir)

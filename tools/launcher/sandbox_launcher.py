@@ -17,12 +17,16 @@ import multiprocessing
 
 # ===========================  Inputs ==========================================
 base_dir = "/Users/ahmadjankhattak/Core/projects/synthetic_2026"
+num_workers = 2  # number of basins running in parallel
+#===============================================================================
+
+# DON'T NEED TO MODIFY ANYTHING THING BELOW THIS LINE
 
 sandbox_config_file = f"{base_dir}/launcher/basefiles/sandbox_config_base.yaml"
 calib_config_file   = f"{base_dir}/launcher/basefiles/calib_config_base.yaml"
 map_config_file     = f"{base_dir}/launcher/models_gages_map.yaml"
 
-num_workers = 2  # number of basins running in parallel
+
 
 # ==============================================================================
 # Load configuration files

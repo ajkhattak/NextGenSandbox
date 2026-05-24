@@ -4,27 +4,39 @@ import json
 import pandas as pd
 import yaml
 
-from src.python.registry import register_model
+from src.python.models_registry import register_model
 from src.python.configuration import ConfigurationGenerator
 
 
 @register_model("PET")
 class PETConfigurationGenerator(ConfigurationGenerator):
-    def __init__(self, ctx):
-        super().__init__(ctx)
+    def __init__(self, ctx, static_data, output_dir):
+        super().__init__(static_data)
+        self.ctx = ctx
+        self.static_data = static_data
+        self.output_dir = output_dir
 
-        yaml_path = os.path.join(self.ctx.sandbox_dir, "configs/basefiles/config_pet.yaml")
+        self.variants = self.ctx.model_registry.get("PET")
 
-        if not os.path.exists(yaml_path):
-            raise FileNotFoundError(f"Missing PET basefile: {yaml_path}")
-
-        with open(yaml_path, "r") as f:
-            self.pet_template = yaml.safe_load(f) or {}
-            
     def _write_input_files(self, member_id, tag):
-        self.write_pet_input_files(member_id=member_id, tag=tag)
 
-    def write_pet_input_files(self, member_id=1, tag="cfg"):
+        for variant_cfg in self.variants:
+
+            config_dir = variant_cfg.config_dir
+            basefile = variant_cfg.basefile
+
+            basefile_path = os.path.join(self.ctx.sandbox_dir, f"configs/basefiles/{basefile}")
+
+            if not os.path.exists(basefile_path):
+                raise FileNotFoundError(f"Missing PET basefile: {basefile_path}")
+
+            with open(basefile_path, "r") as f:
+                self.pet_template = yaml.safe_load(f) or {}
+
+            self.write_pet_input_files(config_dir, member_id=member_id, tag=tag)
+
+
+    def write_pet_input_files(self, config_dir, member_id=1, tag="cfg"):
 
         # ensemble logic
         if self.ctx.ensemble_enabled and "PET" in (self.ctx.ensemble_models or "").upper():
@@ -34,22 +46,21 @@ class PETConfigurationGenerator(ConfigurationGenerator):
         else:
             return
         
-        pet_dir = os.path.join(self.ctx.output_dir, "configs", "pet")
+        pet_dir = os.path.join(self.output_dir, config_dir)
         self.create_directory(pet_dir,member_id)
 
 
-
-        for catID in self.ctx.catids:
+        for catID in self.static_data.catids:
             cat_name = "cat-" + str(catID)
 
-            centroid_x = str(self.ctx.gdf["geometry"][cat_name].centroid.x)
-            centroid_y = str(self.ctx.gdf["geometry"][cat_name].centroid.y)
-            elevation_mean = self.ctx.gdf["elevation_mean"][cat_name]
+            centroid_x = str(self.static_data.gdf["geometry"][cat_name].centroid.x)
+            centroid_y = str(self.static_data.gdf["geometry"][cat_name].centroid.y)
+            elevation_mean = self.static_data.gdf["elevation_mean"][cat_name]
 
-            veg_type = int(self.ctx.gdf.loc[cat_name]["IVGTYP"])
+            veg_type = int(self.static_data.gdf.loc[cat_name]["IVGTYP"])
 
-            if self.ctx.ensemble_enabled or "IVGTYP_nlcd" in self.ctx.gdf.columns:
-                veg_type_nlcd = json.loads(self.ctx.gdf.loc[cat_name]['IVGTYP_nlcd'])
+            if self.ctx.ensemble_enabled or "IVGTYP_nlcd" in self.static_data.gdf.columns:
+                veg_type_nlcd = json.loads(self.static_data.gdf.loc[cat_name]['IVGTYP_nlcd'])
                 veg_type_nlcd = pd.DataFrame(veg_type_nlcd, columns=['v', 'frequency'])
                 
                 if len(veg_type_nlcd["frequency"]) == 1:
@@ -58,7 +69,7 @@ class PETConfigurationGenerator(ConfigurationGenerator):
                     veg_type      = veg_type_nlcd['v'][member_id - 1]
 
             # Dynamcis variables
-            veg_height = max(self.ctx.vegetation_height[veg_type], 0.5)
+            veg_height = max(self.static_data.vegetation_height[veg_type], 0.5)
 
             # taken from evapotranpiration repo (see include/PETPenmanMonteithMethod.h)
             zero_plane_displacement_height_m   = 2.0 / 3.0 * veg_height 

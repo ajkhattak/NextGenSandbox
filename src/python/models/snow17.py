@@ -1,17 +1,46 @@
 import os
 import sys
 
-from src.python.registry import register_model
+from src.python.models_registry import register_model
 from src.python.configuration import ConfigurationGenerator
 
 
 @register_model("SNOW17")
 class SNOW17ConfigurationGenerator(ConfigurationGenerator):
+    def __init__(self, ctx, static_data, output_dir):
+        super().__init__(static_data)
+        self.ctx = ctx
+        self.static_data = static_data
+        self.output_dir = output_dir
 
+        self.variants = self.ctx.model_registry.get("SNOW17")
+        
     def _write_input_files(self, member_id, tag):
-        self.write_snow17_input_files(member_id=member_id, tag=tag)
+        
+        for variant_cfg in self.variants:
 
-    def write_snow17_input_files(self, member_id=1, tag="cfg"):
+            config_dir = variant_cfg.config_dir
+            basefile = variant_cfg.basefile
+
+            basefile_path = os.path.join(self.ctx.sandbox_dir, f"configs/basefiles/{basefile}")
+
+            param_basefile = os.path.join(
+                self.ctx.sandbox_dir,
+                "configs/basefiles/snow17_params_cat.txt"
+            )
+
+            if not os.path.exists(basefile_path):
+                raise FileNotFoundError(f"Missing Snow17 basefile: {basefile_path}")
+
+            #with open(basefile_path, "r") as f:
+            #    self.pet_template = yaml.safe_load(f) or {}
+
+            self.write_snow17_input_files(config_dir, basefile_path, param_basefile,
+                                          member_id=member_id, tag=tag)
+
+
+    def write_snow17_input_files(self, config_dir, basefile_path, param_basefile,
+                                 member_id=1, tag="cfg"):
 
         # ensemble logic
         if self.ctx.ensemble_enabled and "SNOW17" in (self.ctx.ensemble_models or "").upper():
@@ -21,30 +50,18 @@ class SNOW17ConfigurationGenerator(ConfigurationGenerator):
         else:
             return
 
-        snow17_dir = os.path.join(self.ctx.output_dir, "configs", "snow17")
+        snow17_dir = os.path.join(self.output_dir, config_dir)
         self.create_directory(snow17_dir)
-
-        snow17_basefile = os.path.join(
-            self.ctx.sandbox_dir,
-            "configs/basefiles/config_snow17.namelist.input"
-        )
-
-        snow17_param_basefile = os.path.join(
-            self.ctx.sandbox_dir,
-            "configs/basefiles/snow17_params_cat.txt"
-        )
-
-        if not os.path.exists(snow17_basefile):
-            sys.exit(f"Sample Snow17 config file does not exist: {snow17_basefile}")
+        
 
         # Read all lines from the base template
-        with open(snow17_basefile, "r") as infile:
+        with open(basefile_path, "r") as infile:
             lines = infile.readlines()
 
-        with open(snow17_param_basefile, "r") as infile_param:
+        with open(param_basefile, "r") as infile_param:
             lines_param = infile_param.readlines()
 
-        for catID in self.ctx.catids:
+        for catID in self.static_data.catids:
             cat_name = f"cat-{catID}"
             fname_snow17 = f"snow17_{tag}_{cat_name}.namelist.input"
             fname_snow17_param = f"snow17_params_{tag}_{cat_name}.txt"
@@ -71,9 +88,9 @@ class SNOW17ConfigurationGenerator(ConfigurationGenerator):
                     else:
                         outfile.write(line)
 
-            area = self.ctx.gdf["divide_area"][cat_name]
-            centroid_y = str(self.ctx.gdf["geometry"][cat_name].centroid.y)
-            elevation_mean = self.ctx.gdf["elevation_mean"][cat_name]
+            area = self.static_data.gdf["divide_area"][cat_name]
+            centroid_y = str(self.static_data.gdf["geometry"][cat_name].centroid.y)
+            elevation_mean = self.static_data.gdf["elevation_mean"][cat_name]
 
             # write param files
             with open(snow17_param_file, "w") as outfile_param:
