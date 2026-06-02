@@ -33,6 +33,7 @@ PET_affects_precip    : false
 spf_factor            : 0.6
 
 free_drainage_enabled : true
+free_drainage_to_CR   : true
 allow_flux_caching    : true
 
 calib_params          : null

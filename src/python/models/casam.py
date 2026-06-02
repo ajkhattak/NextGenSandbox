@@ -111,7 +111,13 @@ class CASAMConfigurationGenerator(ConfigurationGenerator):
         dynamic = {
             "soil_params_file" : casam_params_file,
             "layer_soil_type": gdf["ISLTYP"][cat_name],
-            "giuh_ordinates": giuh_ordinates
+            "giuh_ordinates": giuh_ordinates,
+            "calib_params": self.ctx.task_type in [
+                "calibration",
+                "validation",
+                "calibvalid",
+                "restart"
+            ]
         }
 
 
@@ -122,9 +128,4 @@ class CASAMConfigurationGenerator(ConfigurationGenerator):
                 "soil_z": self.casam_template["soil_z"]
             })
 
-        if self.ctx.task_type in ["calibration", "validation", "restart"]:
-            dynamic.update({
-                "calib_params": True
-            })
-        
         return dynamic
