@@ -150,8 +150,14 @@ class SandboxContext:
                 raise ValueError("calibration_time missing or invalid.")
 
             self.simulation_time = dsim["calibration_time"]
-            #self.calibration_time = dsim["calibration_time"]
             self.calib_eval_time  = dsim["calib_eval_time"]
+
+            if self.task_type == "calibvalid":
+                if "validation_time" not in dsim or not isinstance(dsim["validation_time"], dict):
+                    raise ValueError("validation_time missing or invalid.")
+
+                self.validation_time = dsim["validation_time"]
+                self.valid_eval_time = dsim["valid_eval_time"]
             
         elif self.task_type == "validation":
 
@@ -159,7 +165,7 @@ class SandboxContext:
                 raise ValueError("validation_time missing or invalid.")
 
             self.simulation_time = dsim["validation_time"]
-            #self.validation_time = dsim["validation_time"]
+            self.validation_time = dsim["validation_time"]
             self.valid_eval_time = dsim["valid_eval_time"]
 
         elif self.task_type == "control":
@@ -198,7 +204,7 @@ class SandboxContext:
                     .strip()
                 )
 
-                ensemble_calib_params_groups = densemble.get('calib_params_groups')
+                self.ensemble_calib_params_groups = densemble.get('calib_params_groups')
 
             else:
 
@@ -420,7 +426,7 @@ class SandboxContext:
                     if self.is_corrected_forcing:
                         forcing_file = glob.glob(f"{self.forcing_dir}/*_corrected.nc")[0]
                     else:
-                        nc_file = glob.glob(f"{fdir}/*.nc")
+                        nc_file = glob.glob(f"{self.forcing_dir}/*.nc")
                         forcing_file = [f for f in nc_file if not "_corrected" in f][0]
 
                 self.forcing_files.append(forcing_file)

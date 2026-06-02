@@ -88,7 +88,8 @@ class ConfigurationCalib:
                  troute_output_file,
                  simulation_time,
                  evaluation_time,
-                 num_procs
+                 num_procs,
+                 ngen_cal_type
                  ):
         self.ctx=ctx
         self.gpkg_file          = gpkg_file
@@ -98,6 +99,7 @@ class ConfigurationCalib:
         self.troute_output_file = troute_output_file
         self.realization_file_par = realization_file_par
         self.num_procs =  num_procs
+        self.ngen_cal_type = ngen_cal_type
 
     def get_flowpath_attributes(self):
 
@@ -116,11 +118,13 @@ class ConfigurationCalib:
         return basin_gage_id
 
     def find_state_file(self):
-        if self.ctx.task_type == 'validation':
+        if self.ngen_cal_type == 'validation':
             params_state_dir = self.output_dir
 
-        elif self.ctx.task_type == 'restart':
-            params_state_dir = self.restart_dir
+        elif self.ngen_cal_type == 'restart':
+            params_state_dir = self.ctx.restart_dir
+        else:
+            raise ValueError(f"Invalid task_type option: {self.ngen_cal_type}")
 
         params_state_path = Path(params_state_dir)
 
@@ -178,7 +182,7 @@ class ConfigurationCalib:
             }
         }
 
-        if self.ctx.task_type == "restart":
+        if self.ngen_cal_type == "restart":
             df_new["general"]["restart"] = True
 
         model_param_map = {
@@ -277,7 +281,7 @@ class ConfigurationCalib:
                     df_new["model"]["params"][key] = df_new[f"{name}"] #tiled_params
 
 
-        if self.ctx.task_type in ["calibration", "restart"]:
+        if self.ngen_cal_type in ["calibration", "restart"]:
             df_new["model"]["eval_params"] = {
                 #'sim_start': self.simulation_time['start_time'],
                 'evaluation_start': self.evaluation_time['start_time'],
@@ -287,7 +291,7 @@ class ConfigurationCalib:
             }
 
         # Validation
-        if self.ctx.task_type == "validation":
+        if self.ngen_cal_type == "validation":
             df_new["model"]["val_params"] = {
                 'sim_start': self.simulation_time['start_time'],
                 'evaluation_start': self.evaluation_time['start_time'],
@@ -313,7 +317,7 @@ class ConfigurationCalib:
             }
              
 
-        if self.ctx.task_type in ['restart', 'validation']:
+        if self.ngen_cal_type in ['restart', 'validation']:
 
 
             state_file = self.find_state_file()
@@ -333,12 +337,13 @@ class ConfigurationCalib:
                             par['init'] = float(best_params_set[par['name']]) #modify in place
 
                             
-        if self.ctx.task_type in ['calibration', 'restart']:
+        if self.ngen_cal_type in ['calibration', 'restart']:
             config_fname = "ngen-cal_calib_config.yaml"
         elif self.ngen_cal_type == 'validation':
             config_fname = "ngen-cal_valid_config.yaml"
+        else:
+            raise ValueError(f"Unsupported ngen_cal_type: {self.ngen_cal_type}")
 
         with open(os.path.join(conf_dir, config_fname), 'w') as file:
             yaml.dump(df_new, file, default_flow_style=False, sort_keys=False)
-
 

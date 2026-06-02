@@ -57,7 +57,7 @@ class Runner:
 
             o_dir = self.ctx.output_dir / id
             if self.ctx.sim_name_suffix:
-                o_dir = self.ctx/output_dir / f"{id}_{self.ctx.sim_name_suffix}"
+                o_dir = self.ctx.output_dir / f"{id}_{self.ctx.sim_name_suffix}"
 
             i_dir = Path(self.ctx.input_dir) / id
 
@@ -156,10 +156,10 @@ class Runner:
             ngen_cal_type = mode
 
         elif mode == 'validation':
-            sim_time = self.simulation_time
-            eval_time = self.valid_eval_time
+            sim_time = self.ctx.validation_time
+            eval_time = self.ctx.valid_eval_time
             start_time = pd.Timestamp(sim_time['start_time']).strftime("%Y%m%d%H%M")
-            restart_dir = self.restart_dir
+            restart_dir = self.ctx.restart_dir
             ngen_cal_type = 'validation'
 
         else:
@@ -176,7 +176,8 @@ class Runner:
             troute_output_file   = troute_output_file,
             simulation_time      = sim_time,
             evaluation_time      = eval_time,
-            num_procs            = self.num_procs
+            num_procs            = self.num_procs,
+            ngen_cal_type        = ngen_cal_type
         )
 
         ConfigGen.write_calib_input_files()
@@ -188,11 +189,11 @@ class Runner:
 
         elif mode == 'validation':
             run_command = (
-                f"{sys.executable} {self.sandbox_dir}/src/python/validation.py "
+                f"{sys.executable} {self.ctx.sandbox_dir}/src/python/validation.py "
                 f"-config configs/ngen-cal_valid_config.yaml"
             )
 
-            if self.ensemble_enabled:
+            if self.ctx.ensemble_enabled:
                 run_command += " -routing configs/troute_config.yaml"
 
         if not self.ctx.dryrun:

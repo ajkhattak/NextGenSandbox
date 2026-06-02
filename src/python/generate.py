@@ -69,8 +69,7 @@ class Generate:
         formulation = ctx.formulation
         keys = [k.strip().upper() for k in formulation.replace(",", "+").split("+")]
     
-        static_data = SandboxData(ctx,
-                                  gpkg_file)
+        static_data = SandboxData(ctx, gpkg_file)
     
     
         generators = []
@@ -79,7 +78,6 @@ class Generate:
             if key not in MODELS_REGISTRY:
                 raise ValueError(f"Unknown model in the formulation: {key}")
             # creates an instance using class context MODELS_REGISTRY["NOM"] => NOMConfigurationGenerator
-            print ("KK ", key)
             generators.append(MODELS_REGISTRY[key](ctx, static_data, output_dir))
 
         if len(generators) == 1:

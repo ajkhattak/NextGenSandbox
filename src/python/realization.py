@@ -341,7 +341,7 @@ class RealizationGenerator:
     def get_noah_owp_modular_block(self, instance):
 
         tag = self.tag if (self.ensemble_enabled and "nom" in self.ensemble_models) else "cfg"
-        print ("EE1 ", instance.exe_dir)
+
         block = {
             "name": "bmi_fortran",
             "params": {
@@ -499,7 +499,7 @@ class RealizationGenerator:
     def get_topmodel_block(self, instance):
 
         tag = self.tag if (self.ensemble_enabled and "topmodel" in self.ensemble_models) else "cfg"
-        print ("TT ", tag)
+
         block = {
             "name": "bmi_c",
             "params": {
@@ -621,7 +621,7 @@ class RealizationGenerator:
         return block
 
     def get_sloth_block(self, instance):
-        print ("EE2 ", instance)
+
         block = {
             "name": "bmi_c++",
             "params": {
