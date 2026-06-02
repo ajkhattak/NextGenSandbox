@@ -4,9 +4,9 @@
 # Date    : July 16, 2024
 ############################################################################################
 
-import os, sys
+import os
+import sys
 import subprocess
-import yaml
 import argparse
 from pathlib import Path
 import sandbox
@@ -54,34 +54,28 @@ def check_required_env_vars():
         sys.exit(1)
 
 
-#------------- Validate environment ---------------
-check_required_env_vars()
+def configure_runtime_environment():
+    check_required_env_vars()
 
-# Only configure R environment on HPC (Linux)
-if platform.system() == "Linux":
+    sandbox_build_dir = Path(os.environ["SANDBOX_BUILD_DIR"])
 
-    sandbox_build_dir = os.environ.get("SANDBOX_BUILD_DIR")
-    if not sandbox_build_dir:
-        raise RuntimeError(
-            "SANDBOX_BUILD_DIR environment variable is not set. "
-            "Please export SANDBOX_BUILD_DIR before running this script."
-        )
+    # Only configure R environment on HPC (Linux)
+    if platform.system() == "Linux":
+        venv_subset = sandbox_build_dir / "rvenv" / "venv_subset"
+        rscript = venv_subset / "bin" / "Rscript"
 
-    venv_subset = Path(sandbox_build_dir) / "rvenv" / "venv_subset"
+        os.environ["R_LIBS_USER"] = str(venv_subset / "lib" / "R" / "library")
+        os.environ["PROJ_LIB"] = str(venv_subset / "share" / "proj")
+        os.environ["PATH"] = f"{venv_subset}/bin:" + os.environ.get("PATH", "")
 
-    rscript = venv_subset / "bin" / "Rscript"
+    else:
+        # macOS / local development
+        rscript = Path("Rscript")  # assume system R
 
-    os.environ["R_LIBS_USER"] = str(venv_subset / "lib" / "R" / "library")
-    os.environ["PROJ_LIB"] = str(venv_subset / "share" / "proj")
-    os.environ["PATH"] = f"{venv_subset}/bin:" + os.environ.get("PATH", "")
+    return sandbox_build_dir, rscript
 
-else:
-    # macOS / local development
-    rscript = Path("Rscript")  # assume system R
 
-sandbox_build_dir = Path(os.environ.get("SANDBOX_BUILD_DIR"))
-
-def CheckSandboxVENV():
+def check_sandbox_venv(sandbox_build_dir):
     SANDBOX_ENV = Path(os.environ.get("SANDBOX_ENV"))
     
     # Check if the virtual environment exists
@@ -128,18 +122,21 @@ formulations_supported = [
 ]
 
 
-def Sandbox(args, sandbox_config, calib_config, dryrun=False):
+def Sandbox(args, sandbox_config, calib_config, rscript, dryrun=False):
     
     if (args.subset):
         print ("Generating geopackages...")
 
-        subset_basin = f"{rscript} {sandbox_dir}/src/R/main.R {sandbox_config} {sandbox_dir}"
-        status = subprocess.call(subset_basin,shell=True)
-
-        if (status):
-            sys.exit("Failed during generating geopackge(s) step...")
-        else:
-            print ("DONE \u2713")
+        subprocess.run(
+            [
+                str(rscript),
+                str(sandbox_dir / "src/R/main.R"),
+                str(sandbox_config),
+                str(sandbox_dir),
+            ],
+            check=True,
+        )
+        print ("DONE \u2713")
 
     if (args.forc):
         print ("Generating forcing data...")
@@ -162,6 +159,7 @@ def Sandbox(args, sandbox_config, calib_config, dryrun=False):
         mode=mode
     )
 
+    ctx.initialize()
     
     if (args.conf):
         print ("Generating config files...")
@@ -235,7 +233,9 @@ def main():
         print ("No arguments are provide")
         sys.exit(0)
 
-    # check if expected Python virtual env exists and activated
-    CheckSandboxVENV()
+    sandbox_build_dir, rscript = configure_runtime_environment()
 
-    Sandbox(args, sandbox_config, calib_config, args.dryrun)
+    # check if expected Python virtual env exists and activated
+    check_sandbox_venv(sandbox_build_dir)
+
+    Sandbox(args, sandbox_config, calib_config, rscript, args.dryrun)

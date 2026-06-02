@@ -38,26 +38,26 @@ class SandboxContext:
     def __post_init__(self):
         self.colors = helper.colors()
         self.sandbox_dir = Path(self.sandbox_dir)
-        self.initialize()
 
     def initialize(self):
         self.load_config()
         self.load_gpkg_dirs()
         self.build_instances()
         self.prepare_model_instances()
-        self.get_forcing_files()
+        self.prepare_forcing_files()
+        self.resolve_output_dirs()
 
+    def resolve_output_dirs(self):
+        self.output_dirs = [
+            self.output_dir / self.output_dir_name(gpkg_dir)
+            for gpkg_dir in self.gpkg_dirs
+        ]
+
+    def output_dir_name(self, gpkg_dir):
+        name = Path(gpkg_dir).name
         if self.sim_name_suffix:
-            self.output_dirs = [
-                self.output_dir / f"{Path(g).name}_{self.sim_name_suffix}"
-                for g in self.gpkg_dirs
-            ]
-        else:
-            self.output_dirs = [
-                self.output_dir / Path(g).name
-                for g in self.gpkg_dirs
-            ]        
-        
+            return f"{name}_{self.sim_name_suffix}"
+        return name
 
     def load_config(self):
 
@@ -68,25 +68,36 @@ class SandboxContext:
 
         self.output_dir = Path(self.sandbox_config["general"].get("output_dir"))
 
+        self.load_formulation_config()
+
+        self.load_forcing_config()
+
+        self.load_simulation_config()
+        
+        self.load_launcher_config()
+        
+
+    def load_formulation_config(self):
         # Formulation block
         dformul = self.sandbox_config["formulation"]
-
+        
         self.ngen_dir = Path(os.environ.get("NGEN_DIR"))
-
+        
         self.formulation = (
             dformul["models"]
             .upper()
             .replace(" ", "")
         )
-
+        
         self.model_variants = dformul.get("model_variants", {})
-
+        
         self.clean = self.process_clean_input_param(dformul.get("clean", "none"))
 
         self.verbosity = dformul.get("verbosity", 0)
-
+        
         self.schema_type = dformul.get("schema_type", "noaa-owp")
 
+    def load_forcing_config(self):
         # Forcing block
         dforcing = self.sandbox_config["forcings"]
 
@@ -113,6 +124,7 @@ class SandboxContext:
         self.is_netcdf_forcing = (self.forcing_format != ".csv")
 
 
+    def load_simulation_config(self):
         # Simulation block
         dsim = self.sandbox_config["simulation"]
 
@@ -128,22 +140,6 @@ class SandboxContext:
 
         self.disable_divide_output = dsim.get("disable_divide_output", True)
 
-        # Sandbox launcher block
-        dlauncher = self.sandbox_config.get("sandbox_launcher") or None
-
-        if dlauncher:
-
-            self.sb_launcher = dlauncher.get("exp_info", False)
-
-            self.exp_info_dir = dlauncher.get("exp_info_dir") or None
-
-            if self.exp_info_dir is None:
-                raise ValueError("sandbox_launcher is True, but exp_info_dir not provided")
-        else:
-            self.sb_launcher = False
-
-        #######################
-        
         if self.task_type in ["calibration", "calibvalid", "restart"]:
 
             if "calibration_time" not in dsim or not isinstance(dsim["calibration_time"], dict):
@@ -217,6 +213,22 @@ class SandboxContext:
             self.ensemble_models = []
 
         self.ensemble_size    = len([m.strip() for m in self.ensemble_models.split(",")]) if self.ensemble_enabled else 1
+
+    def load_launcher_config(self):
+        # Sandbox launcher block
+        dlauncher = self.sandbox_config.get("sandbox_launcher") or None
+
+        if dlauncher:
+
+            self.sb_launcher = dlauncher.get("exp_info", False)
+            self.exp_info_dir = dlauncher.get("exp_info_dir") or None
+
+            if self.exp_info_dir is None:
+                raise ValueError("sandbox_launcher is True, but exp_info_dir not provided")
+        else:
+            self.sb_launcher = False
+
+    def validate_formulation(self):
         # Validate formulation
         formulation_in_lower = self.formulation.lower()
 
@@ -250,7 +262,7 @@ class SandboxContext:
 
     def get_model_instance_names(self, model_name):
         return [
-            instance["name"]
+            instance.name
             for instance in self.get_model_instances(model_name)
         ]
     
@@ -380,10 +392,11 @@ class SandboxContext:
                 )
             ]
 
-        assert self.gpkg_dirs, f"Geopackage file(s) missing for gage(s) {gage_ids} in directory {self.input_dir}"
+        if not self.gpkg_dirs:
+            raise FileNotFoundError(f"Geopackage file(s) missing for gage(s) {gage_ids} in directory {self.input_dir}")
 
 
-    def get_forcing_files(self):
+    def prepare_forcing_files(self):
         self.forcing_files = []
 
         if self.forcing_format == ".nc":
