@@ -16,7 +16,7 @@ import glob
 import subprocess
 
 from src.python import helper
-from src.python.build_model_instances import build_model_instances
+from src.python.model_instances import build_model_instances
 
 @dataclass
 class SandboxContext:
@@ -89,7 +89,7 @@ class SandboxContext:
             .replace(" ", "")
         )
         
-        self.model_variants = dformul.get("model_variants", {})
+        self.model_instances = dformul.get("model_instances", {})
         
         self.clean = self.process_clean_input_param(dformul.get("clean", "none"))
 
@@ -247,7 +247,7 @@ class SandboxContext:
 
         self.model_registry = build_model_instances(
             formulation=self.formulation,
-            model_variants=self.model_variants
+            model_instances=self.model_instances
         )
 
     def get_model_instances(self, model_name):
@@ -456,20 +456,6 @@ class SandboxContext:
 
                     self.forcing_files.append(fdir)
 
-
-    def load_registered_model(self):
-        import src.python.models.lstm
-        import src.python.models.nom
-        import src.python.models.cfe
-        import src.python.models.topmodel
-        import src.python.models.pet
-        import src.python.models.sacsma
-        import src.python.models.casam
-        import src.python.models.snow17
-        import src.python.models.troute
-        import src.python.models.sft
-        import src.python.models.smp
-        import src.python.models.dhbv
     
     def process_clean_input_param(self, clean):
         clean_lst = []

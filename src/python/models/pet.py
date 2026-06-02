@@ -16,11 +16,11 @@ class PETConfigurationGenerator(ConfigurationGenerator):
         self.static_data = static_data
         self.output_dir = output_dir
 
-        self.variants = self.ctx.model_registry.get("PET")
+        self.instances = self.ctx.model_registry.get("PET")
 
     def _write_input_files(self, member_id, tag):
 
-        for variant_cfg in self.variants:
+        for variant_cfg in self.instances:
 
             config_dir = variant_cfg.config_dir
             basefile = variant_cfg.basefile

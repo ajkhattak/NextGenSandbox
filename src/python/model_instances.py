@@ -1,8 +1,25 @@
-# model_registry.py
-from src.python.model_instance import ModelInstance
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Optional
 
- 
-DEFAULT_MODEL_VARIANTS = {
+
+@dataclass
+class ModelInstance:
+
+    model: str
+    name: str
+    repo_name: str
+    calib_params_name: str
+    basefile: Optional[str] = None
+    config_dir: Optional[Path] = None
+    outputs_dir: Optional[Path] = None
+    exe_dir: Optional[Path] = None
+
+    def is_instance(self):
+        return self.name.lower() != self.model.lower()
+
+
+DEFAULT_MODEL_INSTANCES = {
 
     "PET": [
 
@@ -163,7 +180,7 @@ DEFAULT_MODEL_VARIANTS = {
 }
 
 
-def build_model_instances(formulation, model_variants=None):
+def build_model_instances(formulation, model_instances=None):
     """
     Build canonical registry of model instances.
 
@@ -186,20 +203,20 @@ def build_model_instances(formulation, model_variants=None):
 
     registry = {}
 
-    registry["SLOTH"] = DEFAULT_MODEL_VARIANTS["SLOTH"]
+    registry["SLOTH"] = DEFAULT_MODEL_INSTANCES["SLOTH"]
 
-    model_variants = model_variants or {}
+    model_instances = model_instances or {}
 
     models = [m.strip().upper() for m in formulation.split(",")]
 
     for model in models:
 
-        # User-provided variants
-        if model in model_variants:
+        # User-provided instances
+        if model in model_instances:
 
             instances = []
 
-            for item in model_variants[model]:
+            for item in model_instances[model]:
 
                 instance = ModelInstance(
                     model=model,
@@ -213,10 +230,10 @@ def build_model_instances(formulation, model_variants=None):
 
             registry[model] = instances
         
-        # Default variants
-        elif model in DEFAULT_MODEL_VARIANTS:
+        # Default instances
+        elif model in DEFAULT_MODEL_INSTANCES:
 
-            registry[model] = DEFAULT_MODEL_VARIANTS[model]
+            registry[model] = DEFAULT_MODEL_INSTANCES[model]
 
         # Generic fallback
         else:

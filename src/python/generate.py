@@ -16,8 +16,7 @@ import json
 
 from src.python import realization
 from src.python.data_loader import SandboxData
-#from src.python.configuration import get_config_generator
-from src.python.models_registry import MODELS_REGISTRY
+from src.python.models_registry import load_model_registry
 from src.python.configuration import CompositeConfigurationGenerator
 
 class Generate:
@@ -65,7 +64,7 @@ class Generate:
                              forcing_dir,
                              output_dir):
 
-        ctx.load_registered_model()
+        models_registry = load_model_registry()
         formulation = ctx.formulation
         keys = [k.strip().upper() for k in formulation.replace(",", "+").split("+")]
     
@@ -75,10 +74,15 @@ class Generate:
         generators = []
         
         for key in keys:
-            if key not in MODELS_REGISTRY:
-                raise ValueError(f"Unknown model in the formulation: {key}")
+            if key not in models_registry:
+                supported = ", ".join(sorted(models_registry))
+                raise ValueError(
+                    f"Unknown model in formulation: {key}. "
+                    f"Registered models are: {supported}"
+                )
+
             # creates an instance using class context MODELS_REGISTRY["NOM"] => NOMConfigurationGenerator
-            generators.append(MODELS_REGISTRY[key](ctx, static_data, output_dir))
+            generators.append(models_registry[key](ctx, static_data, output_dir))
 
         if len(generators) == 1:
             return generators[0]

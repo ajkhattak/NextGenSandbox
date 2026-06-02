@@ -20,7 +20,7 @@ import shutil
 import json
 from pathlib import Path
 
-from src.python.build_model_instances import build_model_instances
+from src.python.model_instances import build_model_instances
 
 class RealizationGenerator:
     def __init__(self,

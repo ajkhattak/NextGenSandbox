@@ -57,6 +57,24 @@ formulation :
   clean             : ['existing'] #--------------------------------------- Clean existing config and realization files (does not delete simulation data)
   verbosity         : 0            #--------------------------------------- Verbosity levels (Set to 0 recommended unless debugging)
 
+  # model_instances customizes the configured instance(s) used for a model in
+  # `models`. If omitted, the sandbox uses the default instance for each model.
+  #
+  # Each entry below defines one configured instance:
+  #   name              : config subdirectory and realization instance name
+  #   basefile          : template file under configs/basefiles
+  #   repo_name         : model repository name under $NGEN_DIR/extern
+  #   calib_params_name : calibration parameter block in calib_config.yaml
+  #
+  # Example: use CFE with the Xinanjiang runoff option instead of the default
+  # CFE-Schaake instance.
+  model_instances:
+    CFE:
+      - name: cfe-x
+        basefile: "config_cfe-x.yaml"
+        repo_name: "cfe"
+        calib_params_name: "cfex_params"
+
   ensemble:
     enabled: FALSE # ---------------------------------------------------------------- Ensemble ON/OFF (OPTIONS: TRUE/FALSE, Default is FALSE)
     calib_params_groups: #------------------------------------------- scope of calibratable parameters: local = tile-specific, global = shared across tiles

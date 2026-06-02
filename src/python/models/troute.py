@@ -6,10 +6,9 @@ import pandas as pd
 
 from src.python.models_registry import register_model
 from src.python.configuration import ConfigurationGenerator
-#from src.python.configuration import register_model, ConfigurationGenerator
 
 @register_model("T-ROUTE")
-class LSTMConfigurationGenerator(ConfigurationGenerator):
+class TRouteConfigurationGenerator(ConfigurationGenerator):
     def __init__(self, ctx, static_data, output_dir):
         super().__init__(static_data)
         self.ctx = ctx
