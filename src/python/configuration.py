@@ -185,41 +185,31 @@ class ConfigurationCalib:
         if self.ngen_cal_type == "restart":
             df_new["general"]["restart"] = True
 
-        model_param_map = {
-            "TOPMODEL": "topmodel_params",
-            "NOM":      "noahowp_params",
-            "SNOW17":   "snow17_params",
-            "SAC-SMA":  "sacsma_params",
-            "CASAM":    "casam_params"
-        }
-
-        
-        if "CFE" in self.ctx.formulation:
-            variants = self.ctx.get_model_instances("CFE")
-            model_param_map["CFE"] = variants[0].calib_params_name
-
         # Add calibratable parameter blocks
         for model in self.ctx.formulation.split(","):
             model = model.strip()
-            if model not in model_param_map:
-                continue
-            name = model_param_map[model]
-            param_values = base_file.get(name, [])
 
-            if (self.ctx.ensemble_enabled
-                and self.ctx.ensemble_calib_params_groups.get(model) == "local"):
-                new_params = []
+            for instance in self.ctx.get_model_instances(model):
+                name = instance.calib_params_block
+                if not name:
+                    continue
 
-                for i in range(self.ctx.ensemble_size):
-                    for p in param_values:
-                        new_param = dict(p)           # create a deep copy to avoid reference issues
-                        new_param["name"] = f"{p['name']}_tile_{i+1}"
-                        new_params.append(new_param)
+                param_values = base_file.get(name, [])
 
-                df_new[name] = new_params
+                if (self.ctx.ensemble_enabled
+                    and self.ctx.ensemble_calib_params_groups.get(model) == "local"):
+                    new_params = []
 
-            else:
-                df_new[name] = param_values
+                    for i in range(self.ctx.ensemble_size):
+                        for p in param_values:
+                            new_param = dict(p)           # create a deep copy to avoid reference issues
+                            new_param["name"] = f"{p['name']}_tile_{i+1}"
+                            new_params.append(new_param)
+
+                    df_new[name] = new_params
+
+                else:
+                    df_new[name] = param_values
 
         df_new["model"] = {
             "type": "ngen",
@@ -263,22 +253,13 @@ class ConfigurationCalib:
 
         for model in self.ctx.formulation.split(","):
             model = model.strip()
-            for key, name in model_param_map.items():
-                if key in model:
-                    if key in ["CFE-S", "CFE-X"]:
-                        key = "CFE"
-                    if key == "NOM":
-                        key = "NoahOWP"
-                    if key == "SNOW17":
-                        key = "Snow17"
-                    if key == "SAC-SMA":
-                        key = "SacSMA"
-                    if key == "CASAM":
-                        key = "LGAR"
-                    param_values = base_file.get(name, [])
+            for instance in self.ctx.get_model_instances(model):
+                name = instance.calib_params_block
+                if not name:
+                    continue
 
-                    # store final params
-                    df_new["model"]["params"][key] = df_new[f"{name}"] #tiled_params
+                # store final params
+                df_new["model"]["params"][instance.calibration_model_name] = df_new[f"{name}"] #tiled_params
 
 
         if self.ngen_cal_type in ["calibration", "restart"]:
@@ -346,4 +327,3 @@ class ConfigurationCalib:
 
         with open(os.path.join(conf_dir, config_fname), 'w') as file:
             yaml.dump(df_new, file, default_flow_style=False, sort_keys=False)
-

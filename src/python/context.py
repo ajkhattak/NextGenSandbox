@@ -16,6 +16,11 @@ import glob
 import subprocess
 
 from src.python import helper
+from src.python.formulations_registry import (
+    get_supported_formulations,
+    is_registered_formulation,
+    with_default_routing,
+)
 from src.python.model_instances import build_model_instances
 
 @dataclass
@@ -24,7 +29,6 @@ class SandboxContext:
     sandbox_dir: Path
     sandbox_config_path: str
     calib_config_path: str
-    formulations_supported: list
 
     mode: str = "conf"
     
@@ -41,6 +45,7 @@ class SandboxContext:
 
     def initialize(self):
         self.load_config()
+        self.validate_formulation()
         self.load_gpkg_dirs()
         self.build_instances()
         self.prepare_model_instances()
@@ -229,19 +234,27 @@ class SandboxContext:
             self.sb_launcher = False
 
     def validate_formulation(self):
-        # Validate formulation
-        formulation_in_lower = self.formulation.lower()
+        if not is_registered_formulation(self.formulation):
+            supported = "\n".join(
+                f"  - {formulation}"
+                for formulation in get_supported_formulations()
+            )
 
-        has_troute = "t-route" in formulation_in_lower
-
-        formulation_test = formulation_in_lower if has_troute else f"{self.formulation},T-ROUTE"
-
-        if (formulation_test.upper() not in self.formulations_supported):
-            raise ValueError(
+            message = (
                 f"\nUnsupported formulation: {self.formulation}\n"
-                f"Supported: {self.formulations_supported}\n"
+                f"Supported formulations:\n{supported}\n"
                 "[INFO]: Formulations that omit T-ROUTE are allowed, however, all other formulation components must be specified exactly as supported."
             )
+
+            if any(model in self.formulation.split(",") for model in ["CFE-S", "CFE-X"]):
+                message += (
+                    "\n[INFO]: Use CFE as the formulation component. "
+                    "To use CFE-X, set formulation.model_instances.CFE in the configuration file."
+                )
+
+            raise ValueError(message)
+
+        self.formulation = with_default_routing(self.formulation)
 
     def build_instances(self):
 
@@ -285,27 +298,30 @@ class SandboxContext:
                 if model_name in ML_MODELS:
                     continue
 
-                # Resolve executable/library directory
-                if getattr(instance, "exe_dir", None):
-                    exe_dir = Path(instance.exe_dir)
+                # Resolve shared library path or search directory
+                if getattr(instance, "library_file", None):
+                    library_root = Path(instance.library_file)
                 else:
-                    exe_dir = Path(self.ngen_dir) / "extern" / instance.repo_name / instance.repo_name
+                    library_root = Path(self.ngen_dir) / "extern" / instance.repo_name / instance.repo_name
                 
                 if model_name in ["SLOTH", "TOPMODEL"]:
-                     exe_dir = Path(self.ngen_dir) / "extern" / instance.repo_name
+                     library_root = Path(self.ngen_dir) / "extern" / instance.repo_name
 
-                if not exe_dir.exists():
+                if not library_root.exists():
                     raise FileNotFoundError(
-                        f"exe_dir for {model_name} missing..."
+                        f"library path for {model_name} missing: {library_root}"
                     )
 
 
                 # Search recursively for shared libraries
                 pattern = "lib*.so" if sys.platform.startswith("linux") else "lib*.dylib"
-                matches = list(exe_dir.rglob(pattern))
+                if library_root.is_file():
+                    matches = [library_root]
+                else:
+                    matches = list(library_root.rglob(pattern))
 
                 if not matches:
-                    raise FileNotFoundError(f"executable for {model_name} missing...")
+                    raise FileNotFoundError(f"shared library for {model_name} missing under {library_root}")
 
 
                 # Prefer shortest / unversioned library
@@ -322,7 +338,7 @@ class SandboxContext:
                         if preferred:
                             matches = preferred
 
-                instance.exe_dir = str(matches[0])
+                instance.library_file = str(matches[0])
                 
 
     def load_gage_ids(self, gage_ids_input):

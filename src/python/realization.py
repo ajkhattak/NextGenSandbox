@@ -245,22 +245,25 @@ class RealizationGenerator:
                     )
                     sys.exit(0)
 
-                # Resolve executable/library directory
-                if getattr(instance, "exe_dir", None):
-                    exe_dir = Path(instance.exe_dir)
+                # Resolve shared library path or search directory
+                if getattr(instance, "library_file", None):
+                    library_root = Path(instance.library_file)
                 else:
-                    exe_dir = Path(self.ngen_dir) / "extern" / instance.repo_name
+                    library_root = Path(self.ngen_dir) / "extern" / instance.repo_name
 
-                if not exe_dir.exists():
-                    instance.exe_dir = ""
+                if not library_root.exists():
+                    instance.library_file = ""
                     continue
 
                 # Search recursively for shared libraries
                 pattern = "lib*.so" if sys.platform.startswith("linux") else "lib*.dylib"
-                matches = list(exe_dir.rglob(pattern))
+                if library_root.is_file():
+                    matches = [library_root]
+                else:
+                    matches = list(library_root.rglob(pattern))
 
                 if not matches:
-                    instance.exe_dir = ""
+                    instance.library_file = ""
                     continue
 
                 # Prefer shortest / unversioned library
@@ -277,7 +280,7 @@ class RealizationGenerator:
                         if preferred:
                             matches = preferred
 
-                instance.exe_dir = str(matches[0])
+                instance.library_file = str(matches[0])
 
 
     def get_pet_block(self, instance, var_names_map=False):
@@ -290,7 +293,7 @@ class RealizationGenerator:
             "params": {
                 "name": "bmi_c",
                 "model_type_name": "PET",
-                "library_file": instance.exe_dir,
+                "library_file": instance.library_file,
                 "forcing_file": "",
                 "init_config": os.path.join(self.config_dir, f'pet/pet_{tag}_{{{{id}}}}.txt'),
                 "allow_exceed_end_time": "true",
@@ -348,8 +351,7 @@ class RealizationGenerator:
                 "name": "bmi_fortran",
                 "model_type_name": "NoahOWP",
                 "main_output_variable": "QINSUR",
-                #"library_file": self.lib_files['noah-owp-modular'],
-                "library_file": instance.exe_dir,
+                "library_file": instance.library_file,
                 "init_config": os.path.join(self.config_dir, f'noahowp/noahowp_{tag}_{{{{id}}}}.input'),
                 "allow_exceed_end_time": True,
                 "fixed_time_step": False,
@@ -392,7 +394,7 @@ class RealizationGenerator:
                 "name": "bmi_fortran",
                 "model_type_name": "Snow17",
                 "main_output_variable": "raim",
-                "library_file": instance.exe_dir,
+                "library_file": instance.library_file,
                 "init_config": os.path.join(self.config_dir, f'snow17/snow17_{tag}_{{{{id}}}}.namelist.input'),
                 "allow_exceed_end_time": True,
                 "fixed_time_step": False,
@@ -423,7 +425,7 @@ class RealizationGenerator:
                 "name": "bmi_fortran",
                 "model_type_name": "SacSMA",
                 "main_output_variable": "tci",
-                "library_file": instance.exe_dir,
+                "library_file": instance.library_file,
                 "init_config": os.path.join(self.config_dir, f'sacsma/sacsma_{tag}_{{{{id}}}}.namelist.input'),
                 "allow_exceed_end_time": True,
                 "fixed_time_step": False,
@@ -461,7 +463,7 @@ class RealizationGenerator:
                 "name": "bmi_c",
                 "model_type_name": "CFE",
                 "main_output_variable": "Q_OUT",
-                "library_file": instance.exe_dir,
+                "library_file": instance.library_file,
                 "init_config": os.path.join(self.config_dir, f'{variant_name}/cfe_{tag}_{{{{id}}}}.txt'),
                 "allow_exceed_end_time": True,
                 "fixed_time_step": False,
@@ -506,7 +508,7 @@ class RealizationGenerator:
                 "name": "bmi_c",
                 "model_type_name": "TOPMODEL",
                 "main_output_variable": "Qout",
-                "library_file": instance.exe_dir, #self.lib_files['topmodel'],
+                "library_file": instance.library_file,
                 "init_config": os.path.join(self.config_dir, f'topmodel/topmod_{tag}_{{{{id}}}}.run'),
                 "allow_exceed_end_time": True,
                 "fixed_time_step": False,
@@ -539,7 +541,7 @@ class RealizationGenerator:
                 "name": "bmi_c++",
                 "model_type_name": "SoilFreezeThaw",
                 "main_output_variable": "num_cells",
-                "library_file": self.lib_files['SoilFreezeThaw'],
+                "library_file": instance.library_file,
                 "init_config": os.path.join(self.config_dir, f'sft/sft_{tag}_{{{{id}}}}.txt'),
                 "allow_exceed_end_time": True,
                 "uses_forcing_file": False,
@@ -560,7 +562,7 @@ class RealizationGenerator:
                 "name": "bmi_c++",
                 "model_type_name": "SoilMoistureProfile",
                 "main_output_variable": "soil_water_table",
-                "library_file": self.lib_files['SoilMoistureProfiles'],
+                "library_file": instance.library_file,
                 "init_config": os.path.join(self.config_dir, f'smp/smp_{tag}_{{{{id}}}}.txt'),
                 "allow_exceed_end_time": True,
                 "uses_forcing_file": False,
@@ -602,7 +604,7 @@ class RealizationGenerator:
                 "name": "bmi_c++",
                 "model_type_name": "LGAR",
                 "main_output_variable": "precipitation_rate",
-                "library_file": instance.exe_dir,
+                "library_file": instance.library_file,
                 "init_config": os.path.join(self.config_dir, f'casam/casam_{tag}_{{{{id}}}}.txt'),
                 "allow_exceed_end_time": True,
                 "uses_forcing_file": False,
@@ -628,7 +630,7 @@ class RealizationGenerator:
                 "name": "bmi_c++",
                 "model_type_name": "SLOTH",
                 "main_output_variable": "z",
-                "library_file": instance.exe_dir,
+                "library_file": instance.library_file,
                 "init_config": '/dev/null',
                 "allow_exceed_end_time": True,
                 "fixed_time_step": False,

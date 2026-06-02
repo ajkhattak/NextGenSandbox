@@ -1,8 +1,8 @@
 ## Supported Formulations
 *Note:* Formulations may omit T-ROUTE; it is appended automatically by the workflow. However, all other model components must match the supported formulations exactly.
 
-### CFE Formulations (with Schaake and Xinanjiang runoff options; set them through configs/basefiles/config_cfe.yaml)
-*Conceptual Functional Equivalent with Schaake Runoff Option*
+### CFE Formulations
+*Conceptual Functional Equivalent. CFE defaults to the cfe-s/Schaake instance; use `formulation.model_instances.CFE` in the sandbox config to select another configured instance such as cfe-x/Xinanjiang.*
 - NOM, CFE, T-ROUTE
 - PET, CFE, T-ROUTE
 - NOM, PET, CFE, T-ROUTE

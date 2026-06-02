@@ -8,15 +8,20 @@ class ModelInstance:
 
     model: str
     name: str
-    repo_name: str
-    calib_params_name: str
+    repo_name: str = ""
+    calib_params_block: str = ""
+    ngen_cal_model_name: Optional[str] = None
     basefile: Optional[str] = None
     config_dir: Optional[Path] = None
     outputs_dir: Optional[Path] = None
-    exe_dir: Optional[Path] = None
+    library_file: Optional[Path] = None
 
     def is_instance(self):
         return self.name.lower() != self.model.lower()
+
+    @property
+    def calibration_model_name(self):
+        return self.ngen_cal_model_name or self.model
 
 
 DEFAULT_MODEL_INSTANCES = {
@@ -28,7 +33,7 @@ DEFAULT_MODEL_INSTANCES = {
             name="pet",
             basefile="config_pet.yaml",
             repo_name="evapotranspiration",
-            calib_params_name=""
+            calib_params_block=""
         )
 
     ],
@@ -41,7 +46,8 @@ DEFAULT_MODEL_INSTANCES = {
             name="cfe-s",
             basefile="config_cfe-s.yaml",
             repo_name="cfe",
-            calib_params_name="cfes_params"
+            calib_params_block="cfes_params",
+            ngen_cal_model_name="CFE"
         )
 
     ],
@@ -53,7 +59,8 @@ DEFAULT_MODEL_INSTANCES = {
             name="noahowp",
             basefile="config_noahowp.input",
             repo_name="noah-owp-modular",
-            calib_params_name="noahowp_params"
+            calib_params_block="noahowp_params",
+            ngen_cal_model_name="NoahOWP"
         )
 
     ],
@@ -64,7 +71,8 @@ DEFAULT_MODEL_INSTANCES = {
             model="TOPMODEL",
             name="topmodel",
             repo_name="topmodel",
-            calib_params_name="topmodel_params"
+            calib_params_block="topmodel_params",
+            ngen_cal_model_name="TOPMODEL"
         )
 
     ],
@@ -75,7 +83,8 @@ DEFAULT_MODEL_INSTANCES = {
             model="SFT",
             name="sft",
             repo_name="SoilFreezeThaw",
-            calib_params_name=""
+            calib_params_block="",
+            ngen_cal_model_name="SFT"
         )
 
     ],
@@ -86,7 +95,8 @@ DEFAULT_MODEL_INSTANCES = {
             model="SMP",
             name="smp",
             repo_name="SoilMoistureProfiles",
-            calib_params_name=""
+            calib_params_block="",
+            ngen_cal_model_name="SMP"
         )
 
     ],
@@ -98,7 +108,8 @@ DEFAULT_MODEL_INSTANCES = {
             name="snow17",
             basefile="config_snow17.namelist.input",
             repo_name="snow17",
-            calib_params_name="snow17_params"
+            calib_params_block="snow17_params",
+            ngen_cal_model_name="Snow17"
             
         )
 
@@ -111,7 +122,8 @@ DEFAULT_MODEL_INSTANCES = {
             name="sacsma",
             basefile="config_sacsma.namelist.input",
             repo_name="sac-sma",
-            calib_params_name="sacsma_params"
+            calib_params_block="sacsma_params",
+            ngen_cal_model_name="SacSMA"
         )
 
     ],
@@ -124,7 +136,8 @@ DEFAULT_MODEL_INSTANCES = {
             name="casam",
             basefile="config_casam.yaml",
             repo_name="CASAM",
-            calib_params_name="casam_params"
+            calib_params_block="casam_params",
+            ngen_cal_model_name="LGAR"
         )
 
     ],
@@ -136,7 +149,7 @@ DEFAULT_MODEL_INSTANCES = {
             name="lstm",
             repo_name="lstm",
             basefile="config_lstm.yaml",
-            calib_params_name=""
+            calib_params_block=""
         )
 
     ],
@@ -148,7 +161,7 @@ DEFAULT_MODEL_INSTANCES = {
             name="dhbv",
             repo_name="dhbv",
             basefile="config_dhbv.yaml",
-            calib_params_name=""
+            calib_params_block=""
         )
 
     ],
@@ -160,7 +173,7 @@ DEFAULT_MODEL_INSTANCES = {
             name="t-route",
             basefile="config_troute.yaml",
             repo_name="t-route",
-            calib_params_name=""
+            calib_params_block=""
         )
 
     ],
@@ -172,7 +185,7 @@ DEFAULT_MODEL_INSTANCES = {
             name="sloth",
             basefile="",
             repo_name="sloth",
-            calib_params_name=""
+            calib_params_block=""
         )
 
     ],
@@ -223,7 +236,9 @@ def build_model_instances(formulation, model_instances=None):
                     name=item["name"],
                     basefile=item.get("basefile"),
                     repo_name=item.get("repo_name"),
-                    calib_params_name=item.get("calib_params_name")
+                    calib_params_block=item.get("calib_params_block", ""),
+                    ngen_cal_model_name=item.get("ngen_cal_model_name"),
+                    library_file=item.get("library_file")
                 )
 
                 instances.append(instance)

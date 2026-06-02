@@ -15,6 +15,7 @@ import platform
 
 from src.python import forcing, driver, runner
 from src.python.context import SandboxContext
+from src.python.formulations_registry import get_supported_formulations
 
 sandbox_dir = Path(sandbox.__file__).resolve().parent
 sys.path.insert(0, str(sandbox_dir))
@@ -102,26 +103,6 @@ def check_sandbox_venv(sandbox_build_dir):
         sys.exit(1)
 
 
-formulations_supported = [
-    "NOM,CFE,T-ROUTE",
-    "PET,CFE,T-ROUTE",
-    "NOM,PET,CFE,T-ROUTE",
-    "NOM,TOPMODEL,T-ROUTE",
-    "PET,TOPMODEL,T-ROUTE",
-    "NOM,CASAM,T-ROUTE",
-    "PET,CASAM,T-ROUTE",
-    "NOM,CFE,SMP,SFT,T-ROUTE",
-    "NOM,PET,TOPMODEL,T-ROUTE",
-    "NOM,CASAM,SMP,SFT,T-ROUTE",
-    "SNOW17,PET,CFE-S,T-ROUTE",
-    "SNOW17,PET,CFE-X,T-ROUTE",
-    "SNOW17,PET,TOPMODEL,T-ROUTE",
-    "LSTM,T-ROUTE",
-    "SNOW17,PET,SACSMA,T-ROUTE",
-    "DHBV,T-ROUTE",
-]
-
-
 def Sandbox(args, sandbox_config, calib_config, rscript, dryrun=False):
     
     if (args.subset):
@@ -153,7 +134,6 @@ def Sandbox(args, sandbox_config, calib_config, rscript, dryrun=False):
     ctx = SandboxContext(
         sandbox_dir=Path(sandbox_dir),
         sandbox_config_path=sandbox_config,
-        formulations_supported=formulations_supported,
         calib_config_path=calib_config,
         dryrun=dryrun,
         mode=mode
@@ -201,10 +181,10 @@ def main():
 
     if args.formulations:
         print("Formulations supported:\n")
-        print("\n".join(formulations_supported))
+        print("\n".join(get_supported_formulations()))
         print(
             "\n[INFO]: Formulations that omit T-ROUTE are allowed "
-            "(e.g., NOM, CFE-S). All formulation components must be "
+            "(e.g., NOM, CFE). All formulation components must be "
             "specified exactly as supported."
         )
         sys.exit(0)
