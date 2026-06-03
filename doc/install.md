@@ -2,6 +2,19 @@
 
 Detailed instructions on how to install, configure, and get the NextGenSandboxHub running.
 
+## Quick Path
+
+For a typical setup, the workflow is:
+
+1. `./bootstrap.sh --env --verbose`
+2. Reload your shell or open a new terminal
+3. Activate the sandbox Python environment
+4. `./bootstrap.sh --sandbox`
+5. Install hydrofabric/R dependencies
+6. `./bootstrap.sh --ngen --models --troute`
+7. Review [configuration.md](./configuration.md) and update `configs/sandbox_config.yaml`
+8. Run `sandbox --subset`, `sandbox --forc`, `sandbox --conf`, and `sandbox --run`
+
 ### <ins>  Step 1. Build Sandbox Workflow
   1.1 Clone the repository (if not already done):
      
@@ -52,15 +65,22 @@ The sandbox setup step configures the required environment variables: `SANDBOX_D
    ```
  - If using a standard Python virtual environment:
    ```
-   source $SANDBOX_ENV
+   source $SANDBOX_ENV/bin/activate
    ```
 
 
 ### <ins> Step 3. Install NextGen (ngen) and Required Models
 > **Important:** Before continuing to later steps, you must install and build ngen and the required routing/models components.
 
-> **Note:** The sandbox workflow assumes that [ngen](https://github.com/NOAA-OWP/ngen) and models including [t-route](https://github.com/NOAA-OWP/t-route) have been built in the Python virtual environment created in Step 1.
-Please activate the sandbox environment and follow the instructions in the [build_models](https://github.com/ajkhattak/NextGenSandboxHub/blob/main/utils/build_models.sh) script to build ngen and models. For an example HPC setup, see [setup_hpc.sh](https://github.com/ajkhattak/NextGenSandboxHub/blob/main/utils/setup_hpc.sh). After loading the required modules and setting up the environment variables, run the following command:
+> **Note:** Build ngen and the required models after Step 1 has created the sandbox environment and after that environment is activated.
+Please activate the sandbox environment, then follow the instructions in the [build_models](https://github.com/ajkhattak/NextGenSandboxHub/blob/main/utils/build_models.sh) script to build ngen and models. For an example HPC setup, see [setup_hpc.sh](https://github.com/ajkhattak/NextGenSandboxHub/blob/main/utils/setup_hpc.sh). A typical build sequence is:
+```
+./bootstrap.sh --ngen
+./bootstrap.sh --models
+./bootstrap.sh --troute
+```
+
+You can also run the build steps separately as needed:
 ```
 ./bootstrap.sh [OPTIONS]
 Options:
@@ -68,16 +88,20 @@ Options:
   --models   Build models
   --troute   Build t-route
 ```
-### <ins>Verification Test
-Run the following command to verify that everything has been set up successfully. Download conus geopackage file from [lynker-spatial](https://www.lynker-spatial.com/data?path=hydrofabric%2Fv2.2%2F).
-```
-   python test/sandbox_test.py --all --gpkg <path/to/conus_nextgen.gpkg>
-```
+
+### <ins> Environment Verification
+
+Before moving on to configuration, confirm that the environment bootstrap succeeded:
+
+- Validate Step 1.3 with [utils/venv/validation.md](../utils/venv/validation.md#step-13-validation)
+- Validate Step 1.4 with [utils/venv/validation.md](../utils/venv/validation.md#step-14-validation)
 
 ### <ins> Step 4. Setup configuration file
 Open the configuration file `$SANDBOX_DIR/configs/sandbox_config.yaml`
 
 Review and update the blocks in [sandbox_config.yaml](../configs/sandbox_config.yaml) to match your local environment. The file already contains detailed inline instructions for each configuration block.
+
+For formulation selection, `model_instances`, task types, and calibration config linkage, see the [configuration guide](./configuration.md).
 
 ### <ins> Step 5. Hydrofabric Subsetting
   - Dependency: Step 2 & Step 4
@@ -107,3 +131,11 @@ Run the following command — assuming you have already set up the sandbox confi
  ```
     sandbox --run -i <sandbox_config_filename.yaml> -j <calib_config_filename.yaml>
  ```
+
+### <ins> Workflow Smoke Test
+
+After the workflow is built, configured, and the required data are available, run the following end-to-end test. Download a CONUS geopackage from [lynker-spatial](https://www.lynker-spatial.com/data?path=hydrofabric%2Fv2.2%2F) first.
+
+```
+python test/sandbox_test.py --all --gpkg <path/to/conus_nextgen.gpkg>
+```
