@@ -288,7 +288,8 @@ class SandboxContext:
 
         for model_name, instances in self.model_registry.items():
 
-            if model_name in {"T-ROUTE"}:
+            if model_name == "T-ROUTE":
+                helper.ensure_troute_available(self.ngen_dir)
                 continue
 
             for instance in instances:

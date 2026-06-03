@@ -1,15 +1,48 @@
 import os
 import sys
 import shutil
+import importlib.util
 import numpy as np
 import subprocess
 import geopandas as gpd
+from pathlib import Path
 
 # called in driver.py
 class colors:
     GREEN = '\033[92m'
     RED   = '\033[91m'
     END   = '\033[0m'
+
+
+def ensure_troute_available(ngen_dir=None):
+    if importlib.util.find_spec("nwm_routing") is not None:
+        return
+
+    candidates = []
+    if ngen_dir:
+        ngen_dir = Path(ngen_dir)
+        for rel_path in ["extern/t-route-hf2.2", "extern/t-route"]:
+            troute_dir = ngen_dir / rel_path
+            if troute_dir.exists():
+                candidates.append(troute_dir)
+
+    location_hint = ""
+    if candidates:
+        joined = "\n".join(f"  - {path}" for path in candidates)
+        location_hint = f"\nDetected t-route source directory:\n{joined}\n"
+
+    sandbox_dir = os.environ.get("SANDBOX_DIR", "<sandbox repo>")
+
+    raise ModuleNotFoundError(
+        "T-ROUTE routing module `nwm_routing` is not available in the active sandbox environment.\n"
+        "This can happen if the sandbox environment was deleted or rebuilt after T-ROUTE was built.\n"
+        f"Active Python: {sys.executable}\n"
+        f"SANDBOX_ENV: {os.environ.get('SANDBOX_ENV', '<not set>')}\n"
+        f"{location_hint}"
+        "Rebuild T-ROUTE in the active sandbox environment, for example:\n"
+        f"  cd {sandbox_dir}\n"
+        "  ./bootstrap.sh --troute\n"
+    )
 
 def create_clean_dirs(output_dir,
                       task_type,

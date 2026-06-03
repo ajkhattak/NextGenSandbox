@@ -101,9 +101,8 @@ def run(args: dict[str, pathlib.Path]):
 
     apply_ensemble_weights(output_dirs, weights_df, divide_to_nexus)
     
-    
 
-    cmd = ["python3", "-m", "nwm_routing", "-V4", "-f", routing]
+    cmd = [sys.executable, "-m", "nwm_routing", "-V4", "-f", routing]
     exec_cmd(cmd, dryrun=dryrun)
 
 
