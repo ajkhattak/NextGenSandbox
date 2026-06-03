@@ -30,11 +30,10 @@ class dHBVConfigurationGenerator(ConfigurationGenerator):
                 raise FileNotFoundError(f"Missing dHBV basefile: {basefile_path}")
 
             #with open(basefile_path, "r") as f:
-            #    self.pet_template = yaml.safe_load(f) or {}
+            #    self.dhbv_template = yaml.safe_load(f) or {}
 
             self.write_dhbv_input_files(config_dir, basefile_path, member_id=member_id, tag=tag)
 
-            
 
     def write_dhbv_input_files(self, config_dir, basefile_path, member_id=1, tag="cfg"):
 
@@ -50,7 +49,7 @@ class dHBVConfigurationGenerator(ConfigurationGenerator):
 
         with open(basefile_path, "r") as f:
             base_file = yaml.safe_load(f)
-        
+
         model_dir = os.path.normpath(
             os.path.join(
                 self.ctx.sandbox_dir,
@@ -98,4 +97,3 @@ class dHBVConfigurationGenerator(ConfigurationGenerator):
 
             with open(dhbv_file, "w") as f:
                 yaml.dump(config, f, sort_keys=False)
-

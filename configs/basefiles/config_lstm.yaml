@@ -1,9 +1,25 @@
 ############################################################
 # CONFIGURATION GUIDE
 #
-# This file is a base file for generating lstm config files
-# It provides attributes .parquet and training files, and maps
-# model feature names (used during training)
+# This file is a base file for generating LSTM config files.
+# The user must provide:
+#   1. train_cfg_file
+#   2. attributes_file
+#
+# The train_cfg_file points to the NeuralHydrology training config.yml.
+# The workflow automatically updates run_dir to the directory containing
+# that config file before generating the sandbox LSTM configs.
+# The training run directory must contain the files required by BMI LSTM,
+# including:
+#   train_data/train_data_scaler.yml
+#   model_epoch*.pt
+#
+# Recommended practice is to copy trained LSTM model under:
+#   $SANDBOX_BUILD_DIR/data/lstm/
+#
+# Then point train_cfg_file to the copied config.yml using an absolute path.
+#
+# This file maps model feature names used during training
 # to column names in your attributes (.parquet) file.
 #
 # Rule:
@@ -21,8 +37,9 @@
 ############################################################
 
 
-train_cfg_file: ./trained_neuralhydrology_models/nh_AORC_hourly_slope_elev_precip_temp_seq999_seed101_2801_191806/config.yml
-attributes_file: ./path/to/attributes.parquet
+# Example absolute path under sandbox_build:
+train_cfg_file: <SANDBOX_BUILD_DIR>/data/lstm/trained_neuralhydrology_models/nh_AORC_hourly_slope_elev_precip_temp_seq999_seed101_2801_191806/config.yml
+-attributes_file: <SANDBOX_BUILD_DIR>/data/lstm/attributes.parquet
 
 static_attributes:
   training:
@@ -36,28 +53,30 @@ static_attributes:
 ############################################################
 # Example 2: Ensemble (multiple LSTM models)
 ############################################################
-# Provide a list of model config files and the associated .parquet files (order matters)
+# Provide a list of model config files and the associated .parquet files.
+# Order matters: the first train_cfg_file entry must match the first
+# attributes_file entry, and so on.
 
-train_cfg_file: ["./trained_neuralhydrology_models/nh_AORC_hourly_slope_elev_precip_temp_seq999_seed101_2801_191806/config.yml", "./trained_neuralhydrology_models/nh_AORC_hourly_seq4380_owp_snowsample_seed105_1603_230110/config.yml"]
-attributes_file: ["./path/to/attributes_model1.parquet", "./path/to/attributes_model2.parquet"]
+#train_cfg_file: ["./trained_neuralhydrology_models/nh_AORC_hourly_slope_elev_precip_temp_seq999_seed101_2801_191806/config.yml", "./trained_neuralhydrology_mode#ls/nh_AORC_hourly_seq4380_owp_snowsample_seed105_1603_230110/config.yml"]
+#attributes_file: ["./path/to/attributes_model1.parquet", "./path/to/attributes_model2.parquet"]
 
 
-static_attributes:
-  training:
-    elev_mean: mean.elevation
-    slope_mean: terrain_slope
-    
-    ari_ix_mean: ari_ix_mean
-    slp_dg_mean: slp_dg_mean
-    centroid_lat: centroid_lat
-    ims_pc_mean: ims_pc_mean
-    ele_mt_mean: ele_mt_mean
-    snd_pct: snd_pct
-    cly_pct: cly_pct
-    lka_pc_sse: lka_pc_sse
-    area_sqkm: area_sqkm
-    snw_pc_max: snw_pc_max
-    for_pc_forest_sse: for_pc_forest
-  bmi:
-    area_sqkm : area_sqkm
+#static_attributes:
+#  training:
+#    elev_mean: mean.elevation
+#    slope_mean: terrain_slope
+#
+#    ari_ix_mean: ari_ix_mean
+#    slp_dg_mean: slp_dg_mean
+#    centroid_lat: centroid_lat
+#    ims_pc_mean: ims_pc_mean
+#    ele_mt_mean: ele_mt_mean
+#    snd_pct: snd_pct
+#    cly_pct: cly_pct
+#    lka_pc_sse: lka_pc_sse
+#    area_sqkm: area_sqkm
+#    snw_pc_max: snw_pc_max
+#    for_pc_forest_sse: for_pc_forest
+#  bmi:
+#    area_sqkm : area_sqkm
  

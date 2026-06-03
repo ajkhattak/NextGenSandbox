@@ -200,7 +200,55 @@ formulation:
   models: "LSTM,T-ROUTE"
 ```
 
-LSTM formulations are run as `control` tasks by the workflow.
+LSTM formulations are run as `control` tasks by the workflow (calibration tools not needed/used).
+
+## Running LSTM
+
+LSTM requires external trained-model artifacts in addition to the normal sandbox configuration. These artifacts are not built by the sandbox workflow itself; the user must place them in a readable location and point `config_lstm.yaml` at them.
+
+Recommended layout:
+
+```text
+$SANDBOX_BUILD_DIR/data/lstm/
+  trained_neuralhydrology_models/
+    <training-run-1>/
+      config.yml
+      model_epoch*.pt
+      train_data/
+        train_data_scaler.yml
+    <training-run-2>/
+      config.yml
+      model_epoch*.pt
+      train_data/
+        train_data_scaler.yml
+```
+
+Using `$SANDBOX_BUILD_DIR/data/lstm` keeps trained artifacts separate from the LSTM source code under `SANDBOX_DIR/extern/lstm`.
+
+To run LSTM, the user must configure two things in `configs/basefiles/config_lstm.yaml`:
+
+1. `train_cfg_file`
+2. `attributes_file`
+
+Example:
+
+```yaml
+train_cfg_file: /path/to/sandbox_build/data/lstm/trained_neuralhydrology_models/<training-run>/config.yml
+attributes_file: /path/to/attributes.parquet
+```
+
+For LSTM ensembles, both values may be lists; see Example 2 in the `configs/basefiles/config_lstm.yaml`.
+
+The workflow automatically updates `run_dir` so it matches the directory containing each referenced training `config.yml`. Users do not need to edit `run_dir` manually.
+
+Before running `sandbox --conf` or `sandbox --run`, check that:
+
+1. `train_cfg_file` exists
+2. `attributes_file` exists
+3. the training run directory contains `train_data/train_data_scaler.yml`
+4. the training run directory contains the required `model_epoch*.pt` files
+
+You may keep the trained data anywhere on disk and use absolute paths, as long as `train_cfg_file` and `attributes_file` point to valid locations.
 
 ## Troubleshooting
 
@@ -233,3 +281,12 @@ Confirm the model has been built under `$NGEN_DIR/extern/<repo_name>`, or set `l
 ### Calibration parameter block not found
 
 Make sure `calib_params_block` matches a block name in `calib_config.yaml`.
+
+### LSTM trained data missing
+
+Check all of the following:
+
+- `configs/basefiles/config_lstm.yaml` points to valid `train_cfg_file` and `attributes_file` paths
+- each training `config.yml` has a valid `run_dir`
+- each `run_dir` contains `train_data/train_data_scaler.yml`
+- the trained weight files referenced by the run directory are present

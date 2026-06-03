@@ -2,6 +2,7 @@ import os
 import sys
 import yaml
 import pandas as pd
+from pathlib import Path
 
 from src.python.models_registry import register_model
 from src.python.configuration import ConfigurationGenerator
@@ -17,10 +18,11 @@ class LSTMConfigurationGenerator(ConfigurationGenerator):
         self.instances = self.ctx.model_registry.get("LSTM")
         
     def _write_input_files(self, member_id, tag):
-        for variant_cfg in self.instances:
 
-            config_dir = variant_cfg.config_dir
-            basefile = variant_cfg.basefile
+        for instance in self.instances:
+
+            config_dir = instance.config_dir
+            basefile = instance.basefile
 
             basefile_path = os.path.join(self.ctx.sandbox_dir, f"configs/basefiles/{basefile}")
 
@@ -28,9 +30,69 @@ class LSTMConfigurationGenerator(ConfigurationGenerator):
                 raise FileNotFoundError(f"Missing LSTM basefile: {basefile_path}")
 
             #with open(basefile_path, "r") as f:
-            #    self.pet_template = yaml.safe_load(f) or {}
+            #    self.lstm_template = yaml.safe_load(f) or {}
 
             self.write_lstm_input_files(config_dir, basefile_path, member_id=member_id, tag=tag)
+
+    def resolve_train_cfg_path(self, train_cfg_file):
+        train_path = Path(train_cfg_file).expanduser()
+        if train_path.is_absolute():
+            return train_path
+
+        sandbox_build_dir = Path(os.environ["SANDBOX_BUILD_DIR"])
+        candidates = [
+            sandbox_build_dir / "data" / "lstm" / train_path,
+            self.ctx.sandbox_dir / train_path,
+        ]
+
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+
+        return candidates[0]
+
+    def resolve_attributes_path(self, attributes_file):
+        attr_path = Path(attributes_file).expanduser()
+        if attr_path.is_absolute():
+            return attr_path
+
+        candidates = [
+            self.ctx.sandbox_dir / attr_path,
+            Path(os.environ["SANDBOX_BUILD_DIR"]) / attr_path,
+        ]
+
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+
+        return candidates[0]
+
+    def prepare_training_config(self, train_path: Path, lstm_dir: Path):
+        with train_path.open("r") as f:
+            train_cfg = yaml.safe_load(f)
+
+        run_dir = train_path.parent.resolve()
+        train_cfg["run_dir"] = str(run_dir)
+
+        scaler_file = run_dir / "train_data" / "train_data_scaler.yml"
+        if not scaler_file.exists():
+            raise FileNotFoundError(
+                f"Missing LSTM scaler file: {scaler_file}"
+            )
+
+        epochs = train_cfg.get("epochs")
+        if epochs is not None:
+            trained_model_file = run_dir / f"model_epoch{str(epochs).zfill(3)}.pt"
+            if not trained_model_file.exists():
+                raise FileNotFoundError(
+                    f"Missing LSTM weights file: {trained_model_file}"
+                )
+
+        patched_train_cfg = lstm_dir / f"{train_path.stem}_patched.yml"
+        with patched_train_cfg.open("w") as f:
+            yaml.dump(train_cfg, f, sort_keys=False)
+
+        return train_cfg, patched_train_cfg
 
 
     def write_lstm_input_files(self, config_dir, basefile_path, member_id=1, tag="cfg"):
@@ -42,7 +104,7 @@ class LSTMConfigurationGenerator(ConfigurationGenerator):
         else:
             return
 
-        lstm_dir = os.path.join(self.output_dir, config_dir)
+        lstm_dir = Path(self.output_dir) / config_dir
         self.create_directory(lstm_dir)
 
         with open(basefile_path, "r") as f:
@@ -69,29 +131,30 @@ class LSTMConfigurationGenerator(ConfigurationGenerator):
     
         config_ensemble = [] # lstm ensemble using different training weights
 
-        for train_f, attr_f in zip(train_cfg_files, attributes_files):
+        for i, (train_f, attr_f) in enumerate(zip(train_cfg_files, attributes_files), start=1):
 
-            train_path = os.path.normpath(os.path.join(self.ctx.sandbox_dir, "extern", "lstm", train_f))
+            train_path = self.resolve_train_cfg_path(train_f).resolve()
 
-            attr_path = os.path.normpath(os.path.join(self.ctx.sandbox_dir, attr_f))
+            attr_path = self.resolve_attributes_path(attr_f).resolve()
 
-            if not os.path.exists(train_path):
-                raise FileNotFoundError(f"Missing attributes file: {train_path}")
+            if not train_path.exists():
+                raise FileNotFoundError(f"Missing LSTM training config file: {train_path}")
 
-            # Load training config
-            with open(train_path, "r") as f:
-                train_cfg = yaml.safe_load(f)
+            train_cfg, patched_train_cfg = self.prepare_training_config(
+                train_path=train_path,
+                lstm_dir=lstm_dir
+            )
 
             static_attrs_training = train_cfg.get("static_attributes", [])
 
             # Load attributes parquet
-            if not os.path.exists(attr_path):
+            if not attr_path.exists():
                 raise FileNotFoundError(f"Missing attributes file: {attr_path}")
 
             df = pd.read_parquet(attr_path).set_index("divide_id")
 
             config_ensemble.append({
-                "train_cfg_path": train_path,
+                "train_cfg_path": str(patched_train_cfg),
                 "static_attrs_parquet": df,
                 "static_attrs_training": static_attrs_training
             })
@@ -105,7 +168,7 @@ class LSTMConfigurationGenerator(ConfigurationGenerator):
             cat_name = f"cat-{catID}"
             
             fname_lstm = f'lstm_{tag}_{cat_name}.yaml'
-            lstm_file = os.path.join(lstm_dir, fname_lstm)
+            lstm_file = lstm_dir / fname_lstm
 
             config = {
                 "train_cfg_file": [c["train_cfg_path"] for c in config_ensemble],
@@ -147,6 +210,5 @@ class LSTMConfigurationGenerator(ConfigurationGenerator):
                 if not found:
                     raise ValueError(f"BMI column {parquet_col} not found in any attributes file")
 
-            with open(lstm_file, "w") as f:
+            with lstm_file.open("w") as f:
                 yaml.dump(config, f, sort_keys=False)
-
