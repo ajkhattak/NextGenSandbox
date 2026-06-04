@@ -47,7 +47,7 @@ SCRIPT_PATH="$SCRIPT_DIR/$(basename "$SOURCE")"
 SANDBOX_DIR="$(dirname "$SCRIPT_DIR")"
 
 SANDBOX_BUILD_DIR="${SANDBOX_BUILD_DIR:-$SANDBOX_DIR/build}"
-SANDBOX_DATA="${SANDBOX_DATA:-$SANDBOX_DIR/data}"
+SANDBOX_DATA_DIR="${SANDBOX_DATA_DIR:-$SANDBOX_DIR/data}"
 SANDBOX_CONDARC="${SANDBOX_CONDARC:-$SANDBOX_BUILD_DIR/condarc}"
 
 NGEN_DIR="$SANDBOX_BUILD_DIR/ngen"
@@ -59,7 +59,7 @@ FORCING_ENV="$SANDBOX_BUILD_DIR/venv/forcing"
 ########## Export environment #########
 export SANDBOX_DIR
 export SANDBOX_BUILD_DIR
-export SANDBOX_DATA
+export SANDBOX_DATA_DIR
 export SANDBOX_CONDARC
 export NGEN_DIR
 export SANDBOX_ENV
@@ -68,7 +68,7 @@ export FORCING_ENV
 export CONDARC="$SANDBOX_CONDARC"
 
 mkdir -p "$SANDBOX_BUILD_DIR"
-mkdir -p "$SANDBOX_DATA"
+mkdir -p "$SANDBOX_DATA_DIR"
 touch "$SANDBOX_CONDARC"
 
 ######### Detect target shell config #####
@@ -136,7 +136,7 @@ fi
 for var in \
     SANDBOX_DIR \
     SANDBOX_BUILD_DIR \
-    SANDBOX_DATA \
+    SANDBOX_DATA_DIR \
     SANDBOX_CONDARC \
     NGEN_DIR \
     SANDBOX_ENV \
@@ -156,7 +156,7 @@ if [ "$ENV_VERBOSE" = "ON" ]; then
         echo "Sandbox environment already loaded."
 	echo "SANDBOX_DIR        : $SANDBOX_DIR"
 	echo "SANDBOX_BUILD_DIR  : $SANDBOX_BUILD_DIR"
-	echo "SANDBOX_DATA       : $SANDBOX_DATA"
+	echo "SANDBOX_DATA_DIR   : $SANDBOX_DATA_DIR"
 	echo "SANDBOX_CONDARC    : $SANDBOX_CONDARC"
 	echo "NGEN_DIR           : $NGEN_DIR"
 	echo "SANDBOX_ENV        : $SANDBOX_ENV"

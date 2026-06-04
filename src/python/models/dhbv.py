@@ -41,7 +41,7 @@ class dHBVConfigurationGenerator(ConfigurationGenerator):
         if model_path.is_absolute():
             return model_path
 
-        sandbox_data_dir = Path(os.environ["SANDBOX_DATA"])
+        sandbox_data_dir = Path(os.environ["SANDBOX_DATA_DIR"])
         candidates = [
             sandbox_data_dir / "dhbv2" / model_path,
             self.ctx.sandbox_dir / "extern" / "dhbv2" / model_path,
@@ -63,7 +63,7 @@ class dHBVConfigurationGenerator(ConfigurationGenerator):
 
         candidates = [
             model_dir / attr_path.name if attr_path.parent == Path(".") else model_dir / attr_path,
-            Path(os.environ["SANDBOX_DATA"]) / attr_path,
+            Path(os.environ["SANDBOX_DATA_DIR"]) / attr_path,
             self.ctx.sandbox_dir / attr_path,
             self.ctx.sandbox_dir / "extern" / "dhbv2" / attr_path,
         ]

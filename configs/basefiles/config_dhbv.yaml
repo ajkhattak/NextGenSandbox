@@ -1,13 +1,13 @@
 # dHBV requires a trained model directory.
 # Recommended practice is to copy dHBV trained data under:
-#   $SANDBOX_DATA/dhbv2/
+#   $SANDBOX_DATA_DIR/dhbv2/
 #
 # Set model_dir to the trained model bundle directory.
 # If attributes_file is omitted, the workflow defaults to:
 #   <model_dir>/dhbv_attrs.parquet
 #
 # Relative model_dir paths are resolved first under:
-#   $SANDBOX_DATA/dhbv2/
+#   $SANDBOX_DATA_DIR/dhbv2/
 # and then fall back to:
 #   $SANDBOX_DIR/extern/dhbv2/
 

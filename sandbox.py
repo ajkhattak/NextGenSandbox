@@ -26,7 +26,7 @@ def check_required_env_vars():
     required_vars = [
         "SANDBOX_DIR",
         "SANDBOX_BUILD_DIR",
-        "SANDBOX_DATA",
+        "SANDBOX_DATA_DIR",
         "NGEN_DIR",
         "SANDBOX_ENV",
         "FORCING_ENV",

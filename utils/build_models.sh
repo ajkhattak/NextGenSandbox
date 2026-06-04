@@ -35,13 +35,6 @@ for arg in "$@"; do
 done
 
 
-# -------------------------------
-# Print the build flags
-# -------------------------------
-echo "BUILD_NGEN   = $BUILD_NGEN"
-echo "BUILD_MODELS = $BUILD_MODELS"
-echo "BUILD_TROUTE = $BUILD_TROUTE"
-
 HF_VERSION=2.2     # provide hydrofabric version
 
 ###############################################################

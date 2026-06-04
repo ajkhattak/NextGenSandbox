@@ -15,7 +15,7 @@
 #   model_epoch*.pt
 #
 # Recommended practice is to copy trained LSTM model under:
-#   $SANDBOX_DATA/lstm/
+#   $SANDBOX_DATA_DIR/lstm/
 #
 # Then point train_cfg_file to the copied config.yml using an absolute path.
 #
@@ -37,7 +37,7 @@
 ############################################################
 
 
-# Example relative path under $SANDBOX_DATA/lstm:
+# Example relative path under $SANDBOX_DATA_DIR/lstm:
 train_cfg_file: ./trained_neuralhydrology_models/nh_AORC_hourly_slope_elev_precip_temp_seq999_seed101_2801_191806/config.yml
 attributes_file: ./conus_div_attributes_hfv2.2_for_lstm.parquet
 

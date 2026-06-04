@@ -12,7 +12,7 @@ Detailed instructions for building, configuring, and running NextGenSandboxHub f
 
 Guidance for setting up `sandbox_config.yaml`, `calib_config.yaml`, formulations, model instances, and task types is available in the [configuration guide](https://github.com/ajkhattak/NextGenSandboxHub/blob/main/doc/configuration.md).
 
-For ML-based formulations, the configuration guide also documents how to stage trained LSTM model and set `train_cfg_file`, `attributes_file`, and `run_dir` correctly.
+For ML-based formulations, the configuration guide also documents how to stage trained LSTM and dHBV data under `$SANDBOX_DATA_DIR` and configure the model basefiles.
 
 ### Currently Supported Formulations:
 For the most up-to-date list of supported formulations, run `sandbox --formulations`. A complete list is also available in the [formulations guide](https://github.com/ajkhattak/NextGenSandboxHub/blob/main/doc/formulations.md)

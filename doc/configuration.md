@@ -200,7 +200,7 @@ LSTM requires external trained-model weights in addition to the normal sandbox c
 Recommended layout:
 
 ```text
-$SANDBOX_DATA/lstm/
+$SANDBOX_DATA_DIR/lstm/
   trained_neuralhydrology_models/
     <training-run-1>/
       config.yml
@@ -214,7 +214,7 @@ $SANDBOX_DATA/lstm/
         train_data_scaler.yml
 ```
 
-Using `$SANDBOX_DATA/lstm` keeps trained models separate from the LSTM source code under `SANDBOX_DIR/extern/lstm`.
+Using `$SANDBOX_DATA_DIR/lstm` keeps trained models separate from the LSTM source code under `SANDBOX_DIR/extern/lstm`.
 
 To run LSTM, the user must configure two things in `configs/basefiles/config_lstm.yaml`:
 
@@ -224,7 +224,7 @@ To run LSTM, the user must configure two things in `configs/basefiles/config_lst
 Example:
 
 ```yaml
-train_cfg_file: /path/to/NextGenSandbox/data/lstm/trained_neuralhydrology_models/<training-run>/config.yml
+train_cfg_file: $SANDBOX_DATA_DIR/lstm/trained_neuralhydrology_models/<training-run>/config.yml
 attributes_file: /path/to/attributes.parquet
 ```
 
@@ -248,7 +248,7 @@ dHBV requires external trained-model weights in addition to the normal sandbox c
 Recommended layout:
 
 ```text
-$SANDBOX_DATA/dhbv2/
+$SANDBOX_DATA_DIR/dhbv2/
   dhbv_2_mts/
     model/
       dhbv_2_mts/
@@ -257,7 +257,7 @@ $SANDBOX_DATA/dhbv2/
         ...
 ```
 
-Using `$SANDBOX_DATA/dhbv2` keeps trained models separate from the dHBV source code under `SANDBOX_DIR/extern/dhbv2`.
+Using `$SANDBOX_DATA_DIR/dhbv2` keeps trained models separate from the dHBV source code under `SANDBOX_DIR/extern/dhbv2`.
 
 To run dHBV, set `model_dir` in `configs/basefiles/config_dhbv.yaml`:
 
@@ -265,7 +265,7 @@ To run dHBV, set `model_dir` in `configs/basefiles/config_dhbv.yaml`:
 model_dir: dhbv_2_mts/model/dhbv_2_mts
 ```
 
-Relative `model_dir` values are resolved under `$SANDBOX_DATA/dhbv2/`. Absolute paths are also supported.
+Relative `model_dir` values are resolved under `$SANDBOX_DATA_DIR/dhbv2/`. Absolute paths are also supported.
 
 `attributes_file` is optional. If omitted, the workflow defaults to:
 

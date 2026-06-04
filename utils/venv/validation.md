@@ -69,7 +69,7 @@ Sandbox environment already loaded.
 
 SANDBOX_DIR        : <path_to_sandbox_repo>/NextGenSandboxHub
 SANDBOX_BUILD_DIR  : <path_to_sandbox_repo>/NextGenSandboxHub/build
-SANDBOX_DATA       : <path_to_sandbox_repo>/NextGenSandboxHub/data
+SANDBOX_DATA_DIR   : <path_to_sandbox_repo>/NextGenSandboxHub/data
 SANDBOX_CONDARC    : <path_to_sandbox_repo>/NextGenSandboxHub/build/condarc
 NGEN_DIR           : <path_to_sandbox_repo>/NextGenSandboxHub/build/ngen
 SANDBOX_ENV        : <path_to_sandbox_repo>/NextGenSandboxHub/build/venv/sandbox
