@@ -16,6 +16,7 @@ BUILD_SANDBOX=${BUILD:-ON}
 for var in \
     SANDBOX_DIR \
     SANDBOX_BUILD_DIR \
+    SANDBOX_DATA \
     NGEN_DIR \
     SANDBOX_ENV \
     FORCING_ENV
@@ -30,10 +31,18 @@ do
 
 done
 
+SANDBOX_CONDARC="${SANDBOX_CONDARC:-$SANDBOX_BUILD_DIR/condarc}"
+export SANDBOX_CONDARC
+
 mkdir -p "$SANDBOX_BUILD_DIR"
+mkdir -p "$SANDBOX_DATA"
+touch "$SANDBOX_CONDARC"
+export CONDARC="$SANDBOX_CONDARC"
 
 echo "Sandbox dir       : $SANDBOX_DIR"
 echo "Sandbox build dir : $SANDBOX_BUILD_DIR"
+echo "Sandbox data dir  : $SANDBOX_DATA"
+echo "Sandbox condarc   : $SANDBOX_CONDARC"
 echo "Sandbox VENV      : $SANDBOX_ENV"
 echo "Forcing VENV      : $FORCING_ENV"
 
@@ -102,7 +111,7 @@ build_sandbox()
 	conda activate "$SANDBOX_ENV"
 
 	# To remove conda env long prefix 
-	conda config --set env_prompt '({name})'
+	conda config --env --set env_prompt '({name})'
 
 	#python -m pip install --upgrade pip --no-cache-dir
 	#pip install "setuptools>=64.0,<69.0" wheel

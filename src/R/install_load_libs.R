@@ -4,6 +4,9 @@
 #install.packages("renv")
 #renv::init()
 os_type <- Sys.info()[["sysname"]]
+message("Checking R package dependencies for NextGenSandbox subset workflow...")
+message("R version: ", R.version.string)
+message("Platform: ", os_type)
 
 #custom_lib <- .libPaths()[1]
 
@@ -31,18 +34,27 @@ installed <- rownames(installed.packages())
 
 for (pkg in cran_packages) {
   if (!pkg %in% installed) {
+    message("Installing CRAN package: ", pkg)
     install.packages(pkg, dependencies = TRUE)
+  } else {
+    message("Found CRAN package: ", pkg)
   }
 }
 
 if (!requireNamespace("remotes", quietly = TRUE)) {
+  message("Installing CRAN package: remotes")
   install.packages("remotes")
+} else {
+  message("Found CRAN package: remotes")
 }
 
 for (repo in github_packages) {
   pkg <- basename(repo)
   if (!requireNamespace(pkg, quietly = TRUE)) {
+    message("Installing GitHub package: ", repo)
     remotes::install_github(repo, upgrade = "never", dependencies = TRUE, build_vignettes = FALSE, Ncpus = 4)
+  } else {
+    message("Found GitHub package: ", pkg)
   }
 }
 
@@ -121,6 +133,8 @@ suppressPackageStartupMessages({
   library(yaml)
   library(dataRetrieval)
 })
+
+message("R package dependency check complete.")
 
 ###########
 # if(!requireNamespace("remotes", quietly=TRUE))

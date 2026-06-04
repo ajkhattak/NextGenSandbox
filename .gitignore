@@ -83,6 +83,11 @@ basin_workflow/ngen_cal_plugins/build
 .Rhistory
 .Rproj
 
+# Sandbox runtime subdirs
+build/
+data/
+*.sif
+
 #unit test
 # Ignore everything in test/
 test/*

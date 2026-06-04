@@ -2,17 +2,26 @@
 set -euo pipefail
 
 export CONDA_NO_PLUGINS=true
-#CONDA_SOLVER=classic # required for macOS
+#export CONDA_SOLVER=classic # required for macOS
 #CONDA_SOLVER=libmamba # already the mamba default
+export CONDARC="${SANDBOX_CONDARC:-$SANDBOX_BUILD_DIR/condarc}"
 
 eval "$(conda shell.bash hook)"
 
+mkdir -p "$(dirname "$CONDARC")"
+touch "$CONDARC"
 mkdir -p "${SANDBOX_BUILD_DIR}/rvenv/conda_envs"
 mkdir -p "${SANDBOX_BUILD_DIR}/rvenv/conda_pkgs"
-conda config --add envs_dirs "${SANDBOX_BUILD_DIR}/rvenv/conda_envs"
-conda config --add pkgs_dirs "${SANDBOX_BUILD_DIR}/rvenv/conda_pkgs"
-conda config --set channel_priority strict
-conda config --set safety_checks disabled
+conda config --file "$CONDARC" --remove-key channels >/dev/null 2>&1 || true
+conda config --file "$CONDARC" --remove-key envs_dirs >/dev/null 2>&1 || true
+conda config --file "$CONDARC" --remove-key pkgs_dirs >/dev/null 2>&1 || true
+conda config --file "$CONDARC" --append channels conda-forge
+conda config --file "$CONDARC" --append channels defaults
+conda config --file "$CONDARC" --set channel_priority strict
+conda config --file "$CONDARC" --set env_prompt '({name})'
+conda config --file "$CONDARC" --set safety_checks disabled
+conda config --file "$CONDARC" --append envs_dirs "${SANDBOX_BUILD_DIR}/rvenv/conda_envs"
+conda config --file "$CONDARC" --append pkgs_dirs "${SANDBOX_BUILD_DIR}/rvenv/conda_pkgs"
 
 if [ ! -d "${SANDBOX_BUILD_DIR}/rvenv/mamba" ]; then
   conda create -y -p "${SANDBOX_BUILD_DIR}/rvenv/mamba" -c conda-forge mamba
