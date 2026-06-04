@@ -193,23 +193,14 @@ formulation:
   models: "NOM,CASAM,T-ROUTE"
 ```
 
-### LSTM
-
-```yaml
-formulation:
-  models: "LSTM,T-ROUTE"
-```
-
-LSTM formulations are run as `control` tasks by the workflow (calibration tools not needed/used).
-
 ## Running LSTM
 
-LSTM requires external trained-model artifacts in addition to the normal sandbox configuration. These artifacts are not built by the sandbox workflow itself; the user must place them in a readable location and point `config_lstm.yaml` at them.
+LSTM requires external trained-model weights in addition to the normal sandbox configuration. These weights/models are not built by the sandbox workflow itself; the user must place them in a readable location and point `config_lstm.yaml` at them.
 
 Recommended layout:
 
 ```text
-$SANDBOX_BUILD_DIR/data/lstm/
+$SANDBOX_DATA/lstm/
   trained_neuralhydrology_models/
     <training-run-1>/
       config.yml
@@ -223,7 +214,7 @@ $SANDBOX_BUILD_DIR/data/lstm/
         train_data_scaler.yml
 ```
 
-Using `$SANDBOX_BUILD_DIR/data/lstm` keeps trained artifacts separate from the LSTM source code under `SANDBOX_DIR/extern/lstm`.
+Using `$SANDBOX_DATA/lstm` keeps trained models separate from the LSTM source code under `SANDBOX_DIR/extern/lstm`.
 
 To run LSTM, the user must configure two things in `configs/basefiles/config_lstm.yaml`:
 
@@ -233,7 +224,7 @@ To run LSTM, the user must configure two things in `configs/basefiles/config_lst
 Example:
 
 ```yaml
-train_cfg_file: /path/to/sandbox_build/data/lstm/trained_neuralhydrology_models/<training-run>/config.yml
+train_cfg_file: /path/to/sandbox_data/lstm/trained_neuralhydrology_models/<training-run>/config.yml
 attributes_file: /path/to/attributes.parquet
 ```
 
@@ -249,6 +240,40 @@ Before running `sandbox --conf` or `sandbox --run`, check that:
 4. the training run directory contains the required `model_epoch*.pt` files
 
 You may keep the trained data anywhere on disk and use absolute paths, as long as `train_cfg_file` and `attributes_file` point to valid locations.
+
+## Running dHBV
+
+dHBV requires external trained-model weights in addition to the normal sandbox configuration. These weights/models are not built by the sandbox workflow itself; the user must place them in a readable location and point `config_dhbv.yaml` at them.
+
+Recommended layout:
+
+```text
+$SANDBOX_DATA/dhbv2/
+  dhbv_2_mts/
+    model/
+      dhbv_2_mts/
+        config.yaml
+        dhbv_attrs.parquet
+        ...
+```
+
+Using `$SANDBOX_DATA/dhbv2` keeps trained models separate from the dHBV source code under `SANDBOX_DIR/extern/dhbv2`.
+
+To run dHBV, set `model_dir` in `configs/basefiles/config_dhbv.yaml`:
+
+```yaml
+model_dir: dhbv_2_mts/model/dhbv_2_mts
+```
+
+Relative `model_dir` values are resolved under `$SANDBOX_DATA/dhbv2/`. Absolute paths are also supported.
+
+`attributes_file` is optional. If omitted, the workflow defaults to:
+
+```text
+<model_dir>/dhbv_attrs.parquet
+```
+
+Set `attributes_file` only if your attribute parquet lives outside the model directory.
 
 ## Troubleshooting
 
@@ -287,6 +312,13 @@ Make sure `calib_params_block` matches a block name in `calib_config.yaml`.
 Check all of the following:
 
 - `configs/basefiles/config_lstm.yaml` points to valid `train_cfg_file` and `attributes_file` paths
-- each training `config.yml` has a valid `run_dir`
-- each `run_dir` contains `train_data/train_data_scaler.yml`
+- the training run directory contains `train_data/train_data_scaler.yml`
 - the trained weight files referenced by the run directory are present
+
+### dHBV trained data missing
+
+Check all of the following:
+
+- `configs/basefiles/config_dhbv.yaml` points to a valid `model_dir`
+- `model_dir` contains the trained dHBV bundle
+- `dhbv_attrs.parquet` exists under `model_dir`, or `attributes_file` points to a valid parquet file

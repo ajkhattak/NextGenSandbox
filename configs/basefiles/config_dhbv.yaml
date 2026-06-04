@@ -1,6 +1,18 @@
+# dHBV requires a trained model directory.
+# Recommended practice is to copy dHBV trained data under:
+#   $SANDBOX_DATA/dhbv2/
+#
+# Set model_dir to the trained model bundle directory.
+# If attributes_file is omitted, the workflow defaults to:
+#   <model_dir>/dhbv_attrs.parquet
+#
+# Relative model_dir paths are resolved first under:
+#   $SANDBOX_DATA/dhbv2/
+# and then fall back to:
+#   $SANDBOX_DIR/extern/dhbv2/
 
-attributes_file: ./ngen_resources/data/dhbv_2_mts/model/dhbv_2_mts/dhbv_attrs.parquet
-model_dir: ./ngen_resources/data/dhbv_2_mts/model/dhbv_2_mts
+model_dir: dhbv_2_mts/model/dhbv_2_mts
+#attributes_file: dhbv_2_mts/model/dhbv_2_mts/dhbv_attrs.parquet
 
 ### Single-catchment configuration ###
 catchment_id: 'cat-*'

@@ -39,9 +39,9 @@ class LSTMConfigurationGenerator(ConfigurationGenerator):
         if train_path.is_absolute():
             return train_path
 
-        sandbox_build_dir = Path(os.environ["SANDBOX_BUILD_DIR"])
+        sandbox_data_dir = Path(os.environ["SANDBOX_DATA"])
         candidates = [
-            sandbox_build_dir / "data" / "lstm" / train_path,
+            sandbox_data_dir / "lstm" / train_path,
             self.ctx.sandbox_dir / train_path,
         ]
 
@@ -56,9 +56,10 @@ class LSTMConfigurationGenerator(ConfigurationGenerator):
         if attr_path.is_absolute():
             return attr_path
 
+        sandbox_data_dir = Path(os.environ["SANDBOX_DATA"])
         candidates = [
+            sandbox_data_dir / "lstm" / attr_path,
             self.ctx.sandbox_dir / attr_path,
-            Path(os.environ["SANDBOX_BUILD_DIR"]) / attr_path,
         ]
 
         for candidate in candidates:

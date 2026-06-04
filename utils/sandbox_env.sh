@@ -47,6 +47,7 @@ SCRIPT_PATH="$SCRIPT_DIR/$(basename "$SOURCE")"
 SANDBOX_DIR="$(dirname "$SCRIPT_DIR")"
 
 SANDBOX_BUILD_DIR="$(dirname "$SANDBOX_DIR")/sandbox_build"
+SANDBOX_DATA="$(dirname "$SANDBOX_DIR")/sandbox_data"
 
 NGEN_DIR="$SANDBOX_BUILD_DIR/ngen"
 
@@ -57,9 +58,12 @@ FORCING_ENV="$SANDBOX_BUILD_DIR/venv/forcing"
 ########## Export environment #########
 export SANDBOX_DIR
 export SANDBOX_BUILD_DIR
+export SANDBOX_DATA
 export NGEN_DIR
 export SANDBOX_ENV
 export FORCING_ENV
+
+mkdir -p "$SANDBOX_DATA"
 
 ######### Detect target shell config #####
 if [[ "$SHELL" == *zsh ]]; then
@@ -126,6 +130,7 @@ fi
 for var in \
     SANDBOX_DIR \
     SANDBOX_BUILD_DIR \
+    SANDBOX_DATA \
     NGEN_DIR \
     SANDBOX_ENV \
     FORCING_ENV
@@ -144,6 +149,7 @@ if [ "$ENV_VERBOSE" = "ON" ]; then
         echo "Sandbox environment already loaded."
 	echo "SANDBOX_DIR        : $SANDBOX_DIR"
 	echo "SANDBOX_BUILD_DIR  : $SANDBOX_BUILD_DIR"
+	echo "SANDBOX_DATA       : $SANDBOX_DATA"
 	echo "NGEN_DIR           : $NGEN_DIR"
 	echo "SANDBOX_ENV        : $SANDBOX_ENV"
 	echo "FORCING_ENV        : $FORCING_ENV"
@@ -154,4 +160,3 @@ if [ "$ENV_VERBOSE" = "ON" ]; then
     fi
 
 fi
-
