@@ -224,7 +224,7 @@ To run LSTM, the user must configure two things in `configs/basefiles/config_lst
 Example:
 
 ```yaml
-train_cfg_file: /path/to/sandbox_data/lstm/trained_neuralhydrology_models/<training-run>/config.yml
+train_cfg_file: /path/to/NextGenSandbox/data/lstm/trained_neuralhydrology_models/<training-run>/config.yml
 attributes_file: /path/to/attributes.parquet
 ```
 

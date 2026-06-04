@@ -67,11 +67,12 @@ Configuration:
 
 Sandbox environment already loaded.
 
-SANDBOX_DIR        : <path_to_sandbox_parent_dir>/NextGenSandboxHub
-SANDBOX_BUILD_DIR  : <path_to_sandbox_parent_dir>/sandbox_build
-NGEN_DIR           : <path_to_sandbox_parent_dir>/sandbox_build/ngen
-SANDBOX_ENV        : <path_to_sandbox_parent_dir>/sandbox_build/venv/sandbox
-FORCING_ENV        : <path_to_sandbox_parent_dir>/sandbox_build/venv/forcing
+SANDBOX_DIR        : <path_to_sandbox_repo>/NextGenSandboxHub
+SANDBOX_BUILD_DIR  : <path_to_sandbox_repo>/NextGenSandboxHub/build
+SANDBOX_DATA       : <path_to_sandbox_repo>/NextGenSandboxHub/data
+NGEN_DIR           : <path_to_sandbox_repo>/NextGenSandboxHub/build/ngen
+SANDBOX_ENV        : <path_to_sandbox_repo>/NextGenSandboxHub/build/venv/sandbox
+FORCING_ENV        : <path_to_sandbox_repo>/NextGenSandboxHub/build/venv/forcing
 ```
 
 Verify that all environment variables are defined and point to the expected directories before continuing to the next step.
@@ -94,7 +95,7 @@ which sandbox
 Expected output:
 
 ```text
-<path_to_sandbox_parent_dir>/sandbox_build/venv/sandbox/bin/sandbox
+<path_to_sandbox_repo>/NextGenSandboxHub/build/venv/sandbox/bin/sandbox
 ```
 
 If `which sandbox` points to a different location (for example, `/usr/local/bin/sandbox`) or returns no result, the Sandbox environment is not activated correctly. Verify that Step 1.3 completed successfully and that the correct environment is active before proceeding.
