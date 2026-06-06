@@ -41,12 +41,6 @@ class ConfigurationGenerator:
         # convenience
         self.gdf = static_data.gdf
         self.catids = static_data.catids
-
-        # shared derived fields
-        #self.soil_params_NWM_dir = os.path.join(
-        #    self.static_data.ctx.ngen_dir,
-        #    "extern/noah-owp-modular/noah-owp-modular/parameters"
-        #)
     
     def write_input_files(self, member_id=None, tag=None):
         """
@@ -80,6 +74,10 @@ class CompositeConfigurationGenerator(ConfigurationGenerator):
 
 
 class ConfigurationCalib:
+    STREAMFLOW_OBSERVATION_PLUGIN = (
+        "ngen_cal_user_plugins.read_obs_plugin.ReadObservedData"
+    )
+
     def __init__(self,
                  ctx,
                  gpkg_file,
@@ -145,6 +143,36 @@ class ConfigurationCalib:
         raise FileNotFoundError(
             f"No parameters state file found in {params_state_path} or its *_worker subdirectory"
         )
+
+    def configure_streamflow_observations(self, model_config, gage_id):
+        streamflow_files = self.ctx.observation_files.get("streamflow")
+        if not streamflow_files:
+            plugins = model_config.get("plugins") or []
+            model_config["plugins"] = [
+                plugin
+                for plugin in plugins
+                if plugin != self.STREAMFLOW_OBSERVATION_PLUGIN
+            ]
+
+            plugin_settings = model_config.get("plugin_settings")
+            if isinstance(plugin_settings, dict):
+                plugin_settings.pop("read_obs_data", None)
+            return
+
+        if gage_id not in streamflow_files:
+            raise KeyError(
+                f"No validated streamflow observation file found for gage {gage_id}"
+            )
+
+        plugins = list(model_config.get("plugins") or [])
+        if self.STREAMFLOW_OBSERVATION_PLUGIN not in plugins:
+            plugins.append(self.STREAMFLOW_OBSERVATION_PLUGIN)
+        model_config["plugins"] = plugins
+
+        settings = dict(streamflow_files[gage_id])
+        settings["name"] = "streamflow"
+        settings["path"] = str(settings["path"])
+        model_config.setdefault("plugin_settings", {})["read_obs_data"] = settings
 
     def write_calib_input_files(self):
         
@@ -286,16 +314,11 @@ class ConfigurationCalib:
                 }
             }
 
-        df_new["model"]["plugins"] = base_file.get("model", "").get("plugins", "")
-        # see if user have provided local observed data
-        obs_data_flag = base_file.get('model', {}).get('plugin_settings', {}).get('read_obs_data', None)
-
-        if obs_data_flag:
-            obs_dir = base_file['model']['plugin_settings']['read_obs_data']['obs_data_path']
-            obs_file = glob.glob(f'{obs_dir}/{gpkg_name}*.csv')[0]
-            df_new.setdefault("model", {}).setdefault("plugin_settings", {})["read_obs_data"] = {
-                "obs_data_path": obs_file
-            }
+        df_new["model"]["plugins"] = base_file.get("model", {}).get("plugins", [])
+        self.configure_streamflow_observations(
+            df_new["model"],
+            gpkg_name.removeprefix("gage_"),
+        )
              
 
         if self.ngen_cal_type in ['restart', 'validation']:

@@ -13,7 +13,7 @@ general:
 
   start_iteration: 0
   # The total number of search iterations to run
-  iterations: 500
+  iterations: 300
   random_seed: 444
   workdir: ./
 
@@ -501,4 +501,9 @@ model:
       #- "ngen_cal_user_plugins.read_obs_plugin.ReadObservedData"
     #plugin_settings:
     #  read_obs_data:
-    #    obs_data_path: /Users/ahmadjankhattak/Core/projects/nwm_bm_sims/usgs_obs_streamflow
+    #    name: streamflow
+    #    layout: point
+    #    path: /absolute/path/to/gage_streamflow.csv
+    #    time_column: value_time
+    #    value_column: value
+    #    units: m3/sec

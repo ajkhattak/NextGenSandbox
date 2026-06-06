@@ -50,6 +50,31 @@ forcings :
 
   domain  : "conus"    #-------------------------------------------- options = ["conus", "HI", "PR", 'AK']
   select  : "01308000" #-------------------------------------------- Provide a single gage id, or list of ids, or a .csv file (with columns gage_id and num_divides) or "all" to download data for all gages in the input_dir
+
+########################################################################
+# Optional local CSV or Parquet observation datasets. Multiple observation types can
+# be loaded together. Use {gage_id} and {variable} in paths when each basin has
+# its own file.
+observations: {}
+  #streamflow:
+  #  layout: point
+  #  path: "<path_to_observations>/{gage_id}_streamflow.parquet"
+  #  path: "<path_to_observations>/{gage_id}/{variable}.parquet"
+  #  time_column: value_time
+  #  value_column: value
+  #  units: "m3/sec"
+  #
+  #ET:
+  #  layout: distributed
+  #  path: "<path_to_observations>/{gage_id}_ET.parquet"
+  #  path: "<path_to_observations>/{gage_id}_{variable}.parquet"
+  #  time_column: value_time
+  #  units: "mm/h"
+  #  For long-format Parquet, provide both fields below. For wide-format
+  #  Parquet, omit them; each non-time column is treated as a sub-basin ID.
+  #  id_column: divide_id
+  #  value_column: value
+
 ########################################################################
 formulation :
   #ngen_dir         : "<path_to_ngen_dir>" #------------------------------- OPTIONAL: Path to NextGen base directory. For instance, <path_to_ngen>/ngen. Defaults is <path_to_sandbox>/extern/ngen

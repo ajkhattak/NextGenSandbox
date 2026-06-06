@@ -47,6 +47,50 @@ forcings:
 
 Simulation time windows must fall within the forcing time range.
 
+### `observations`
+
+The optional `observations` block configures one or more local CSV or Parquet
+datasets for the selected simulation gages. During configuration generation,
+the sandbox resolves file paths and validates the file schema without loading
+the observation values. When local streamflow observations are not configured,
+ngen-cal uses its built-in provider to download streamflow observations from
+USGS.
+
+```yaml
+observations:
+  streamflow:
+    layout: point
+    path: "/path/to/observations/gage_{gage_id}_streamflow.parquet"
+    time_column: value_time
+    value_column: value
+    units: "m3/sec"
+
+  ET:
+    layout: distributed
+    path: "/path/to/observations/gage_{gage_id}_ET.parquet"
+    time_column: value_time
+    units: "mm/h"
+```
+
+Multiple observation types, such as streamflow and ET, may be loaded together.
+`path` supports `{gage_id}` and `{variable}` placeholders.
+
+`units` is required for every observation type. Loaded units are available
+through `ctx.observation_units`. This step records units but does not convert
+values between units.
+
+Streamflow observation units must be `m3/s` or `m3/sec`. The workflow and
+streamflow plugin accept either label but do not perform unit conversion.
+
+`layout: point` describes one value per timestamp.
+
+`layout: distributed` describes one value per timestamp and sub-basin.
+Distributed CSV or Parquet files may use either layout:
+
+- Wide format: one time column and one column per sub-basin.
+- Long format: provide `id_column` and `value_column` to identify the
+  sub-basin and observed value columns.
+
 ## Formulations
 
 The `formulation.models` value lists the model components used by a run.

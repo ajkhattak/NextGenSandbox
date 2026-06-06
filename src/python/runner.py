@@ -139,6 +139,13 @@ class Runner:
             mode = 'calibration' if self.ctx.task_type == 'calibvalid' else self.ctx.task_type
             self.run_ngen_experiment(mode, gpkg_file, o_dir, self.file_par, id)
 
+            if self.ctx.dryrun and self.ctx.task_type == 'calibvalid':
+                print(
+                    "Dry run: skipping validation because calibration state "
+                    "was not generated."
+                )
+                return
+
         if self.ctx.task_type in ['validation', 'calibvalid']:
             self.run_ngen_experiment('validation', gpkg_file, o_dir, self.file_par, id)
 
@@ -201,9 +208,7 @@ class Runner:
             if result.returncode != 0:
                 raise RuntimeError(f"{mode.capitalize()} step failed...")
         else:
-            print("Dry run: no simulation executed.")
-
-            return
+            print(f"Dry run command: {run_command}")
 
     def validate_configs(self, output_dir):
             

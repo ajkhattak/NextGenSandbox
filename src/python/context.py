@@ -22,6 +22,7 @@ from src.python.formulations_registry import (
     with_default_routing,
 )
 from src.python.model_instances import build_model_instances
+from src.python.observations import ObservationLoader
 
 @dataclass
 class SandboxContext:
@@ -47,6 +48,7 @@ class SandboxContext:
         self.load_config()
         self.validate_formulation()
         self.load_gpkg_dirs()
+        self.validate_observations()
         self.build_instances()
         self.prepare_model_instances()
         self.prepare_forcing_files()
@@ -78,6 +80,8 @@ class SandboxContext:
         self.load_forcing_config()
 
         self.load_simulation_config()
+
+        self.load_observations_config()
         
         self.load_launcher_config()
         
@@ -127,6 +131,20 @@ class SandboxContext:
         self.is_corrected_forcing = dforcing.get("is_corrected_forcing", True)
 
         self.is_netcdf_forcing = (self.forcing_format != ".csv")
+
+    def load_observations_config(self):
+        self.observations = self.sandbox_config.get("observations", {}) or {}
+
+        if not isinstance(self.observations, dict):
+            raise TypeError("observations must be a mapping of observation names")
+
+    def validate_observations(self):
+        loader = ObservationLoader(
+            observations=self.observations,
+            config_dir=Path(self.sandbox_config_path).resolve().parent,
+        )
+        self.observation_files = loader.validate(self.gage_ids)
+        self.observation_units = loader.units
 
 
     def load_simulation_config(self):

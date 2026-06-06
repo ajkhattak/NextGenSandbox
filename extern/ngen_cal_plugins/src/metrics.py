@@ -8,7 +8,16 @@ from __future__ import annotations
 import typing
 
 from ngen.cal import hookimpl
-from hydrotools.metrics.metrics import *
+from hydrotools.metrics.metrics import (
+    coefficient_of_extrapolation,
+    coefficient_of_persistence,
+    kling_gupta_efficiency,
+    mean_error,
+    mean_squared_error,
+    nash_sutcliffe_efficiency,
+    root_mean_squared_error,
+    volumetric_efficiency,
+)
 import numpy as np
 import pandas as pd
 from pathlib import Path

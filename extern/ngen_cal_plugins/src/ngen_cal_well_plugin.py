@@ -9,7 +9,7 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 import glob
-from hydrotools.metrics.metrics import *
+from hydrotools.metrics.metrics import kling_gupta_efficiency
 
 if typing.TYPE_CHECKING:
     from datetime import datetime
@@ -275,4 +275,3 @@ def kling_gupta_well(df_observed, df_simulated):
         kge = 1 - kge/count
 
     return kge
-
