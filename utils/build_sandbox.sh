@@ -141,7 +141,7 @@ build_sandbox()
 
     pip install 'extern/ngen-cal/python/ngen_cal[netcdf]'
     pip install extern/ngen-cal/python/ngen_conf
-    pip install -e ./extern/ngen_cal_plugins
+    pip install -e ./plugins/ngen_cal_plugins
     pip install -e ./extern/lstm
     pip install -e ./extern/dhbv2
  

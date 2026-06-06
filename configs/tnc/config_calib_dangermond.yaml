@@ -100,9 +100,9 @@ model:
       # choices are "kling_gupta", "nnse", "custom", "single_peak", "volume"
       objective: "kling_gupta"
     plugins:
-      - "ngen_cal_user_plugins.ngen_cal_save_iteration_output_plugin.SaveCalibration" # saves ngen *.csv to "output_iteration" directory
-      - "ngen_cal_user_plugins.ngen_cal_save_sim_obs_plugin.SaveCalibration"          # saves simulated and observed discharge at the outlet
-      - "ngen_cal_user_plugins.ngen_cal_read_obs_plugin.ReadObservedData"
+      - "ngen_cal_plugins.ngen_cal_save_iteration_output_plugin.SaveCalibration" # saves ngen *.csv to "output_iteration" directory
+      - "ngen_cal_plugins.ngen_cal_save_sim_obs_plugin.SaveCalibration"          # saves simulated and observed discharge at the outlet
+      - "ngen_cal_plugins.ngen_cal_read_obs_plugin.ReadObservedData"
     plugin_settings:
       ngen_cal_read_obs_data:
         obs_data_path: /Users/ahmadjan/Core/SimulationsData/projects/tnc-dangermond/ngen-dr/stream_discharge-19791001-19820929_11120600.csv

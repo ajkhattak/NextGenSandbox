@@ -495,10 +495,10 @@ model:
       #objective: "nnse"
       #target : "max"
     plugins:
-      - "ngen_cal_user_plugins.save_divide_output_plugin.SaveData" # saves cat_*.csv or nex-*.csv to "output_iteration" directory
-      - "ngen_cal_user_plugins.save_sim_obs_plugin.SaveData"          # saves simulated and observed discharge at the outlet
-      - "ngen_cal_user_plugins.metrics.ComputeMetrics"
-      #- "ngen_cal_user_plugins.read_obs_plugin.ReadObservedData"
+      - "ngen_cal_plugins.save_divide_output_plugin.SaveData" # saves cat_*.csv or nex-*.csv to "output_iteration" directory
+      - "ngen_cal_plugins.save_sim_obs_plugin.SaveData"          # saves simulated and observed discharge at the outlet
+      - "ngen_cal_plugins.metrics.ComputeMetrics"
+      #- "ngen_cal_plugins.read_obs_plugin.ReadObservedData"
     #plugin_settings:
     #  read_obs_data:
     #    name: streamflow

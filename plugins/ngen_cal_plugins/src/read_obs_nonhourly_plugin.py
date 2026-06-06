@@ -5,7 +5,6 @@ import typing
 from ngen.cal import hookimpl
 from hypy.nexus import Nexus
 import pandas as pd
-import numpy as np
 
 if typing.TYPE_CHECKING:
     from datetime import datetime
@@ -35,9 +34,10 @@ class Proxy:
 
 
 class ReadObservedData:
+    ACCEPTED_UNITS = {"m3/s", "m3/sec"}
+
     def __init__(self):
         self.proxy = Proxy(pd.Series())
-        self.ft3_to_m3 = 0.0283168
         self.obs_data_path = None
         self.units = None
         self.window = 1
@@ -53,6 +53,10 @@ class ReadObservedData:
             "obs_data_path"
         ]
         self.units = config.plugin_settings["read_obs_data"]["units"]
+        if self.units not in self.ACCEPTED_UNITS:
+            raise ValueError(
+                "Streamflow observation units must be 'm3/s' or 'm3/sec'"
+            )
         self.window = int(config.plugin_settings["read_obs_data"]["window"])
 
         start = self.obs_kwargs["start_time"]
@@ -70,8 +74,6 @@ class ReadObservedData:
         df = pd.read_csv(filename, usecols=["value_time", "value"])
 
         df["value_date"] = pd.to_datetime(df["value_time"])
-        if self.units == "ft3/sec" or self.units == "ft3/s":
-            df["value"] = self.ft3_to_m3 * df["value"]
 
         # subset into `pd.Series` that is indexed by `datetime` with a name
         df.set_index("value_date", inplace=True)

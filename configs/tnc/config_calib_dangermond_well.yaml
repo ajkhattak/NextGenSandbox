@@ -102,10 +102,10 @@ model:
         CFE: *cfe_params
     
     eval_params:
-      objective: "ngen_cal_user_plugins.ngen_cal_well_plugin.kling_gupta_well"
+      objective: "ngen_cal_plugins.ngen_cal_well_plugin.kling_gupta_well"
     plugins:
-      - "ngen_cal_user_plugins.ngen_cal_save_iteration_output_plugin.SaveCalibration" # saves ngen *.csv to "output_iteration" directory
-      - "ngen_cal_user_plugins.ngen_cal_well_plugin.WellPlugin"
+      - "ngen_cal_plugins.ngen_cal_save_iteration_output_plugin.SaveCalibration" # saves ngen *.csv to "output_iteration" directory
+      - "ngen_cal_plugins.ngen_cal_well_plugin.WellPlugin"
     plugin_settings:
       ngen_cal_read_obs_data:
         obs_data_path: "/home/ec2-user/core/tnc-dangermond/simulations/observed_data/gw_catchment_hourly_level_difference/hourly_level_diff_meters_smoothed_20091108_20110501.parquet"

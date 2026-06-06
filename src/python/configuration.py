@@ -75,7 +75,7 @@ class CompositeConfigurationGenerator(ConfigurationGenerator):
 
 class ConfigurationCalib:
     STREAMFLOW_OBSERVATION_PLUGIN = (
-        "ngen_cal_user_plugins.read_obs_plugin.ReadObservedData"
+        "ngen_cal_plugins.read_obs_plugin.ReadObservedData"
     )
 
     def __init__(self,
