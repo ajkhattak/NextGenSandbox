@@ -107,7 +107,7 @@ def check_sandbox_venv(sandbox_build_dir):
 def Sandbox(args, sandbox_config, calib_config, rscript, dryrun=False):
     
     if (args.subset):
-        print ("Generating geopackages...")
+        print ("Generating geopackages...", flush=True)
 
         subprocess.run(
             [
@@ -129,6 +129,10 @@ def Sandbox(args, sandbox_config, calib_config, rscript, dryrun=False):
             sys.exit("Failed during downloading forcing data step...")
         else:
             print ("DONE \u2713")
+
+    if not (args.conf or args.run):
+        print ("**********************************")
+        return
 
     mode = "conf" if args.conf else "run"
 

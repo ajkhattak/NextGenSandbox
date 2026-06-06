@@ -76,7 +76,7 @@ Setup <-function() {
     stop("Invalid input: 'subsetting$hydrofabric$gpkg_path' is missing, empty, or does not exist.")
   }
 
-  source(paste0(sandbox_dir, "/src/R/install_load_libs.R"))
+  suppressMessages(source(paste0(sandbox_dir, "/src/R/install_load_libs.R")))
   source(glue("{sandbox_dir}/src/R/custom_functions.R"))
   
   compute_divide_attributes <<- get_param(inputs, "subsetting$hydrofabric$compute_divide_attributes", TRUE)
