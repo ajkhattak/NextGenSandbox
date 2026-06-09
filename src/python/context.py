@@ -133,12 +133,39 @@ class SandboxContext:
         self.is_netcdf_forcing = (self.forcing_format != ".csv")
 
     def load_observations_config(self):
-        self.observations = self.sandbox_config.get("observations", {}) or {}
+        observations = self.sandbox_config.get("observations", {}) or {}
 
-        if not isinstance(self.observations, dict):
+        if not isinstance(observations, dict):
             raise TypeError("observations must be a mapping of observation names")
 
+        self.observation_objective = observations.get("objective")
+        if self.observation_objective is not None and (
+            not isinstance(self.observation_objective, str)
+            or not self.observation_objective.strip()
+        ):
+            raise ValueError("observations.objective must be a non-empty string")
+
+        self.observations = {
+            name: config
+            for name, config in observations.items()
+            if name != "objective"
+        }
+
     def validate_observations(self):
+        missing_outputs = {
+            config["simulated"]
+            for config in self.observations.values()
+            if isinstance(config, dict)
+            and config.get("simulated")
+            and config["simulated"] not in self.output_variables
+        }
+        if missing_outputs:
+            raise ValueError(
+                "Observation simulated variables must also be listed in "
+                "simulation.output_variables: "
+                f"{', '.join(sorted(missing_outputs))}"
+            )
+
         loader = ObservationLoader(
             observations=self.observations,
             config_dir=Path(self.sandbox_config_path).resolve().parent,
@@ -162,6 +189,20 @@ class SandboxContext:
         self.sim_name_suffix = dsim.get("sim_name_suffix") or None
 
         self.disable_divide_output = dsim.get("disable_divide_output", True)
+
+        self.output_variables = dsim.get("output_variables", {}) or {}
+        if not isinstance(self.output_variables, dict) or not all(
+            isinstance(variable, str)
+            and variable.strip()
+            and isinstance(settings, dict)
+            and isinstance(settings.get("units"), str)
+            and settings["units"].strip()
+            for variable, settings in self.output_variables.items()
+        ):
+            raise ValueError(
+                "simulation.output_variables must be a mapping of output "
+                "variable names to settings containing non-empty units"
+            )
 
         if self.task_type in ["calibration", "calibvalid", "restart"]:
 

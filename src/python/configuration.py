@@ -74,9 +74,21 @@ class CompositeConfigurationGenerator(ConfigurationGenerator):
 
 
 class ConfigurationCalib:
-    STREAMFLOW_OBSERVATION_PLUGIN = (
+    OBSERVATION_PLUGIN = (
         "ngen_cal_plugins.read_obs_plugin.ReadObservedData"
     )
+    NGEN_CAL_OBJECTIVES = {
+        "custom",
+        "kling_gupta",
+        "nnse",
+        "single_peak",
+        "volume",
+    }
+    OBSERVATION_OBJECTIVES = {
+        "kge": "ngen_cal_plugins.objectives.kge_multi_variable",
+        "nse": "ngen_cal_plugins.objectives.nse_multi_variable",
+        "nnse": "ngen_cal_plugins.objectives.nnse_multi_variable",
+    }
 
     def __init__(self,
                  ctx,
@@ -144,14 +156,30 @@ class ConfigurationCalib:
             f"No parameters state file found in {params_state_path} or its *_worker subdirectory"
         )
 
-    def configure_streamflow_observations(self, model_config, gage_id):
-        streamflow_files = self.ctx.observation_files.get("streamflow")
-        if not streamflow_files:
+    def configure_observations(self, model_config, gage_id):
+        observation_settings = {}
+        for name, files_by_gage in self.ctx.observation_files.items():
+            if gage_id not in files_by_gage:
+                raise KeyError(
+                    f"No validated {name} observation file found for gage "
+                    f"{gage_id}"
+                )
+
+            settings = dict(files_by_gage[gage_id])
+            settings["path"] = str(settings["path"])
+            simulated = settings.get("simulated")
+            if simulated:
+                settings["simulated_units"] = self.ctx.output_variables[
+                    simulated
+                ]["units"]
+            observation_settings[name] = settings
+
+        if not observation_settings:
             plugins = model_config.get("plugins") or []
             model_config["plugins"] = [
                 plugin
                 for plugin in plugins
-                if plugin != self.STREAMFLOW_OBSERVATION_PLUGIN
+                if plugin != self.OBSERVATION_PLUGIN
             ]
 
             plugin_settings = model_config.get("plugin_settings")
@@ -159,20 +187,59 @@ class ConfigurationCalib:
                 plugin_settings.pop("read_obs_data", None)
             return
 
-        if gage_id not in streamflow_files:
-            raise KeyError(
-                f"No validated streamflow observation file found for gage {gage_id}"
+        objective_key = (
+            "val_params"
+            if getattr(self, "ngen_cal_type", None) == "validation"
+            else "eval_params"
+        )
+        objective_params = model_config.setdefault(objective_key, {})
+        observation_objective = getattr(
+            self.ctx,
+            "observation_objective",
+            None,
+        )
+        if observation_objective:
+            objective_name = observation_objective.strip().lower()
+            if objective_name in self.OBSERVATION_OBJECTIVES:
+                objective = self.OBSERVATION_OBJECTIVES[objective_name]
+            elif "." in observation_objective:
+                objective = observation_objective.strip()
+            else:
+                supported = ", ".join(sorted(self.OBSERVATION_OBJECTIVES))
+                raise ValueError(
+                    f"Unsupported observations.objective "
+                    f"'{observation_objective}'. Supported objectives: "
+                    f"{supported}, or a custom objective import path"
+                )
+            objective_params["objective"] = objective
+            objective_params["target"] = "min"
+
+        variables = set(observation_settings)
+        uses_streamflow_default = variables == {"streamflow"}
+        objective = objective_params.get("objective")
+        uses_custom_objective = (
+            isinstance(objective, str)
+            and objective not in self.NGEN_CAL_OBJECTIVES
+        )
+        if not uses_streamflow_default and not uses_custom_objective:
+            names = ", ".join(observation_settings)
+            raise ValueError(
+                "Built-in ngen-cal objectives are only valid when streamflow is "
+                "the sole local observation type. "
+                f"Configured observation types: {names}. "
+                "Set model.eval_params.objective in configs/calib_config.yaml to "
+                "the import path of a custom objective function, typically defined "
+                "in the plugins package."
             )
 
-        plugins = list(model_config.get("plugins") or [])
-        if self.STREAMFLOW_OBSERVATION_PLUGIN not in plugins:
-            plugins.append(self.STREAMFLOW_OBSERVATION_PLUGIN)
-        model_config["plugins"] = plugins
 
-        settings = dict(streamflow_files[gage_id])
-        settings["name"] = "streamflow"
-        settings["path"] = str(settings["path"])
-        model_config.setdefault("plugin_settings", {})["read_obs_data"] = settings
+        plugins = list(model_config.get("plugins") or [])
+        if self.OBSERVATION_PLUGIN not in plugins:
+            plugins.append(self.OBSERVATION_PLUGIN)
+        model_config["plugins"] = plugins
+        model_config.setdefault("plugin_settings", {})[
+            "read_obs_data"
+        ] = observation_settings
 
     def write_calib_input_files(self):
         
@@ -315,7 +382,7 @@ class ConfigurationCalib:
             }
 
         df_new["model"]["plugins"] = base_file.get("model", {}).get("plugins", [])
-        self.configure_streamflow_observations(
+        self.configure_observations(
             df_new["model"],
             gpkg_name.removeprefix("gage_"),
         )

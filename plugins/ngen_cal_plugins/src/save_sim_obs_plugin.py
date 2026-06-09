@@ -80,76 +80,27 @@ class SaveData:
         ), "make sure `ngen_cal_model_output` was called"
         assert self.obs is not None, "make sure `ngen_cal_model_observations` was called"
 
-        # index: hourly datetime
-        # columns: `obs_flow` and `sim_flow`; units m^3/s
-        #df = pd.merge(self.sim, self.obs, left_index=True, right_index=True)
-
         if self.save_obs_nwm:
             #self.save_obs_nwm = False  # will revisit this later
-            df = pd.merge(self.sim, self.obs, left_index=True, right_index=True)
+            sim = self._as_variable_series(self.sim)
+            obs = self._as_variable_series(self.obs)
+            df = pd.concat([sim, obs], axis=1).sort_index()
         else:
-            df = pd.DataFrame(self.sim)
-
-        df.reset_index(names="time", inplace=True)
-        #df.to_parquet(f"sim_obs_{iteration}.parquet")
+            df = self._as_variable_series(self.sim).to_frame()
 
         path = info.workdir
-        #out_dir = path / f"output_{iteration}"
         out_dir = path / f"output_sim_obs"
         if (not out_dir.is_dir()):
             Path.mkdir(out_dir)
-        df.to_csv(f"{out_dir}/sim_obs_{iteration}.csv")
-        
+        df.to_parquet(out_dir / f"sim_obs_{iteration}.parquet")
 
-"""
-class SaveValidation:
-    def __init__(self) -> None:
-        self.sim: pd.Series | None = None
-        self.obs: pd.Series | None = None
-        self.first_iteration: bool = True
+    @staticmethod
+    def _as_variable_series(series: pd.Series) -> pd.Series:
+        if isinstance(series.index, pd.MultiIndex):
+            return series
 
-
-    @hookimpl(wrapper=True)
-    def ngen_cal_model_output(
-        self, id: str | None
-    ) -> typing.Generator[None, pd.Series, pd.Series]:
-        # In short, all registered `ngen_cal_model_output` hooks run
-        # before `yield` and the results are sent as the result to `yield`
-        # NOTE: DO NOT MODIFY `sim`
-        sim = yield
-
-        if sim is None:
-            return None
-
-        assert isinstance(sim, pd.Series), f"expected pd.Series, got {type(sim)!r}"
-
-        self.sim = sim
-
-        global ds_sim_test
-        ds_sim_test = sim
-        return sim
-
-    
-    @hookimpl
-    def ngen_cal_finish(exception: Exception | None) -> None:
-        
-        if exception is None:
-            print("validation: not saving obs/sim output")
-            return
-        
-        global _workdir
-        assert _workdir is not None, "invariant"
-
-        try:
-            df = pd.merge(ds_sim_test, ds_obs_test, left_index=True, right_index=True)
-        except:
-            df = pd.DataFrame(ds_sim_test)
-
-        df.reset_index(names="time", inplace=True)
-
-        path = _workdir
-        out_dir = path / f"output_sim_obs"
-        if (not out_dir.is_dir()):
-            Path.mkdir(out_dir)
-        df.to_csv(f"{out_dir}/sim_obs_validation.csv")
-"""
+        variable = "streamflow"
+        combined = pd.concat({variable: series}, names=["variable"])
+        combined = combined.swaplevel().sort_index()
+        combined.index.names = ["value_time", "variable"]
+        return combined

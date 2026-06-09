@@ -114,7 +114,19 @@ class ComputeMetrics:
             self.update_metrics(info, metrics, iteration)
             return
 
-        df = pd.merge(self.sim, self.obs, left_index=True, right_index=True)
+        sim = self.sim
+        obs = self.obs
+        if isinstance(obs.index, pd.MultiIndex) and not isinstance(
+            sim.index,
+            pd.MultiIndex,
+        ):
+            if "streamflow" not in obs.index.get_level_values("variable"):
+                metrics = failure_all_nan()
+                self.update_metrics(info, metrics, iteration)
+                return
+            obs = obs.xs("streamflow", level="variable")
+
+        df = pd.merge(sim, obs, left_index=True, right_index=True)
 
         if df.empty:
             print("MERGED DATAFRAME IS EMPTY. SETTING ALL METRICS TO NP.NAN")
@@ -123,7 +135,7 @@ class ComputeMetrics:
             return
 
         if self.eval_range:
-            df = df.between_time(self.eval_range[0], self.eval_range[1])
+            df = df.loc[self.eval_range[0]:self.eval_range[1]]
 
         metrics = pd.Series(index=funcs.keys())
         for f in funcs.keys():

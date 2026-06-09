@@ -56,6 +56,7 @@ forcings :
 # be loaded together. Use {gage_id} and {variable} in paths when each basin has
 # its own file.
 observations: {}
+  #objective: kge # options: kge, nse, nnse
   #streamflow:
   #  layout: point
   #  path: "<path_to_observations>/{gage_id}_streamflow.parquet"
@@ -69,7 +70,10 @@ observations: {}
   #  path: "<path_to_observations>/{gage_id}_ET.parquet"
   #  path: "<path_to_observations>/{gage_id}_{variable}.parquet"
   #  time_column: value_time
-  #  units: "mm/h"
+  #  units: "mm/d"
+  #  simulated: ACTUAL_ET
+  #  Simulated values are converted from the units declared under
+  #  simulation.output_variables.
   #  For long-format Parquet, provide both fields below. For wide-format
   #  Parquet, omit them; each non-time column is treated as a sub-basin ID.
   #  id_column: divide_id
@@ -119,6 +123,9 @@ simulation :
   restart_dir      : "<path_to_restart_dir>/{*}/202410042024_ngen_qaiklwj0_worker/" #----------- Restart experiment from the best iteration
 
   disable_divide_output: TRUE #--------------------------------------------- Turn off/on catchment output files (e.g., actual ET, etc.); Default is TRUE
+  output_variables: {} #---------------------------------------------------- BMI variables written to each cat-<divide_id>.csv file
+    #ACTUAL_ET:
+    #  units: "m/h"
 
   partitioning:
     mode: parallel     #----------------------------------------------------- Execution mode: parallel or serial

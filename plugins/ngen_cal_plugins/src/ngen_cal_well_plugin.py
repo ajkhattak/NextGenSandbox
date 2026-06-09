@@ -257,21 +257,7 @@ class WellPlugin:
 
 
 def kling_gupta_well(df_observed, df_simulated):
+    """Compatibility wrapper for the multi-variable KGE objective."""
+    from ngen_cal_plugins.objectives import kge_multi_variable
 
-    cats = df_observed.index.levels[1] # get all cat-ids
-
-    kge = 0.0
-
-    count = 0
-    for cat in cats:
-
-        if ( not (df_observed[:,cat] == 0.0).all() and not (df_simulated[:,cat] == 0.0).all()):
-            kge = kge + kling_gupta_efficiency(df_observed[:,cat], df_simulated[:,cat])
-            count = count + 1
-
-    if (count == 0):
-        kge = 1000.0
-    else:
-        kge = 1 - kge/count
-
-    return kge
+    return kge_multi_variable(df_observed, df_simulated)

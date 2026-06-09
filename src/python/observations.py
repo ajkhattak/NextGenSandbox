@@ -46,7 +46,6 @@ class ObservationLoader:
         path = self.resolve_path(name, config["path"], gage_id)
         columns = self._read_columns(path)
         self._validate_columns(name, config, path, columns)
-
         return {
             "path": path,
             "layout": config["layout"].lower(),
@@ -54,6 +53,7 @@ class ObservationLoader:
             "value_column": config.get("value_column"),
             "id_column": config.get("id_column"),
             "units": config["units"],
+            "simulated": config.get("simulated"),
         }
 
     def load_one(self, name, config, gage_id):
@@ -149,12 +149,28 @@ class ObservationLoader:
                     "for point observations"
                 )
 
+        # For wide-format distributed observations, no id_column or value_column is needed:
+        # value_time           cat-1  cat-2
+        # 2016-01-01 00:00:00  1.2    1.8
+        # for long-format distributed observations, id_column:divide_id, value_column:ET is needed
+        # value_time           divide_id   ET
+        # 2016-01-01 00:00:00  cat-1       1.2
+        # 2016-01-01 00:00:00  cat-2       1.8
+
         if layout == "distributed" and config.get("id_column"):
             value_column = config.get("value_column")
             if not isinstance(value_column, str) or not value_column.strip():
                 raise ValueError(
                     f"observations.{name}.value_column must be provided "
                     "for long-format distributed observations"
+                )
+
+        simulated = config.get("simulated")
+        if simulated is not None:
+            if not isinstance(simulated, str) or not simulated.strip():
+                raise ValueError(
+                    f"observations.{name}.simulated must name a simulation "
+                    "output variable"
                 )
 
     def _normalize_dataframe(self, name, config, path, dataframe):
@@ -263,5 +279,6 @@ class ObservationLoader:
                 )
 
         distributed.sort_index(inplace=True)
-        distributed.columns.name = "sub_basin_id"
+        distributed.columns.name = "divide_id"
+
         return distributed

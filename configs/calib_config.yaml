@@ -271,11 +271,7 @@ noahowp_params: &noahowp_params
     min: 3.6
     max: 12.6
     init: 9.0
-  -
-    name: RSURF_EXP # surface resistence for snow [s/m]
-    min: 1.0
-    max: 6.0
-    init: 3.0
+  
   #-
   #  name: SHDMAX # annual maximum fraction of surface covered by vegetation
   #  min: 0.05
@@ -498,12 +494,3 @@ model:
       - "ngen_cal_plugins.save_divide_output_plugin.SaveData" # saves cat_*.csv or nex-*.csv to "output_iteration" directory
       - "ngen_cal_plugins.save_sim_obs_plugin.SaveData"          # saves simulated and observed discharge at the outlet
       - "ngen_cal_plugins.metrics.ComputeMetrics"
-      #- "ngen_cal_plugins.read_obs_plugin.ReadObservedData"
-    #plugin_settings:
-    #  read_obs_data:
-    #    name: streamflow
-    #    layout: point
-    #    path: /absolute/path/to/gage_streamflow.csv
-    #    time_column: value_time
-    #    value_column: value
-    #    units: m3/sec

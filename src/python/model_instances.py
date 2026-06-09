@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Optional
 
@@ -193,6 +193,36 @@ DEFAULT_MODEL_INSTANCES = {
 }
 
 
+def _clone_instance(instance: ModelInstance) -> ModelInstance:
+    return replace(instance)
+
+
+def _merge_instance(
+    default_instance: Optional[ModelInstance],
+    model: str,
+    item: dict
+) -> ModelInstance:
+    base = _clone_instance(default_instance) if default_instance else ModelInstance(
+        model=model,
+        name=item["name"],
+    )
+
+    if "name" in item:
+        base.name = item["name"]
+    if "repo_name" in item:
+        base.repo_name = item["repo_name"]
+    if "calib_params_block" in item:
+        base.calib_params_block = item["calib_params_block"]
+    if "ngen_cal_model_name" in item:
+        base.ngen_cal_model_name = item["ngen_cal_model_name"]
+    if "basefile" in item:
+        base.basefile = item["basefile"]
+    if "library_file" in item:
+        base.library_file = item["library_file"]
+
+    return base
+
+
 def build_model_instances(formulation, model_instances=None):
     """
     Build canonical registry of model instances.
@@ -216,7 +246,7 @@ def build_model_instances(formulation, model_instances=None):
 
     registry = {}
 
-    registry["SLOTH"] = DEFAULT_MODEL_INSTANCES["SLOTH"]
+    registry["SLOTH"] = [_clone_instance(instance) for instance in DEFAULT_MODEL_INSTANCES["SLOTH"]]
 
     model_instances = model_instances or {}
 
@@ -228,17 +258,17 @@ def build_model_instances(formulation, model_instances=None):
         if model in model_instances:
 
             instances = []
+            default_instances = {
+                instance.name: instance
+                for instance in DEFAULT_MODEL_INSTANCES.get(model, [])
+            }
 
             for item in model_instances[model]:
-
-                instance = ModelInstance(
+                name = item["name"]
+                instance = _merge_instance(
+                    default_instances.get(name),
                     model=model,
-                    name=item["name"],
-                    basefile=item.get("basefile"),
-                    repo_name=item.get("repo_name"),
-                    calib_params_block=item.get("calib_params_block", ""),
-                    ngen_cal_model_name=item.get("ngen_cal_model_name"),
-                    library_file=item.get("library_file")
+                    item=item,
                 )
 
                 instances.append(instance)
@@ -248,7 +278,10 @@ def build_model_instances(formulation, model_instances=None):
         # Default instances
         elif model in DEFAULT_MODEL_INSTANCES:
 
-            registry[model] = DEFAULT_MODEL_INSTANCES[model]
+            registry[model] = [
+                _clone_instance(instance)
+                for instance in DEFAULT_MODEL_INSTANCES[model]
+            ]
 
         # Generic fallback
         else:

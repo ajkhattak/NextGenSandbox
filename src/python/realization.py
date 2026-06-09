@@ -139,7 +139,6 @@ class RealizationGenerator:
             modules = [self.get_sloth_block(instance)]
 
 
-        output_variables = []
         output_header_fields = []
 
         # NOM
@@ -157,13 +156,11 @@ class RealizationGenerator:
         # SAC-SMA
         for instance in self.model_registry.get("SACSMA", []):
             main_output_variable = "tci"
-            output_variables = ["tci"]
             modules.append(self.get_sacsma_block(instance))
 
         # TOPMODEL
         for instance in self.model_registry.get("TOPMODEL", []):
             main_output_variable = "Qout"
-            #output_variables = ["Qout"]
             modules.append(self.get_topmodel_block(instance))
 
 
@@ -175,7 +172,6 @@ class RealizationGenerator:
         # CASAM
         for instance in self.model_registry.get("CASAM", []):
             main_output_variable = "total_discharge"
-            output_variables = ["total_discharge"]
             modules.append(self.get_casam_block(instance))
 
         # SMP
@@ -189,9 +185,7 @@ class RealizationGenerator:
         # LSTM
         for instance in self.model_registry.get("LSTM", []):
             main_output_variable = "land_surface_water__runoff_depth"
-            output_variables = ["land_surface_water__runoff_depth"]
             modules.append(self.get_lstm_block(instance))
-
 
         # DHBV
         for instance in self.model_registry.get("DHBV", []):
@@ -200,23 +194,23 @@ class RealizationGenerator:
 
         #output_header_fields = ["rain_rate", "q_out", "PET", "AET"]
 
-        # disable catchment output, later move this to base realization file
-        
-        root["disable_catchment_output"] = True if self.disable_divide_output else False
-        
-        
-        output_header_fields = ["Qout"]
+        # Requested output variables are written to per-divide CSV files.
+        root["disable_catchment_output"] = (
+            False if self.ctx.output_variables else self.disable_divide_output
+        )
 
         if (len(main_output_variable) == 0):
             str_msg = f"main_output_variable at the multi_bmi block level is empty, needs to be an output variable from the models."
             raise ValueError(str_msg)
-        
-        #assert len(output_variables) == len(output_header_fields)
+
 
         global_block["params"]["model_type_name"] = model_type_name
         global_block["params"]["main_output_variable"] = main_output_variable
-        #global_block["params"]["output_variables"] = output_variables
-        #global_block["params"]["output_header_fields"] = output_header_fields
+
+        if self.ctx.output_variables:
+            global_block["params"]["output_variables"] = list(
+                self.ctx.output_variables
+            )
         global_block["params"]["modules"] = modules
 
         root["global"]["formulations"] = [global_block]
