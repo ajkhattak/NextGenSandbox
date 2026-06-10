@@ -22,15 +22,20 @@ class SaveData:
         self.obs: pd.Series | None = None
         self.first_iteration: bool = True
         self.save_obs_nwm: bool = True
+        self.output_retention: str = "best"
 
     @hookimpl
     def ngen_cal_model_configure(self, config: ModelExec) -> None:
+        settings = config.plugin_settings.get("output_retention", {})
+        self.output_retention = settings.get("mode", "best")
+        if self.output_retention not in {"best", "all"}:
+            raise ValueError("output_retention.mode must be one of: best, all")
         path = config.workdir
         global _workdir
         # HACK: fix this in future
         _workdir = path
     
-    @hookimpl(wrapper=True)
+    @hookimpl(wrapper=True, tryfirst=True)
     def ngen_cal_model_observations(
         self,
         nexus: Nexus,
@@ -53,7 +58,7 @@ class SaveData:
 
         return obs
 
-    @hookimpl(wrapper=True)
+    @hookimpl(wrapper=True, tryfirst=True)
     def ngen_cal_model_output(
         self, nexus: Nexus
     ) -> typing.Generator[None, pd.Series, pd.Series]:
@@ -90,9 +95,17 @@ class SaveData:
 
         path = info.workdir
         out_dir = path / f"output_sim_obs"
-        if (not out_dir.is_dir()):
-            Path.mkdir(out_dir)
-        df.to_parquet(out_dir / f"sim_obs_{iteration}.parquet")
+        out_dir.mkdir(exist_ok=True)
+
+        if self.output_retention == "all":
+            df.to_parquet(out_dir / f"sim_obs_{iteration}.parquet")
+            return
+
+        if iteration == 0:
+            df.to_parquet(out_dir / "sim_obs_0.parquet")
+
+        if self._is_best_iteration(path, iteration):
+            df.to_parquet(out_dir / "sim_obs_best.parquet")
 
     @staticmethod
     def _as_variable_series(series: pd.Series) -> pd.Series:
@@ -104,3 +117,21 @@ class SaveData:
         combined = combined.swaplevel().sort_index()
         combined.index.names = ["value_time", "variable"]
         return combined
+
+    @staticmethod
+    def _is_best_iteration(workdir: Path, iteration: int) -> bool:
+        best_params = workdir / "best_params.txt"
+        if not best_params.exists():
+            return False
+
+        with best_params.open() as file:
+            lines = file.readlines()
+
+        if len(lines) < 2:
+            raise ValueError(
+                f"Invalid best parameters file; expected at least two lines: "
+                f"{best_params}"
+            )
+
+        best_iteration = lines[1].strip()
+        return best_iteration == str(iteration)

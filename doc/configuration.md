@@ -110,7 +110,7 @@ single observation variable. For a metric value `E`, each variable contributes
 
 The optional `simulated` value identifies which generated simulation output
 corresponds to the observation variable. Its units are defined once under
-`simulation.output_variables`. `units` describes the observed values, while
+`simulation.outputs.divide_variables`. `units` describes the observed values, while
 the output variable's `units` describes the raw model output before temporal
 aggregation.
 
@@ -127,16 +127,17 @@ variables are available for calibration, diagnostics, or post-processing:
 
 ```yaml
 simulation:
-  output_variables:
-    ACTUAL_ET:
-      units: "m/h"
-    POTENTIAL_ET:
-      units: "m/h"
-    INFILTRATION:
-      units: "m/h"
+  outputs:
+    divide_variables:
+      ACTUAL_ET:
+        units: "m/h"
+      POTENTIAL_ET:
+        units: "m/h"
+      INFILTRATION:
+        units: "m/h"
 ```
 
-When `output_variables` is non-empty, catchment output is enabled automatically
+When `divide_variables` is non-empty, catchment output is enabled automatically
 and each requested BMI variable is written to every `cat-<divide_id>.csv`
 file. Units are required for every requested output variable. They are recorded
 for observation matching and are not passed to ngen.
@@ -148,21 +149,41 @@ calibration period. Datasets retain their native frequencies; the plugin does
 not resample or interpolate values.
 
 `units` is required for every observation type and every
-`simulation.output_variables` entry. The sandbox records these values but does
+`simulation.outputs.divide_variables` entry. The sandbox records these values but does
 not pass them to ngen. The observation plugin currently converts depth units
 between `m`, `mm`, `m/h`, `mm/h`, `m/d`, and `mm/d`. Unsupported or
 temporally incompatible unit combinations raise an error.
 
-The save-simulation-observation plugin writes each iteration to
-`output_sim_obs/sim_obs_<iteration>.parquet`. The file has a MultiIndex named
-`value_time` and `variable`, with `sim_flow` and `obs_flow` columns. It
-preserves each variable's native timestamps, so unmatched timestamps remain
-null. Load one variable and retain only aligned pairs with:
+Calibration output retention is configured under `simulation.outputs`:
+
+```yaml
+simulation:
+  outputs:
+    calibration:
+      retention: best  # options: best, all
+```
+
+With `retention: best`, divide-level outputs retain only `output_best`,
+and the save-simulation-observation plugin keeps two files:
+
+- `output_sim_obs/sim_obs_0.parquet` preserves the first iteration.
+- `output_sim_obs/sim_obs_best.parquet` is overwritten whenever ngen-cal
+  identifies a new best iteration.
+
+Each file has a MultiIndex named `value_time` and `variable`, with `sim_flow`
+and `obs_flow` columns. It preserves each variable's native timestamps, so
+unmatched timestamps remain null. Load one variable and retain only aligned
+pairs with:
 
 ```python
-data = pd.read_parquet("output_sim_obs/sim_obs_0.parquet")
+data = pd.read_parquet("output_sim_obs/sim_obs_best.parquet")
 et_pairs = data.xs("ET", level="variable").dropna()
 ```
+
+With `retention: all`, divide-level outputs are stored under
+`output_<iteration>`, and simulation-observation outputs are stored as
+`output_sim_obs/sim_obs_<iteration>.parquet`. This can require substantial
+storage for long or highly distributed calibrations.
 
 Streamflow observation units must be `m3/s` or `m3/sec`. The workflow and
 streamflow plugin accept either label but do not perform unit conversion.

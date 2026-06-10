@@ -169,7 +169,7 @@ class ConfigurationCalib:
             settings["path"] = str(settings["path"])
             simulated = settings.get("simulated")
             if simulated:
-                settings["simulated_units"] = self.ctx.output_variables[
+                settings["simulated_units"] = self.ctx.divide_output_variables[
                     simulated
                 ]["units"]
             observation_settings[name] = settings
@@ -382,6 +382,16 @@ class ConfigurationCalib:
             }
 
         df_new["model"]["plugins"] = base_file.get("model", {}).get("plugins", [])
+        output_retention = (
+            self.ctx.calibration_output_retention
+            if self.ngen_cal_type in {"calibration", "restart"}
+            else "all"
+        )
+        df_new["model"].setdefault("plugin_settings", {})[
+            "output_retention"
+        ] = {
+            "mode": output_retention,
+        }
         self.configure_observations(
             df_new["model"],
             gpkg_name.removeprefix("gage_"),

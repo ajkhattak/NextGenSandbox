@@ -61,10 +61,14 @@ def clean_output(sim_dir: Path):
 
 class SaveData:
     def __init__(self):
-        self.kge_best = -1
+        self.output_retention = "best"
 
     @hookimpl
     def ngen_cal_model_configure(self, config: ModelExec) -> None:
+        settings = config.plugin_settings.get("output_retention", {})
+        self.output_retention = settings.get("mode", "best")
+        if self.output_retention not in {"best", "all"}:
+            raise ValueError("output_retention.mode must be one of: best, all")
         path = config.workdir
         global _workdir
         # HACK: fix this in future
@@ -77,41 +81,30 @@ class SaveData:
         evaluation and inspection.
         """
         path = info.workdir
-        try:
-            with open(path / 'best_params.txt', 'r') as file:
-                dat = file.readlines()
-        except:
+        if self.output_retention == "all":
             save_output(path, str(iteration))
             return
 
-        iter_kge = float(dat[2].strip())
+        if not (path / "best_params.txt").exists():
+            save_output(path, str(iteration))
+            return
 
-        if (self.kge_best < 0):
-            self.kge_best = iter_kge
-            save_output(path, 'best')
-        elif (iter_kge < self.kge_best):
-            self.kge_best = iter_kge
-            save_output(path, 'best')
+        if self._is_best_iteration(path, iteration):
+            save_output(path, "best")
         else:
             clean_output(path)
 
-        #save_output(path, str(iteration))
+    @staticmethod
+    def _is_best_iteration(workdir: Path, iteration: int) -> bool:
+        best_params = workdir / "best_params.txt"
+        with best_params.open() as file:
+            lines = file.readlines()
 
-"""
-class SaveValidation:
-    def __init__(self) -> None:
-        self.sim: pd.Series | None = None
-        self.obs: pd.Series | None = None
-        self.first_iteration: bool = True
-        #self.save_obs_nwm: bool = True
+        if len(lines) < 2:
+            raise ValueError(
+                f"Invalid best parameters file; expected at least two lines: "
+                f"{best_params}"
+            )
 
-    @hookimpl
-    def ngen_cal_finish(exception: Exception | None) -> None:
-        if exception is None:
-            print("not saving validation output")
-            return
-        global _workdir
-        assert _workdir is not None, "invariant"
-
-        save_output(_workdir, "validation")
-"""
+        best_iteration = lines[1].strip()
+        return best_iteration == str(iteration)

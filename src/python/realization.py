@@ -44,7 +44,6 @@ class RealizationGenerator:
         self.ensemble_size      = len([m.strip() for m in ensemble_models.split(",")]) if self.ensemble_enabled else 1
         self.ensemble_member_id = ensemble_member_id
 
-        self.disable_divide_output = self.ctx.disable_divide_output
 
         if isinstance(self.ctx.ensemble_models, str):
             self.ensemble_models = self.ctx.ensemble_models.lower()
@@ -196,7 +195,7 @@ class RealizationGenerator:
 
         # Requested output variables are written to per-divide CSV files.
         root["disable_catchment_output"] = (
-            False if self.ctx.output_variables else self.disable_divide_output
+            not bool(self.ctx.divide_output_variables)
         )
 
         if (len(main_output_variable) == 0):
@@ -207,9 +206,9 @@ class RealizationGenerator:
         global_block["params"]["model_type_name"] = model_type_name
         global_block["params"]["main_output_variable"] = main_output_variable
 
-        if self.ctx.output_variables:
+        if self.ctx.divide_output_variables:
             global_block["params"]["output_variables"] = list(
-                self.ctx.output_variables
+                self.ctx.divide_output_variables.keys()
             )
         global_block["params"]["modules"] = modules
 

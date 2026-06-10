@@ -73,7 +73,7 @@ observations: {}
   #  units: "mm/d"
   #  simulated: ACTUAL_ET
   #  Simulated values are converted from the units declared under
-  #  simulation.output_variables.
+  #  simulation.outputs.divide_variables.
   #  For long-format Parquet, provide both fields below. For wide-format
   #  Parquet, omit them; each non-time column is treated as a sub-basin ID.
   #  id_column: divide_id
@@ -122,10 +122,12 @@ simulation :
   valid_eval_time  : {"start_time" : "2019-10-01 00:00:00", "end_time" : "2020-09-30 23:00:00"} # Evalaution period for validation (excluding spinup period)
   restart_dir      : "<path_to_restart_dir>/{*}/202410042024_ngen_qaiklwj0_worker/" #----------- Restart experiment from the best iteration
 
-  disable_divide_output: TRUE #--------------------------------------------- Turn off/on catchment output files (e.g., actual ET, etc.); Default is TRUE
-  output_variables: {} #---------------------------------------------------- BMI variables written to each cat-<divide_id>.csv file
-    #ACTUAL_ET:
-    #  units: "m/h"
+  outputs:
+    divide_variables: {} #-------------------------------------------------- BMI variables written to each cat-<divide_id>.csv file
+      #ACTUAL_ET:
+      #  units: "m/h"
+    calibration:
+      retention: best #----------------------------------------------------- Calibration outputs: best or all
 
   partitioning:
     mode: parallel     #----------------------------------------------------- Execution mode: parallel or serial
