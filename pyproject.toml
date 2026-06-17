@@ -24,6 +24,7 @@ dependencies = [
     "geopandas",
     "fiona",
     "pygeohydro",
+    "aiohttp<3.14",
     "Cython>3,!=3.0.4",
     "pycares==4.11.0"
 ]

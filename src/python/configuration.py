@@ -262,12 +262,17 @@ class ConfigurationCalib:
         with open(self.ctx.calib_config_path, 'r') as file:
             base_file = yaml.safe_load(file)
 
+        base_strategy = base_file.get("general", {}).get("strategy", {})
+        strategy = {
+            "type": base_strategy.get("type", "estimation"),
+            "algorithm": base_strategy.get("algorithm", "dds"),
+        }
+        if "parameters" in base_strategy:
+            strategy["parameters"] = base_strategy["parameters"]
+
         df_new = {
             "general": {
-                "strategy": {
-                    "type": base_file.get("general").get("strategy").get("type", "estimation"),
-                    "algorithm": base_file.get("general").get("strategy").get("algorithm", "dds")
-                },
+                "strategy": strategy,
                 "log": base_file.get("general").get("log", True),
                 "start_iteration": base_file.get("general").get("start_iteration", 0),
                 "iterations": base_file.get("general").get("iterations"),
