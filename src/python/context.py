@@ -132,6 +132,8 @@ class SandboxContext:
 
         self.is_netcdf_forcing = (self.forcing_format != ".csv")
 
+        self.rechunk_forcing = dforcing.get("rechunk", True)
+
     def load_observations_config(self):
         observations = self.sandbox_config.get("observations", {}) or {}
 
@@ -499,25 +501,8 @@ class SandboxContext:
 
                     if not fdir.exists() or not fdir.is_dir():
                         raise ValueError(f"Forcing directory '{fdir}' does not exist.")
-                    if self.is_corrected_forcing:
-                        forcing_file = glob.glob(f"{fdir}/*_corrected.nc")[0]
-
-                        chunk_py = os.path.join(self.sandbox_dir,"utils/python/rechunk_forcing.py")
-                        # Rechunk forcing file if utility exists
-                        if os.path.isfile(chunk_py):
-                            subprocess.run(
-                                [sys.executable, chunk_py, "-i", forcing_file],
-                                check=True
-                            )
-
-                            rechunked_files = glob.glob(f"{fdir}/*_corrected_rechunked.nc")
-
-                            if rechunked_files:
-                                forcing_file = rechunked_files[0]
-
-                    else:
-                        nc_file = glob.glob(f"{fdir}/*.nc")
-                        forcing_file = [f for f in nc_file if not "_corrected" in f][0]
+                    forcing_file = self._select_netcdf_forcing_file(fdir)
+                    forcing_file = self._prepare_rechunked_forcing_file(forcing_file)
 
                     self.forcing_files.append(forcing_file)
             else:
@@ -527,11 +512,9 @@ class SandboxContext:
                 if not Path(self.forcing_dir).is_dir():
                     forcing_file = self.forcing_dir
                 else:
-                    if self.is_corrected_forcing:
-                        forcing_file = glob.glob(f"{self.forcing_dir}/*_corrected.nc")[0]
-                    else:
-                        nc_file = glob.glob(f"{self.forcing_dir}/*.nc")
-                        forcing_file = [f for f in nc_file if not "_corrected" in f][0]
+                    forcing_file = self._select_netcdf_forcing_file(self.forcing_dir)
+
+                forcing_file = self._prepare_rechunked_forcing_file(forcing_file)
 
                 self.forcing_files.append(forcing_file)
         else:
@@ -546,6 +529,59 @@ class SandboxContext:
                         raise ValueError("forcing format is .csv, so '{fdir}' should point to a directory and not file.")
 
                     self.forcing_files.append(fdir)
+
+    def _select_netcdf_forcing_file(self, forcing_dir):
+        forcing_dir = Path(forcing_dir)
+        if self.is_corrected_forcing:
+            files = sorted(forcing_dir.glob("*_corrected.nc"))
+            expected = "*_corrected.nc"
+        else:
+            files = sorted(
+                path
+                for path in forcing_dir.glob("*.nc")
+                if "_corrected" not in path.name and "_rechunked" not in path.name
+            )
+            expected = "*.nc excluding *_corrected.nc and *_rechunked.nc"
+
+        if not files:
+            raise FileNotFoundError(
+                f"No NetCDF forcing file found in {forcing_dir}. "
+                f"Expected {expected}."
+            )
+        if len(files) > 1:
+            raise ValueError(
+                f"Multiple NetCDF forcing files found in {forcing_dir}: "
+                f"{', '.join(path.name for path in files)}"
+            )
+        return str(files[0])
+
+    def _prepare_rechunked_forcing_file(self, forcing_file):
+        forcing_path = Path(forcing_file)
+        if not self.rechunk_forcing or forcing_path.suffix != ".nc":
+            return str(forcing_path)
+        if forcing_path.stem.endswith("_rechunked"):
+            return str(forcing_path)
+
+        rechunked_path = forcing_path.parent / f"{forcing_path.stem}_rechunked.nc"
+        if (
+            rechunked_path.exists()
+            and rechunked_path.stat().st_mtime >= forcing_path.stat().st_mtime
+        ):
+            return str(rechunked_path)
+
+        chunk_py = Path(self.sandbox_dir) / "utils/python/rechunk_forcing.py"
+        if not chunk_py.is_file():
+            raise FileNotFoundError(f"Forcing rechunk utility not found: {chunk_py}")
+
+        subprocess.run(
+            [sys.executable, str(chunk_py), "-i", str(forcing_path)],
+            check=True,
+        )
+        if not rechunked_path.exists():
+            raise FileNotFoundError(
+                f"Rechunked forcing file was not created: {rechunked_path}"
+            )
+        return str(rechunked_path)
 
     
     def process_clean_input_param(self, clean):

@@ -38,3 +38,25 @@ NextGen [Forcings Engine](https://github.com/NOAA-OWP/ngen-forcing]) to get the 
 - python ngen/extern/ngen-forcing/NextGen_Lumped_Forcings_Driver/Run_NextGen_lumped_driver.py
 - Note: Go through the README.md [here](https://github.com/jduckerOWP/ngen-forcing/blob/master/NextGen_Lumped_Forcings_Driver/README.md)
   to understand and adjust different directories according to your settings.
+
+## NetCDF forcing rechunking
+
+Sandbox can rechunk NetCDF forcing files before configuration generation. This
+creates a sibling `*_rechunked.nc` file and points ngen to that file. The
+original forcing file is left unchanged. Existing rechunked files are reused
+when they are newer than the source forcing file.
+
+```yaml
+forcings:
+  format: ".nc"
+  rechunk: true
+```
+
+The standalone utility is:
+
+```bash
+python utils/python/rechunk_forcing.py -i /path/to/forcing.nc
+```
+
+Acknowledgement: the rechunking utility is adapted from Austin Raney's
+approach for improving ngen forcing-read performance.

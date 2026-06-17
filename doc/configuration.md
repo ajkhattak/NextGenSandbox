@@ -39,6 +39,7 @@ Controls forcing time range, format, domain, and optional forcing directory.
 ```yaml
 forcings:
   format: ".nc"
+  rechunk: true
   time:
     start_time: "2016-10-01 00:00:00"
     end_time: "2020-09-30 23:00:00"
@@ -46,6 +47,12 @@ forcings:
 ```
 
 Simulation time windows must fall within the forcing time range.
+
+For NetCDF forcing, `rechunk: true` writes and uses a sibling
+`*_rechunked.nc` file when needed. Rechunking can substantially improve ngen
+forcing-read performance. Existing rechunked files are reused when they are
+newer than the source forcing file. Set `rechunk: false` to use the source
+NetCDF file directly.
 
 ### `observations`
 
