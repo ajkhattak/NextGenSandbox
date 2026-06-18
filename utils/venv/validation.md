@@ -78,6 +78,41 @@ FORCING_ENV        : <path_to_sandbox_repo>/NextGenSandboxHub/build/venv/forcing
 
 Verify that all environment variables are defined and point to the expected directories before continuing to the next step.
 
+### Bootstrap Check
+
+Run:
+
+```bash
+./bootstrap.sh --check
+```
+
+This command is safe to run at any time. It does not install packages or create
+directories. It reports:
+
+- Sandbox path variables and whether the directories exist
+- shell startup registration for `utils/sandbox_env.sh`
+- system tools such as `git`, Python, conda/mamba, and Rscript
+- Sandbox, forcing, and subset environments
+- key Python imports such as `ngen.cal`, `ngen.config`, and `nwm_routing`
+- key R packages used by the subset workflow
+- ngen executable and git submodule status
+
+Use missing or warning lines as the next setup step to fix. For example, a
+missing Sandbox Python environment means `./bootstrap.sh --sandbox` has not
+completed, while a missing subset R environment means `./bootstrap.sh --subset`
+has not completed.
+
+Recommended times to run it:
+
+- after `./bootstrap.sh --env --verbose`, especially in a new terminal
+- after `./bootstrap.sh --sandbox`
+- after `./bootstrap.sh --subset`
+- after `./bootstrap.sh --ngen --models --troute`
+- whenever a Sandbox command fails and the cause is unclear
+
+Experienced users can run it once at the end of setup, but running it between
+major steps makes installation problems easier to localize.
+
 
 ### Step 1.4 Validation
 
