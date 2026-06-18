@@ -2,6 +2,12 @@
 # STEP #3: provide USGS gauge id or your own geopackage (single or multiple)
 #------------------------------------------------------------------------------#
 
+HYDROFABRIC_DIR <- "hydrofabric"
+
+hydrofabric_path <- function(cat_dir, gpkg_name) {
+  file.path(cat_dir, HYDROFABRIC_DIR, gpkg_name)
+}
+
 
 ############################ DRIVER_GIVEN_GAGE_ID ##############################
 # main script that loops over all the gage IDs and computes giuh/twi etc.
@@ -42,7 +48,7 @@ ProcessCatchmentID <- function(id) {
 
   # DEM and related files (such as projected/corrected DEMs, and specific contributing area rasters are stored here)
   dir.create("dem", recursive = TRUE, showWarnings = FALSE)
-  dir.create("data", recursive = TRUE, showWarnings = FALSE)
+  dir.create(HYDROFABRIC_DIR, recursive = TRUE, showWarnings = FALSE)
 
   failed <- TRUE
 
@@ -131,8 +137,8 @@ ProcessGPKG <- function(gfile, failed_dir) {
   # area rasters are stored here)
   
   dir.create("dem", recursive = TRUE, showWarnings = FALSE)
-  dir.create("data", recursive = TRUE, showWarnings = FALSE)
-  file.copy(gfile, "data")
+  dir.create(HYDROFABRIC_DIR, recursive = TRUE, showWarnings = FALSE)
+  file.copy(gfile, HYDROFABRIC_DIR)
 
   failed <- TRUE
 
@@ -141,7 +147,7 @@ ProcessGPKG <- function(gfile, failed_dir) {
 
     gpkg_name = basename(gfile)
 
-    local_gpkg_file = glue("{cat_dir}/data/{gpkg_name}")
+    local_gpkg_file = hydrofabric_path(cat_dir, gpkg_name)
 
     RunDriver(is_gpkg_provided = TRUE,
               loc_gpkg_file = local_gpkg_file,
@@ -199,7 +205,7 @@ RunDriver <- function(gage_id = NULL,
   outfile <- " "
   if(!is_gpkg_provided) {
     start.time <- Sys.time()
-    outfile <- glue('data/gage_{gage_id}.gpkg')
+    outfile <- hydrofabric_path(getwd(), glue("gage_{gage_id}.gpkg"))
 
     # Get domain info for this gage
     gage_metadata <- suppressMessages(readNWISsite(gage_id)) |> 
@@ -430,4 +436,3 @@ RunDriver <- function(gage_id = NULL,
   # Reproject to ensure all .gpkgs end up in Albers projection (EPSG:5070)
   reprojection_function(outfile)
 }
-
