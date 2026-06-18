@@ -34,7 +34,7 @@ NextGen [Forcings Engine](https://github.com/NOAA-OWP/ngen-forcing]) to get the 
     from exactextract import GDALDatasetWrapper, GDALRasterWrapper, Operation, MapWriter, FeatureSequentialProcessor, GDALWriter
     ``` 
 ### Run NextGen Forcings driver to download the data
-- create data/forcing (inside your basin directory)
+- create `forcing` inside your basin directory
 - python ngen/extern/ngen-forcing/NextGen_Lumped_Forcings_Driver/Run_NextGen_lumped_driver.py
 - Note: Go through the README.md [here](https://github.com/jduckerOWP/ngen-forcing/blob/master/NextGen_Lumped_Forcings_Driver/README.md)
   to understand and adjust different directories according to your settings.

@@ -26,7 +26,7 @@ subsetting :
 
 
 ########################################################################
-#forcing data is stored under <input_dir>/gage_id/data/forcing
+#forcing data is stored under <input_dir>/<gage_id>/forcing by default
 forcings : 
   format  : ".nc"
   time    : {"start_time" : "2016-10-01 00:00:00", "end_time" : "2017-09-30 23:00:00"}
@@ -51,4 +51,3 @@ simulation :
   validation_time  : {"start_time" : "2010-11-22 14:00:00", "end_time" : "2010-12-23 02:00:00"} # Entire simulation period for validation; including spinup period
   valid_eval_time  : {"start_time" : "2010-11-23 14:00:00", "end_time" : "2010-12-23 02:00:00"} # Evalaution period for validation (excluding spinup period)
   restart_dir      : "<path_to_restart_dir>/{*}/202410042024_ngen_qaiklwj0_worker/" #----------- Restart experiment from the best iteration
-

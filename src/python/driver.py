@@ -23,6 +23,7 @@ from pathlib import Path
 
 from src.python import helper
 from src.python import generate
+from src.python.resource_paths import find_gpkg_file
 
 class Driver:
     def __init__(self, ctx):
@@ -48,12 +49,12 @@ class Driver:
             print("output_dir: ", o_dir)
             print("forcing_dir: ", f_dir)
 
-        gpkg_name = Path(glob.glob(str(i_dir / "data" / "*.gpkg"))[0]).name
-        gpkg_dir = Path(glob.glob(str(i_dir / "data" / "*.gpkg"))[0])
+        gpkg_dir = find_gpkg_file(i_dir)
+        gpkg_name = gpkg_dir.name
         gpkg_id = i_dir.name
 
         # get num of cores for the basin
-        gpkg_file = Path(glob.glob(str(i_dir / "data" / "*.gpkg"))[0])
+        gpkg_file = gpkg_dir
         num_cpus = helper.prepare_basin_partitioning(ctx.sandbox_dir, gpkg_file,
                                                      ctx.sandbox_config["simulation"]['partitioning'],
                                                      create_par_file=False)

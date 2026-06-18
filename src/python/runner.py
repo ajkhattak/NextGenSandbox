@@ -18,6 +18,7 @@ from pathlib import Path
 import shutil
 from src.python import configuration
 from src.python import helper
+from src.python.resource_paths import find_gpkg_file
 
 class Runner:
     def __init__(self, ctx):
@@ -70,7 +71,7 @@ class Runner:
             print("input_dir: ", i_dir)
             print("output_dir: ", o_dir)
 
-            gpkg_file = Path(glob.glob(str(i_dir / "data" / "*.gpkg"))[0])
+            gpkg_file = find_gpkg_file(i_dir)
             gpkg_name = gpkg_file.stem
 
             realization = glob.glob(str(o_dir / "configs" / "realization_*.json"))
@@ -121,7 +122,7 @@ class Runner:
         print("input_dir: ", i_dir)
         print("output_dir: ", o_dir)
 
-        gpkg_file = Path(glob.glob(str(i_dir / "data" / "*.gpkg"))[0])
+        gpkg_file = find_gpkg_file(i_dir)
         gpkg_name = gpkg_file.stem
 
         file_par, num_cpus = helper.prepare_basin_partitioning(self.ctx.sandbox_dir, gpkg_file,
