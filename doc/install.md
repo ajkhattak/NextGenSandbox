@@ -8,12 +8,16 @@ For a typical setup, the workflow is:
 
 1. `./bootstrap.sh --env --verbose`
 2. Reload your shell or open a new terminal
-3. Activate the sandbox Python environment
+3. `./bootstrap.sh --check`
 4. `./bootstrap.sh --sandbox`
-5. Install hydrofabric/R dependencies
-6. `./bootstrap.sh --ngen --models --troute`
-7. Review [configuration.md](./configuration.md) and update `configs/sandbox_config.yaml`
-8. Run `sandbox --subset`, `sandbox --forc`, `sandbox --conf`, and `sandbox --run`
+5. `./bootstrap.sh --check`
+6. Activate the sandbox Python environment
+7. `./bootstrap.sh --subset`
+8. `./bootstrap.sh --check`
+9. `./bootstrap.sh --ngen --models --troute`
+10. `./bootstrap.sh --check`
+11. Review [configuration.md](./configuration.md) and update `configs/sandbox_config.yaml`
+12. Run `sandbox --subset`, `sandbox --forc`, `sandbox --conf`, and `sandbox --run`
 
 ### <ins>  Step 1. Build Sandbox Workflow
   1.1 Clone the repository (if not already done):
@@ -32,6 +36,16 @@ For a typical setup, the workflow is:
   Validate this step [here](https://github.com/ajkhattak/NextGenSandboxHub/blob/main/utils/venv/validation.md#step-13-validation).
 
   > **Important:** On first-time setup, open a new terminal (or reload your shell) before continuing.
+
+  1.3.1 Check the bootstrap status:
+
+     ./bootstrap.sh --check
+
+  This command is read-only. It reports configured paths, available system tools,
+  Sandbox/forcing/subset environments, key Python and R packages, ngen/t-route
+  availability, and git submodule status.
+  Run it after each major setup step, or whenever a Sandbox command fails and
+  the cause is not obvious.
 
   1.4 Build the Sandbox workflow:
      
@@ -84,6 +98,7 @@ You can also run the build steps separately as needed:
 ```
 ./bootstrap.sh [OPTIONS]
 Options:
+  --check    Check environment, tools, package imports, and build artifacts
   --ngen     Build ngen
   --models   Build models
   --troute   Build t-route
@@ -93,6 +108,7 @@ Options:
 
 Before moving on to configuration, confirm that the environment bootstrap succeeded:
 
+- Run `./bootstrap.sh --check`
 - Validate Step 1.3 with [utils/venv/validation.md](../utils/venv/validation.md#step-13-validation)
 - Validate Step 1.4 with [utils/venv/validation.md](../utils/venv/validation.md#step-14-validation)
 
