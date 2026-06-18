@@ -419,7 +419,9 @@ percent_differences_area <- list()
 for (basin in basins) {
   tryCatch({
     # Read the geopackage -------------------
-    if(file.exists(glue('{input_dir}/{basin}/data/gage_{basin}.gpkg'))){
+    if(file.exists(glue('{input_dir}/{basin}/hydrofabric/gage_{basin}.gpkg'))){
+      infile <- glue('{input_dir}/{basin}/hydrofabric/gage_{basin}.gpkg')
+    } else if(file.exists(glue('{input_dir}/{basin}/data/gage_{basin}.gpkg'))){
       infile <- glue('{input_dir}/{basin}/data/gage_{basin}.gpkg')
     } else if(file.exists(glue('{input_dir}/gage_{basin}.gpkg'))){
       infile <- glue('{input_dir}/gage_{basin}.gpkg')
@@ -485,4 +487,3 @@ p <- ggplot(data.frame(percent_differences_area = unlist(percent_differences_are
 # Save the plot
 ggsave(glue("{input_dir}/percent_differences_area_histogram.png"), plot = p, 
        width = 8, height = 6, bg = "white")
-

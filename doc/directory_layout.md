@@ -14,6 +14,7 @@ The default layout is:
       <start_year>_to_<end_year>/
         <forcing>.nc
         <forcing>_rechunked.nc
+    dem/  # optional; retained when subsetting.dem.output_dir is "dem"
 
 <output_dir>/
   <gage_id>_<run_name>/
@@ -64,24 +65,14 @@ Sandbox follows a basin-first layout by default because several workflow steps
 operate on one basin at a time:
 
 ```text
-<gage_id>/data/gage_<gage_id>.gpkg
-<gage_id>/data/forcing/<start_year>_to_<end_year>/*.nc
-```
-
-This also mirrors the native layouts used by external tools in the workflow.
-For example, the hydrofabric subsetting step writes basin resources under a
-`data` directory, and the forcing preparation step writes forcing files under
-`data/forcing/<start_year>_to_<end_year>`.
-
-The preferred Python-side layout is now:
-
-```text
 <gage_id>/hydrofabric/gage_<gage_id>.gpkg
 <gage_id>/forcing/<start_year>_to_<end_year>/*.nc
 ```
 
-The Python workflow can still read legacy `data/*.gpkg` files during the
-transition.
+Older Sandbox runs may have written geopackages under
+`<gage_id>/data/gage_<gage_id>.gpkg` and forcing under
+`<gage_id>/data/forcing/<start_year>_to_<end_year>`. The Python workflow can
+still read legacy `data/*.gpkg` files during the transition.
 
 The practical goal is that a user can download or prepare hydrofabric and
 forcing once, then reuse those resources for many model formulations and
