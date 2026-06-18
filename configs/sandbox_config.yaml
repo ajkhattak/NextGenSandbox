@@ -2,8 +2,8 @@
 #
 
 general:
-  input_dir  : "<path_to_input_directory>"  #-------------------------- user-specified input directory (directory where all geopackage files are written when downloaded through the workflow, or where user-supplied gpkg files must be placed.)
-  output_dir : "<path_to_output_directory>" #-------------------------- user-specified output directory (directory where simulation outputs are written)
+  input_dir  : "<path_to_input_directory>"  #-------------------------- Reusable basin resources directory. Preferred layout: <input_dir>/<gage_id>/hydrofabric and <input_dir>/<gage_id>/forcing.
+  output_dir : "<path_to_output_directory>" #-------------------------- Generated run artifacts directory: configs, realization files, model outputs, calibration outputs.
 
 
 ########################################################################
@@ -43,7 +43,7 @@ subsetting :
 
 
 ########################################################################
-#forcing data is stored under <input_dir>/gage_id/data/forcing
+#forcing data is stored under <input_dir>/<gage_id>/forcing by default
 forcings : 
   format  : ".nc" #----------------------------------------------- Format .nc or .csv (recommended option .nc)
   rechunk : true #------------------------------------------------ Rechunk NetCDF forcing files for faster ngen reads

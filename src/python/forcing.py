@@ -10,6 +10,12 @@ import platform
 import json
 import time
 
+from src.python.resource_paths import (
+    find_gpkg_file,
+    forcing_dir_for_gpkg,
+    has_gpkg_file,
+)
+
 
 class ForcingProcessor:
     def __init__(self, sandbox_dir, config_file):
@@ -39,7 +45,7 @@ class ForcingProcessor:
         start_yr = pd.Timestamp(self.forcing_time['start_time']).year
         end_yr   = pd.Timestamp(self.forcing_time['end_time']).year + 1
 
-        forcing_dir      = os.path.join(self.input_dir, "{*}", f'data/forcing/{start_yr}_to_{end_yr}')
+        forcing_dir      = os.path.join(self.input_dir, "{*}", f'forcing/{start_yr}_to_{end_yr}')
         self.forcing_dir = self.dforcing.get("forcing_dir", forcing_dir)
 
     def download_forcing(self):
@@ -60,10 +66,10 @@ class ForcingProcessor:
     def forcing_generate_catchment(self, dir):
         os.chdir(dir)
 
-        if not os.path.exists(os.path.join(dir, "data")):
+        if not has_gpkg_file(dir):
             return
 
-        self.gpkg_file = glob.glob(dir + "data/*.gpkg")[0]
+        self.gpkg_file = str(find_gpkg_file(dir))
 
         fdir = self.forcing_dir
         if "{*}" in self.forcing_dir:
@@ -93,7 +99,7 @@ class ForcingProcessor:
         assert all_dirs, f"No directories found in the input directory {self.input_dir}."
         gpkg_dirs = [
             g for g in all_dirs
-            if os.path.exists(os.path.join(g, 'data')) and glob.glob(os.path.join(g, 'data', '*.gpkg'))
+            if has_gpkg_file(g)
         ]
 
         # map gage_id -> directory
@@ -157,7 +163,7 @@ class ForcingProcessor:
 
         d['gpkg'] = self.gpkg_file
         d["years"] = [start_yr, end_yr]
-        d["out_dir"] = os.path.join(os.path.dirname(self.gpkg_file), "forcing")
+        d["out_dir"] = str(forcing_dir_for_gpkg(self.gpkg_file, start_yr, end_yr).parent)
 
         out_dir = Path(d['out_dir']) / f'{start_yr}_to_{end_yr}'
         are_identical = out_dir.resolve() == Path(forcing_dir).resolve()
@@ -166,7 +172,7 @@ class ForcingProcessor:
             raise RuntimeError(f"Directory mismatch: out_dir={out_dir} is not the same as forcing_dir={forcing_dir}.")
 
         if not os.path.exists(d["out_dir"]):
-            os.makedirs("data/forcing")
+            os.makedirs(d["out_dir"])
 
         if self.forcing_format == '.csv':
             d['netcdf'] = False

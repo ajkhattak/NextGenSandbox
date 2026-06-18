@@ -23,6 +23,7 @@ from src.python.formulations_registry import (
 )
 from src.python.model_instances import build_model_instances
 from src.python.observations import ObservationLoader
+from src.python.resource_paths import find_gpkg_file, has_gpkg_file
 
 @dataclass
 class SandboxContext:
@@ -117,13 +118,16 @@ class SandboxContext:
         forcing_start_yr = pd.Timestamp(self.forcing_time["start_time"]).year
 
         forcing_end_yr = pd.Timestamp(self.forcing_time["end_time"]).year + 1
+        self.forcing_year_dir = f"{forcing_start_yr}_to_{forcing_end_yr}"
 
         forcing_dir = os.path.join(
             self.input_dir,
             "{*}",
-            f"data/forcing/{forcing_start_yr}_to_{forcing_end_yr}"
+            "forcing",
+            self.forcing_year_dir,
         )
 
+        self.forcing_dir_is_configured = "forcing_dir" in dforcing
         self.forcing_dir = dforcing.get("forcing_dir", forcing_dir)
 
         self.domain = dforcing.get("domain", "conus")
@@ -458,11 +462,10 @@ class SandboxContext:
         # Get all subdirectories inside input_dir
         all_dirs = glob.glob(os.path.join(self.input_dir, '*/'), recursive=True)
 
-        # Filter directories that have a "data" folder that contains a .gpkg file
+        # Filter directories that have a hydrofabric/geopackage resource.
         self.gpkg_dirs = [
             Path(g) for g in all_dirs
-            if os.path.exists(os.path.join(g, 'data')) and 
-            glob.glob(os.path.join(g, 'data', '*.gpkg'))
+            if has_gpkg_file(g)
         ]
 
         gage_ids = self.gage_ids or []  # Default to empty list [] if None
@@ -480,8 +483,8 @@ class SandboxContext:
             self.gpkg_dirs = [
                 g for g in self.gpkg_dirs
                 if any(
-                    any(gid in Path(f).stem for gid in gage_ids)
-                    for f in glob.glob(os.path.join(g, 'data', '*.gpkg'))
+                    gid in find_gpkg_file(g).stem
+                    for gid in gage_ids
                 )
             ]
 
@@ -498,6 +501,7 @@ class SandboxContext:
                 for g in self.gpkg_dirs:
                     forcing_dir_local = self.forcing_dir
                     fdir = Path(forcing_dir_local.replace("{*}", Path(g).name))
+                    fdir = self._resolve_forcing_dir(g, fdir)
 
                     if not fdir.exists() or not fdir.is_dir():
                         raise ValueError(f"Forcing directory '{fdir}' does not exist.")
@@ -522,6 +526,7 @@ class SandboxContext:
                 for g in self.gpkg_dirs:
                     forcing_dir_local = self.forcing_dir
                     fdir = Path(forcing_dir_local.replace("{*}", Path(g).name))
+                    fdir = self._resolve_forcing_dir(g, fdir)
 
                     if not fdir.exists():
                         raise ValueError(f"Forcing directory {fdir} does not exist.")
@@ -529,6 +534,16 @@ class SandboxContext:
                         raise ValueError("forcing format is .csv, so '{fdir}' should point to a directory and not file.")
 
                     self.forcing_files.append(fdir)
+
+    def _resolve_forcing_dir(self, basin_dir, forcing_dir):
+        forcing_dir = Path(forcing_dir)
+        if forcing_dir.exists() or self.forcing_dir_is_configured:
+            return forcing_dir
+
+        legacy_dir = Path(basin_dir) / "data" / "forcing" / self.forcing_year_dir
+        if legacy_dir.exists():
+            return legacy_dir
+        return forcing_dir
 
     def _select_netcdf_forcing_file(self, forcing_dir):
         forcing_dir = Path(forcing_dir)

@@ -28,6 +28,10 @@ general:
   output_dir: "<path_to_output_directory>"
 ```
 
+See [directory_layout.md](./directory_layout.md) for the default basin-first
+directory structure and the intended meaning of reusable resources versus
+generated run artifacts.
+
 ### `subsetting`
 
 Controls hydrofabric subsetting, DEM processing, vegetation processing, and selected gages. This block is used by `sandbox --subset`.
@@ -449,8 +453,11 @@ Then make sure `formulation.models` matches one of the registered formulations. 
 Check that each selected gage has a geopackage under:
 
 ```text
-<input_dir>/<gage_id>/data/*.gpkg
+<input_dir>/<gage_id>/hydrofabric/*.gpkg
 ```
+
+During the transition, the Python workflow can also read legacy geopackages
+from `<input_dir>/<gage_id>/data/*.gpkg`.
 
 ### Missing forcing file
 

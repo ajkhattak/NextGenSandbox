@@ -12,6 +12,8 @@ Detailed instructions for building, configuring, and running NextGenSandboxHub f
 
 Guidance for setting up `sandbox_config.yaml`, `calib_config.yaml`, formulations, model instances, and task types is available in the [configuration guide](https://github.com/ajkhattak/NextGenSandboxHub/blob/main/doc/configuration.md).
 
+The default basin-first directory structure, including how `input_dir` and `output_dir` are used, is described in the [directory layout guide](https://github.com/ajkhattak/NextGenSandboxHub/blob/main/doc/directory_layout.md).
+
 For ML-based formulations, the configuration guide also documents how to stage trained LSTM and dHBV data under `$SANDBOX_DATA_DIR` and configure the model basefiles.
 
 ### Currently Supported Formulations:
