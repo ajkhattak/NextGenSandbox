@@ -62,11 +62,15 @@ For a typical setup, the workflow is:
   #### Option #2: macOS
   Ensure R and Rtools are already installed before proceeding.
   ```
-  Rscript $SANDBOX_DIR/src/R/install_load_libs.R
+  Rscript $SANDBOX_DIR/src/R/install_load_libs.R --install
   ```
   #### Option #3: Using RStudio on macOS/Windows
    - Open `<path_to_sandboxhub>/src/R/install_load_libs.R` in RStudio. Click Source to execute the script.
-   - Alternatively, run the following command in the RStudio Console: `source("~/<path_to_sandboxhub>/src/R/install_load_libs.R")`
+   - Alternatively, run the following command in the RStudio Console: `Sys.setenv(SANDBOX_R_DEPS_MODE = "install"); source("~/<path_to_sandboxhub>/src/R/install_load_libs.R")`
+
+  During `sandbox --subset`, the workflow checks that these R packages are
+  already available. It does not install or compile missing R packages during a
+  subsetting run.
 
 ### <ins>  Sandbox Virtual Environment Activation
 The sandbox setup step configures the required environment variables: `SANDBOX_DIR, SANDBOX_BUILD_DIR, SANDBOX_DATA_DIR, SANDBOX_ENV`, enabling easy navigation and environment activation. By default, build artifacts live under `$SANDBOX_DIR/build` and persistent model data live under `$SANDBOX_DATA_DIR`.

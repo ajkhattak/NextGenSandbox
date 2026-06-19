@@ -17,6 +17,13 @@ library(glue)
 
 args <- commandArgs(trailingOnly = TRUE)
 
+load_subset_dependencies <- function(sandbox_dir) {
+  # QA/QC runs should only check/load R dependencies. Installation happens
+  # explicitly through src/R/install_load_libs.R --install or RStudio.
+  Sys.setenv(SANDBOX_R_DEPS_MODE = "check")
+  source(file.path(sandbox_dir, "src/R/install_load_libs.R"))
+}
+
 setup <-function() {
   
   if (length(args) == 1) {
@@ -42,7 +49,7 @@ setup <-function() {
   reinstall_hydrofabric <<- inputs$gpkg_model_params$reinstall_hydrofabric
   reinstall_arrow   <<- inputs$gpkg_model_params$reinstall_arrow
 
-  source(paste0(sandbox_dir, "/src/R/install_load_libs.R"))
+  load_subset_dependencies(sandbox_dir)
   
   if (!file.exists(input_dir)) {
     print(glue("Input directory does not exist, provided: {input_dir}"))

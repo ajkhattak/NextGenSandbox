@@ -1,10 +1,28 @@
 ######################### INSTALL REQUIRED PACKAGES ############################
-# STEP #1: The packages need to run Hydrofabric tools for subsetting basins
+# STEP #1: The packages need to run Hydrofabric tools for subsetting basins.
+#
+# Modes:
+#   --install  Install missing dependencies, then load/check them.
+#   --check    Only load/check dependencies. Do not install anything.
+#
+# Default is --install to preserve direct use from RStudio and bootstrap.
 ################################################################################
-#install.packages("renv")
-#renv::init()
+args <- commandArgs(trailingOnly = TRUE)
+mode <- Sys.getenv("SANDBOX_R_DEPS_MODE", unset = "install")
+
+if ("--check" %in% args) {
+  mode <- "check"
+} else if ("--install" %in% args) {
+  mode <- "install"
+}
+
+if (!mode %in% c("install", "check")) {
+  stop("Invalid dependency mode: ", mode, ". Use --install or --check.")
+}
+
 os_type <- Sys.info()[["sysname"]]
 message("Checking R package dependencies for NextGenSandbox subset workflow...")
+message("Dependency mode: ", mode)
 message("R version: ", R.version.string)
 message("Platform: ", os_type)
 
@@ -20,9 +38,9 @@ if (Sys.info()['sysname'] == "Windows") {
 }
 
 cran_packages <- c(
-  "whitebox", "Metrics", "dplyr", "glue", "raster",
+  "whitebox", "Metrics", "dplyr", "glue", "magrittr", "raster",
   "jsonlite", "ggplot2", "pbapply", "yaml",
-  "dataRetrieval", "exactextractr", "sf", "terra"
+  "dataRetrieval", "exactextractr", "sf", "terra", "santoku"
 )
 
 github_packages <- c(
@@ -31,31 +49,133 @@ github_packages <- c(
 )
 
 installed <- rownames(installed.packages())
+missing_cran <- cran_packages[!cran_packages %in% installed]
 
-for (pkg in cran_packages) {
-  if (!pkg %in% installed) {
+install_r_package <- function(pkg) {
+  if (pkg == "santoku") {
+    message("Installing R package from R-universe: ", pkg)
+    install.packages(
+      pkg,
+      repos = c(
+        "https://hughjonesd.r-universe.dev",
+        "https://cloud.r-project.org"
+      ),
+      dependencies = TRUE
+    )
+  } else {
     message("Installing CRAN package: ", pkg)
     install.packages(pkg, dependencies = TRUE)
-  } else {
-    message("Found CRAN package: ", pkg)
   }
 }
 
-if (!requireNamespace("remotes", quietly = TRUE)) {
-  message("Installing CRAN package: remotes")
-  install.packages("remotes")
+package_source_label <- function(pkg) {
+  if (pkg == "santoku") {
+    return("R-universe/installed")
+  }
+
+  "CRAN/installed"
+}
+
+if (mode == "install") {
+  for (pkg in cran_packages) {
+    if (!pkg %in% installed) {
+      install_r_package(pkg)
+    } else {
+      message("Found ", package_source_label(pkg), " package: ", pkg)
+    }
+  }
+
+  installed <- rownames(installed.packages())
+  missing_cran <- cran_packages[!cran_packages %in% installed]
+  if (length(missing_cran) > 0) {
+    stop(
+      "Failed to install required R package(s): ",
+      paste(missing_cran, collapse = ", "),
+      "\nInstall these packages in your R environment before running sandbox --subset."
+    )
+  }
 } else {
-  message("Found CRAN package: remotes")
+  for (pkg in cran_packages) {
+    if (pkg %in% installed) {
+      message("Found ", package_source_label(pkg), " package: ", pkg)
+    }
+  }
+
+  if (length(missing_cran) > 0) {
+    stop(
+      "Missing required R package(s): ",
+      paste(missing_cran, collapse = ", "),
+      "\nInstall subset dependencies before running sandbox --subset:\n",
+      "  ./bootstrap.sh --subset\n",
+      "or run/source src/R/install_load_libs.R --install in your R environment."
+    )
+  }
+}
+
+installed <- rownames(installed.packages())
+
+if (mode == "install") {
+  if (!requireNamespace("remotes", quietly = TRUE)) {
+    message("Installing CRAN package: remotes")
+    install.packages("remotes")
+  } else {
+    message("Found CRAN package: remotes")
+  }
+} else {
+  if (!requireNamespace("remotes", quietly = TRUE)) {
+    stop(
+      "Missing required CRAN package: remotes\n",
+      "Install subset dependencies before running sandbox --subset:\n",
+      "  ./bootstrap.sh --subset\n",
+      "or run/source src/R/install_load_libs.R --install in your R environment."
+    )
+  } else {
+    message("Found CRAN package: remotes")
+  }
 }
 
 for (repo in github_packages) {
   pkg <- basename(repo)
   if (!requireNamespace(pkg, quietly = TRUE)) {
-    message("Installing GitHub package: ", repo)
-    remotes::install_github(repo, upgrade = "never", dependencies = TRUE, build_vignettes = FALSE, Ncpus = 4)
+    if (mode == "install") {
+      message("Installing GitHub package: ", repo)
+      remotes::install_github(
+        repo,
+        upgrade = "never",
+        dependencies = c("Depends", "Imports", "LinkingTo"),
+        build_vignettes = FALSE,
+        Ncpus = 4
+      )
+    } else {
+      stop(
+        "Missing required GitHub package: ",
+        pkg,
+        " (",
+        repo,
+        ")\nInstall subset dependencies before running sandbox --subset:\n",
+        "  ./bootstrap.sh --subset\n",
+        "or run/source src/R/install_load_libs.R --install in your R environment."
+      )
+    }
   } else {
     message("Found GitHub package: ", pkg)
   }
+}
+
+missing_github <- vapply(
+  basename(github_packages),
+  function(pkg) !requireNamespace(pkg, quietly = TRUE),
+  logical(1)
+)
+
+if (any(missing_github)) {
+  stop(
+    "Missing required GitHub package(s): ",
+    paste(names(missing_github)[missing_github], collapse = ", "),
+    "\nInstall subset dependencies before running sandbox --subset:\n",
+    "  ./bootstrap.sh --subset\n",
+    "or run/source src/R/install_load_libs.R --install in your R environment."
+  )
 }
 
 # WhiteboxTools install (still sets env dynamically)
@@ -69,7 +189,7 @@ if (os_type == "Linux") {
 
  wbt_expected <- file.path(
    sandbox_build_dir,
-   "rvenv/vevn_subset/lib/R/library/WBT/whitebox_tools"
+   "rvenv/venv_subset/lib/R/library/WBT/whitebox_tools"
    )
 
   if (file.exists(wbt_expected)) {
@@ -79,11 +199,21 @@ if (os_type == "Linux") {
     message("Using existing WhiteboxTools: ", wbt_expected)
   } else {
 
+    if (mode == "check") {
+      stop(
+        "WhiteboxTools executable not found: ",
+        wbt_expected,
+        "\nInstall subset dependencies before running sandbox --subset:\n",
+        "  ./bootstrap.sh --subset\n",
+        "or run/source src/R/install_load_libs.R --install in your R environment."
+      )
+    }
+
     message("WhiteboxTools not found. Installing...")
 
     custom_lib <- file.path(
       sandbox_build_dir,
-      "rvenv/vevn_subset/lib/R/library"
+      "rvenv/venv_subset/lib/R/library"
     )
 
     whitebox::install_whitebox(pkg_dir = custom_lib, force = TRUE)
@@ -99,6 +229,14 @@ if (os_type == "Linux") {
  }
 } else if (os_type == "Darwin") {
    if (!whitebox::check_whitebox_binary()) {
+    if (mode == "check") {
+      stop(
+        "WhiteboxTools executable not found for the whitebox R package.\n",
+        "Install subset dependencies before running sandbox --subset:\n",
+        "  ./bootstrap.sh --subset\n",
+        "or run/source src/R/install_load_libs.R --install in your R environment."
+      )
+    }
     whitebox::install_whitebox()
     }
   }
@@ -123,6 +261,7 @@ suppressPackageStartupMessages({
   library(terra)
   library(exactextractr)
   library(dplyr)
+  library(magrittr)
   library(glue)
   library(raster)
   library(jsonlite)
