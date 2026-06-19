@@ -6,10 +6,12 @@ from pathlib import Path
 import subprocess
 import xarray as xr
 import pandas as pd
-import platform
-import json
-import time
 
+from src.python.forcing_files import (
+    prepare_rechunked_forcing_file,
+    select_netcdf_forcing_file,
+    select_source_netcdf_forcing_file,
+)
 from src.python.resource_paths import (
     find_gpkg_file,
     forcing_dir_for_gpkg,
@@ -39,6 +41,7 @@ class ForcingProcessor:
         self.forcing_time     = self.dforcing["time"]
         self.forcing_format   = self.dforcing.get('format', '.nc')
         self.selected_gages   = self.dforcing.get('select', 'all')
+        self.rechunk_forcing  = self.dforcing.get("rechunk", True)
 
         self.forcing_venv_dir = Path(os.environ.get("FORCING_ENV"))
 
@@ -92,6 +95,12 @@ class ForcingProcessor:
         if self.forcing_format == ".nc":
             print("Correcting forcing data ...")
             self.forcing_data_correction(fdir)
+            forcing_file = select_netcdf_forcing_file(fdir, prefer_corrected=True)
+            prepare_rechunked_forcing_file(
+                forcing_file,
+                sandbox_dir=self.sandbox_dir,
+                enabled=self.rechunk_forcing,
+            )
 
     def load_gage_ids(self):
 
@@ -184,12 +193,10 @@ class ForcingProcessor:
 
 
     def forcing_data_correction(self, fdir):
-        nc_file = glob.glob(f"{fdir}/*.nc")
-        if len(nc_file) != 1:
-            print("Can't correct the forcing data, either file does not exist or more than one files exist. Files found: ", nc_file)
+        nc_file = select_source_netcdf_forcing_file(fdir)
+        if nc_file is None:
             return
 
-        nc_file = [f for f in nc_file if not "_corrected" in f][0]
         ds = xr.open_dataset(nc_file)
         ds['APCP_surface'].attrs['units'] = 'mm/hr'
 

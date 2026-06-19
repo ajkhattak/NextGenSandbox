@@ -48,5 +48,5 @@ fi
 
 set +u; mamba activate "${SANDBOX_BUILD_DIR}/rvenv/venv_subset"; set -u
 
-Rscript "${SANDBOX_DIR}/src/R/install_load_libs.R"
+Rscript "${SANDBOX_DIR}/src/R/install_load_libs.R" --install
 echo "Environment setup complete."

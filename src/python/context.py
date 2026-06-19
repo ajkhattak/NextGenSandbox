@@ -13,9 +13,12 @@ import sys
 import yaml
 import pandas as pd
 import glob
-import subprocess
 
 from src.python import helper
+from src.python.forcing_files import (
+    prepare_rechunked_forcing_file,
+    select_netcdf_forcing_file,
+)
 from src.python.formulations_registry import (
     get_supported_formulations,
     is_registered_formulation,
@@ -157,6 +160,64 @@ class SandboxContext:
             if name != "objective"
         }
 
+    @staticmethod
+    def validate_time_window(name, window):
+        if not isinstance(window, dict):
+            raise ValueError(f"{name} missing or invalid.")
+
+        missing = [
+            key for key in ("start_time", "end_time")
+            if key not in window
+        ]
+        if missing:
+            raise ValueError(
+                f"{name} missing required field(s): {', '.join(missing)}"
+            )
+
+        try:
+            start_time = pd.Timestamp(window["start_time"])
+            end_time = pd.Timestamp(window["end_time"])
+        except Exception as exc:
+            raise ValueError(
+                f"{name} has invalid start_time/end_time values."
+            ) from exc
+
+        if pd.isna(start_time) or pd.isna(end_time):
+            raise ValueError(f"{name} has invalid start_time/end_time values.")
+
+        if start_time > end_time:
+            raise ValueError(
+                f"{name}.start_time must be less than or equal to "
+                f"{name}.end_time ({window['start_time']} > "
+                f"{window['end_time']})."
+            )
+
+        return start_time, end_time
+
+    @classmethod
+    def validate_time_subset(
+        cls,
+        parent_name,
+        parent_window,
+        child_name,
+        child_window,
+    ):
+        parent_start, parent_end = cls.validate_time_window(
+            parent_name,
+            parent_window,
+        )
+        child_start, child_end = cls.validate_time_window(
+            child_name,
+            child_window,
+        )
+
+        if child_start < parent_start or child_end > parent_end:
+            raise ValueError(
+                f"{child_name} must be within {parent_name}. "
+                f"{child_name}: {child_start} to {child_end}; "
+                f"{parent_name}: {parent_start} to {parent_end}."
+            )
+
     def validate_observations(self):
         missing_outputs = {
             config["simulated"]
@@ -227,23 +288,44 @@ class SandboxContext:
 
         if self.task_type in ["calibration", "calibvalid", "restart"]:
 
-            if "calibration_time" not in dsim or not isinstance(dsim["calibration_time"], dict):
-                raise ValueError("calibration_time missing or invalid.")
+            if "calib_eval_time" not in dsim or not isinstance(dsim["calib_eval_time"], dict):
+                raise ValueError("calib_eval_time missing or invalid.")
+
+            self.validate_time_subset(
+                "calibration_time",
+                dsim.get("calibration_time"),
+                "calib_eval_time",
+                dsim["calib_eval_time"],
+            )
 
             self.simulation_time = dsim["calibration_time"]
             self.calib_eval_time  = dsim["calib_eval_time"]
 
             if self.task_type == "calibvalid":
-                if "validation_time" not in dsim or not isinstance(dsim["validation_time"], dict):
-                    raise ValueError("validation_time missing or invalid.")
+                if "valid_eval_time" not in dsim or not isinstance(dsim["valid_eval_time"], dict):
+                    raise ValueError("valid_eval_time missing or invalid.")
+
+                self.validate_time_subset(
+                    "validation_time",
+                    dsim.get("validation_time"),
+                    "valid_eval_time",
+                    dsim["valid_eval_time"],
+                )
 
                 self.validation_time = dsim["validation_time"]
                 self.valid_eval_time = dsim["valid_eval_time"]
             
         elif self.task_type == "validation":
 
-            if "validation_time" not in dsim or not isinstance(dsim["validation_time"], dict):
-                raise ValueError("validation_time missing or invalid.")
+            if "valid_eval_time" not in dsim or not isinstance(dsim["valid_eval_time"], dict):
+                raise ValueError("valid_eval_time missing or invalid.")
+
+            self.validate_time_subset(
+                "validation_time",
+                dsim.get("validation_time"),
+                "valid_eval_time",
+                dsim["valid_eval_time"],
+            )
 
             self.simulation_time = dsim["validation_time"]
             self.validation_time = dsim["validation_time"]
@@ -251,8 +333,10 @@ class SandboxContext:
 
         elif self.task_type == "control":
             
-            if "simulation_time" not in dsim or not isinstance(dsim["simulation_time"], dict):
-                raise ValueError("task_type CONTROL: simulation_time missing or invalid.")
+            self.validate_time_window(
+                "task_type CONTROL: simulation_time",
+                dsim.get("simulation_time"),
+            )
             
             self.simulation_time = dsim["simulation_time"]
 
@@ -505,10 +589,17 @@ class SandboxContext:
 
                     if not fdir.exists() or not fdir.is_dir():
                         raise ValueError(f"Forcing directory '{fdir}' does not exist.")
-                    forcing_file = self._select_netcdf_forcing_file(fdir)
-                    forcing_file = self._prepare_rechunked_forcing_file(forcing_file)
+                    forcing_file = select_netcdf_forcing_file(
+                        fdir,
+                        prefer_corrected=self.is_corrected_forcing,
+                    )
+                    forcing_file = prepare_rechunked_forcing_file(
+                        forcing_file,
+                        sandbox_dir=self.sandbox_dir,
+                        enabled=self.rechunk_forcing,
+                    )
 
-                    self.forcing_files.append(forcing_file)
+                    self.forcing_files.append(str(forcing_file))
             else:
                 if not Path(self.forcing_dir).exists():
                     raise ValueError(f"Forcing directory {self.forcing_dir} does not exist.")
@@ -516,11 +607,18 @@ class SandboxContext:
                 if not Path(self.forcing_dir).is_dir():
                     forcing_file = self.forcing_dir
                 else:
-                    forcing_file = self._select_netcdf_forcing_file(self.forcing_dir)
+                    forcing_file = select_netcdf_forcing_file(
+                        self.forcing_dir,
+                        prefer_corrected=self.is_corrected_forcing,
+                    )
 
-                forcing_file = self._prepare_rechunked_forcing_file(forcing_file)
+                forcing_file = prepare_rechunked_forcing_file(
+                    forcing_file,
+                    sandbox_dir=self.sandbox_dir,
+                    enabled=self.rechunk_forcing,
+                )
 
-                self.forcing_files.append(forcing_file)
+                self.forcing_files.append(str(forcing_file))
         else:
             if "{*}" in self.forcing_dir:
                 for g in self.gpkg_dirs:
@@ -545,60 +643,6 @@ class SandboxContext:
             return legacy_dir
         return forcing_dir
 
-    def _select_netcdf_forcing_file(self, forcing_dir):
-        forcing_dir = Path(forcing_dir)
-        if self.is_corrected_forcing:
-            files = sorted(forcing_dir.glob("*_corrected.nc"))
-            expected = "*_corrected.nc"
-        else:
-            files = sorted(
-                path
-                for path in forcing_dir.glob("*.nc")
-                if "_corrected" not in path.name and "_rechunked" not in path.name
-            )
-            expected = "*.nc excluding *_corrected.nc and *_rechunked.nc"
-
-        if not files:
-            raise FileNotFoundError(
-                f"No NetCDF forcing file found in {forcing_dir}. "
-                f"Expected {expected}."
-            )
-        if len(files) > 1:
-            raise ValueError(
-                f"Multiple NetCDF forcing files found in {forcing_dir}: "
-                f"{', '.join(path.name for path in files)}"
-            )
-        return str(files[0])
-
-    def _prepare_rechunked_forcing_file(self, forcing_file):
-        forcing_path = Path(forcing_file)
-        if not self.rechunk_forcing or forcing_path.suffix != ".nc":
-            return str(forcing_path)
-        if forcing_path.stem.endswith("_rechunked"):
-            return str(forcing_path)
-
-        rechunked_path = forcing_path.parent / f"{forcing_path.stem}_rechunked.nc"
-        if (
-            rechunked_path.exists()
-            and rechunked_path.stat().st_mtime >= forcing_path.stat().st_mtime
-        ):
-            return str(rechunked_path)
-
-        chunk_py = Path(self.sandbox_dir) / "utils/python/rechunk_forcing.py"
-        if not chunk_py.is_file():
-            raise FileNotFoundError(f"Forcing rechunk utility not found: {chunk_py}")
-
-        subprocess.run(
-            [sys.executable, str(chunk_py), "-i", str(forcing_path)],
-            check=True,
-        )
-        if not rechunked_path.exists():
-            raise FileNotFoundError(
-                f"Rechunked forcing file was not created: {rechunked_path}"
-            )
-        return str(rechunked_path)
-
-    
     def process_clean_input_param(self, clean):
         clean_lst = []
         if isinstance(clean, str):

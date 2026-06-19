@@ -46,6 +46,13 @@ Sys.setenv("AWS_NO_SIGN_REQUEST" = "YES")
 # - Set sandbox_config.yaml file under $SANDBOX_DIR/configs directory
 # - Set sandbox_dir and infile_config explicitly when running in RStudio (see below)
 
+load_subset_dependencies <- function(sandbox_dir) {
+  # Subsetting runs should only check/load R dependencies. Installation happens
+  # explicitly through src/R/install_load_libs.R --install or RStudio.
+  Sys.setenv(SANDBOX_R_DEPS_MODE = "check")
+  suppressMessages(source(file.path(sandbox_dir, "src/R/install_load_libs.R")))
+}
+
 Setup <-function() {
 
   if (length(args) == 2) {
@@ -55,9 +62,20 @@ Setup <-function() {
   } else if (length(args) > 2) {
     stop("Usage: RScript main.R input.yaml sandbox_dir")
   } else {
-    # Set paths explicitly when running in RStudio
-    sandbox_dir   <<- "<path/to/sandboxhub>" 
-    infile_config <-  "<path/to/sandbox_config.yaml>"
+    # RStudio/source() fallback. Prefer the active test config if present,
+    # otherwise use the sample config.
+    active_doc <- tryCatch(
+      normalizePath(rstudioapi::getActiveDocumentContext()$path),
+      error = function(e) ""
+    )
+
+    if (nzchar(active_doc)) {
+      sandbox_dir <<- normalizePath(file.path(dirname(active_doc), "../.."))
+    } else {
+      sandbox_dir <<- normalizePath(getwd())
+    }
+
+    infile_config <- file.path(sandbox_dir, "configs/sandbox_config1.yaml")
   }
 
   if (!file.exists(infile_config)) {
@@ -76,7 +94,7 @@ Setup <-function() {
     stop("Invalid input: 'subsetting$hydrofabric$gpkg_path' is missing, empty, or does not exist.")
   }
 
-  suppressMessages(source(paste0(sandbox_dir, "/src/R/install_load_libs.R")))
+  load_subset_dependencies(sandbox_dir)
   source(glue("{sandbox_dir}/src/R/custom_functions.R"))
   
   compute_divide_attributes <<- get_param(inputs, "subsetting$hydrofabric$compute_divide_attributes", TRUE)
