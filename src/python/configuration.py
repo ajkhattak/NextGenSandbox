@@ -140,8 +140,7 @@ class ConfigurationCalib:
 
     def _required_calib_params_blocks(self):
         required = []
-        for model in self.ctx.formulation.split(","):
-            model = model.strip()
+        for model in self.ctx.formulation_models:
             for instance in self.ctx.get_model_instances(model):
                 if (
                     instance.calib_params_block
@@ -153,8 +152,7 @@ class ConfigurationCalib:
     def _candidate_calib_param_files(self, params_dir, required_blocks):
         candidates = []
 
-        for model in self.ctx.formulation.split(","):
-            model = model.strip()
+        for model in self.ctx.formulation_models:
             for instance in self.ctx.get_model_instances(model):
                 block = instance.calib_params_block
                 if not block or block not in required_blocks:
@@ -435,9 +433,7 @@ class ConfigurationCalib:
             df_new["general"]["restart"] = True
 
         # Add calibratable parameter blocks
-        for model in self.ctx.formulation.split(","):
-            model = model.strip()
-
+        for model in self.ctx.formulation_models:
             for instance in self.ctx.get_model_instances(model):
                 name = instance.calib_params_block
                 if not name:
@@ -506,8 +502,7 @@ class ConfigurationCalib:
 
         df_new["model"]["params"] = {}
 
-        for model in self.ctx.formulation.split(","):
-            model = model.strip()
+        for model in self.ctx.formulation_models:
             for instance in self.ctx.get_model_instances(model):
                 name = instance.calib_params_block
                 if not name:

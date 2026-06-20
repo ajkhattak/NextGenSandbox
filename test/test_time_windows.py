@@ -4,6 +4,15 @@ from src.python.context import SandboxContext
 
 
 class TestSimulationTimeWindows(unittest.TestCase):
+    def test_validate_formulation_sets_parsed_model_list(self):
+        context = SandboxContext.__new__(SandboxContext)
+        context.formulation = "PET,CFE"
+
+        context.validate_formulation()
+
+        self.assertEqual(context.formulation, "PET,CFE,T-ROUTE")
+        self.assertEqual(context.formulation_models, ["PET", "CFE", "T-ROUTE"])
+
     def test_rejects_calibration_eval_time_outside_calibration_time(self):
         context = SandboxContext.__new__(SandboxContext)
         context.formulation = ""

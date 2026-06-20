@@ -397,6 +397,14 @@ class SandboxContext:
         else:
             self.sb_launcher = False
 
+    @staticmethod
+    def parse_formulation_models(formulation):
+        return [
+            model.strip()
+            for model in formulation.split(",")
+            if model.strip()
+        ]
+
     def validate_formulation(self):
         if not is_registered_formulation(self.formulation):
             supported = "\n".join(
@@ -410,7 +418,10 @@ class SandboxContext:
                 "[INFO]: Formulations that omit T-ROUTE are allowed, however, all other formulation components must be specified exactly as supported."
             )
 
-            if any(model in self.formulation.split(",") for model in ["CFE-S", "CFE-X"]):
+            if any(
+                model in self.parse_formulation_models(self.formulation)
+                for model in ["CFE-S", "CFE-X"]
+            ):
                 message += (
                     "\n[INFO]: Use CFE as the formulation component. "
                     "To use CFE-X, set formulation.model_instances.CFE in the configuration file."
@@ -419,6 +430,7 @@ class SandboxContext:
             raise ValueError(message)
 
         self.formulation = with_default_routing(self.formulation)
+        self.formulation_models = self.parse_formulation_models(self.formulation)
 
     def build_instances(self):
 
