@@ -1,0 +1,17 @@
+noahowp_params:
+- name: MFSNO
+  min: 0.5
+  max: 4.0
+  init: 2.5
+- name: SCAMAX
+  min: 0.7
+  max: 1.0
+  init: 0.8
+- name: RSURF_SNOW
+  min: 0.136
+  max: 100.0
+  init: 50.0
+- name: CWP
+  min: 0.09
+  max: 0.36
+  init: 0.1

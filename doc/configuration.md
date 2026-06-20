@@ -3,7 +3,8 @@
 This guide explains how to configure NextGenSandboxHub runs. The workflow uses two main configuration files:
 
 - `configs/sandbox_config.yaml`: workflow, inputs, formulation, model instances, and simulation settings.
-- `configs/calib_config.yaml`: calibration strategy, parameter bounds, objectives, and plugins.
+- `configs/calib_config.yaml`: calibration strategy, objectives, plugins, and the parameter-file directory.
+- `configs/calibration/*.yaml`: model-specific calibration parameter blocks.
 
 ## Command Requirements
 
@@ -245,6 +246,24 @@ formulation:
 
 Do not put `CFE-S` or `CFE-X` in `models`. `CFE` defaults to the `cfe-s`/Schaake instance. Use `model_instances.CFE` to select another configured instance such as `cfe-x`.
 
+Official variant names are validated by family. For example, `cfe-s` fields
+must contain CFE-S markers such as `cfe-s`/`cfes`, while `cfe-x` fields must
+contain CFE-X markers such as `cfe-x`/`cfex`. Custom files and parameter blocks
+are allowed within the same family:
+
+```yaml
+model_instances:
+  CFE:
+    - name: cfe-x
+      basefile: "config_cfe-x_custom.yaml"
+      calib_params_block: "cfex_params_custom"
+      calib_params_file: "cfe-x-custom.yaml"
+```
+
+Mixed family markers are rejected. For example, `name: cfe-x` cannot use
+`config_cfe-s.yaml` or `cfes_params`. Custom variant names, such as
+`cfe-custom`, may use their own basefile, parameter block, and parameter file.
+
 ### Model Instance Fields
 
 | Field | Meaning |
@@ -252,7 +271,8 @@ Do not put `CFE-S` or `CFE-X` in `models`. `CFE` defaults to the `cfe-s`/Schaake
 | `name` | Instance name and config subdirectory name, for example `cfe-x`. |
 | `basefile` | Base configuration template under `configs/basefiles`. |
 | `repo_name` | Model repository name under `$NGEN_DIR/extern`. |
-| `calib_params_block` | Calibration parameter block name in `calib_config.yaml`. |
+| `calib_params_block` | Calibration parameter block name loaded from `configs/calibration/*.yaml`. |
+| `calib_params_file` | Optional calibration parameter file under `configs/calibration/`. If omitted, the workflow tries the instance name, model name, and block name. |
 | `ngen_cal_model_name` | Optional model name expected by `ngen-cal` if different from the sandbox model key. |
 | `library_file` | Optional full path to a model shared library. If omitted, the workflow searches under `$NGEN_DIR/extern/<repo_name>`. |
 
@@ -294,7 +314,17 @@ simulation:
 
 ## Calibration Config Linkage
 
-`calib_params_block` must match a block in `configs/calib_config.yaml`.
+`calib_params_block` must match a parameter block loaded from the directory
+configured by `configs/calib_config.yaml`:
+
+```yaml
+calibration:
+  params_dir: calibration
+```
+
+With the default layout, those files live under `configs/calibration/`.
+Bundled model defaults define their calibration parameter files in
+`src/python/model_instances.py`.
 
 For example:
 
@@ -306,7 +336,8 @@ formulation:
         calib_params_block: "cfex_params"
 ```
 
-must correspond to:
+must correspond to a block in one of the calibration parameter files, for
+example `configs/calibration/cfe-x.yaml`:
 
 ```yaml
 cfex_params:
@@ -469,7 +500,8 @@ Confirm the model has been built under `$NGEN_DIR/extern/<repo_name>`, or set `l
 
 ### Calibration parameter block not found
 
-Make sure `calib_params_block` matches a block name in `calib_config.yaml`.
+Make sure `calib_params_block` matches a block name in one of the files under
+the directory configured by `calibration.params_dir` in `configs/calib_config.yaml`.
 
 ### LSTM trained data missing
 
