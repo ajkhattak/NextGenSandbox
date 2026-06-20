@@ -13,6 +13,7 @@ def make_context(calib_config_path, instances_by_model):
     return SimpleNamespace(
         calib_config_path=calib_config_path,
         formulation=",".join(instances_by_model),
+        formulation_models=list(instances_by_model),
         get_model_instances=lambda model: instances_by_model.get(model, []),
     )
 
