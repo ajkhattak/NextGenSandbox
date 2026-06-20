@@ -89,6 +89,12 @@ class ConfigurationCalib:
         "nse": "ngen_cal_plugins.objectives.nse_multi_variable",
         "nnse": "ngen_cal_plugins.objectives.nnse_multi_variable",
     }
+    CALIB_CONFIG_RESERVED_KEYS = {
+        "general",
+        "calibration",
+        "model",
+        "strategy",
+    }
 
     def __init__(self,
                  ctx,
@@ -110,6 +116,155 @@ class ConfigurationCalib:
         self.realization_file_par = realization_file_par
         self.num_procs =  num_procs
         self.ngen_cal_type = ngen_cal_type
+
+    @staticmethod
+    def _calibration_filename_stems(value):
+        hyphenated = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+        underscored = re.sub(r"[^a-z0-9]+", "_", value.lower()).strip("_")
+        stems = [hyphenated]
+        if underscored != hyphenated:
+            stems.append(underscored)
+        return stems
+
+    @classmethod
+    def _calibration_filenames(cls, value):
+        return [
+            f"{stem}.yaml"
+            for stem in cls._calibration_filename_stems(value)
+            if stem
+        ]
+
+    @staticmethod
+    def _block_name_stem(value):
+        return re.sub(r"[^a-z0-9]+", "_", value.lower()).strip("_")
+
+    def _required_calib_params_blocks(self):
+        required = []
+        for model in self.ctx.formulation.split(","):
+            model = model.strip()
+            for instance in self.ctx.get_model_instances(model):
+                if (
+                    instance.calib_params_block
+                    and instance.calib_params_block not in required
+                ):
+                    required.append(instance.calib_params_block)
+        return required
+
+    def _candidate_calib_param_files(self, params_dir, required_blocks):
+        candidates = []
+
+        for model in self.ctx.formulation.split(","):
+            model = model.strip()
+            for instance in self.ctx.get_model_instances(model):
+                block = instance.calib_params_block
+                if not block or block not in required_blocks:
+                    continue
+
+                names = []
+                if getattr(instance, "calib_params_file", ""):
+                    names.append(instance.calib_params_file)
+                names.extend(self._calibration_filenames(instance.name))
+                names.extend(self._calibration_filenames(instance.model))
+                names.extend(
+                    self._calibration_filenames(instance.calibration_model_name)
+                )
+                names.append(
+                    f"{self._block_name_stem(block.removesuffix('_params'))}.yaml"
+                )
+
+                for name in names:
+                    if not name:
+                        continue
+                    path = params_dir / name
+                    if path.exists() and path not in candidates:
+                        candidates.append(path)
+
+        return candidates
+
+    @staticmethod
+    def build_strategy_config(base_strategy):
+        algorithm = base_strategy.get("algorithm", "dds")
+        strategy = {
+            "type": base_strategy.get("type", "estimation"),
+            "algorithm": algorithm,
+        }
+
+        if algorithm.lower() == "pso" and "parameters" in base_strategy:
+            strategy["parameters"] = base_strategy["parameters"]
+
+        return strategy
+
+    def load_calib_config(self):
+        with open(self.ctx.calib_config_path, "r") as file:
+            base_file = yaml.safe_load(file) or {}
+
+        if not isinstance(base_file, dict):
+            raise ValueError(
+                f"Calibration config must be a YAML mapping: {self.ctx.calib_config_path}"
+            )
+
+        param_blocks = {
+            key: value
+            for key, value in base_file.items()
+            if key not in self.CALIB_CONFIG_RESERVED_KEYS
+        }
+
+        calibration = base_file.get("calibration", {}) or {}
+        if not isinstance(calibration, dict):
+            raise ValueError("calibration block in calib_config.yaml must be a mapping")
+
+        params_dir = calibration.get("params_dir")
+        if params_dir:
+            required_blocks = self._required_calib_params_blocks()
+            params_dir = Path(params_dir)
+            if not params_dir.is_absolute():
+                params_dir = Path(self.ctx.calib_config_path).resolve().parent / params_dir
+
+            if not params_dir.is_dir():
+                raise FileNotFoundError(
+                    f"Calibration parameter directory does not exist: {params_dir}"
+                )
+
+            for params_file in self._candidate_calib_param_files(
+                params_dir,
+                required_blocks,
+            ):
+                with open(params_file, "r") as file:
+                    file_blocks = yaml.safe_load(file) or {}
+
+                if not isinstance(file_blocks, dict):
+                    raise ValueError(
+                        f"Calibration parameter file must be a YAML mapping: {params_file}"
+                    )
+
+                for key, value in file_blocks.items():
+                    if key in self.CALIB_CONFIG_RESERVED_KEYS:
+                        raise ValueError(
+                            f"Reserved key '{key}' is not allowed in calibration "
+                            f"parameter file: {params_file}"
+                        )
+                    if key in param_blocks:
+                        raise ValueError(
+                            f"Duplicate calibration parameter block '{key}' found "
+                            f"in {params_file}"
+                        )
+                    param_blocks[key] = value
+
+            missing_blocks = [
+                block for block in required_blocks
+                if block not in param_blocks
+            ]
+            if missing_blocks:
+                raise ValueError(
+                    "Calibration parameter block(s) were not found for the "
+                    "active formulation: "
+                    f"{', '.join(missing_blocks)}. Check "
+                    "configs/calib_config.yaml calibration.params_dir and the "
+                    "model files under configs/calibration/."
+                )
+
+        base_file.update(param_blocks)
+        return base_file
 
     def get_flowpath_attributes(self):
 
@@ -259,16 +414,10 @@ class ConfigurationCalib:
         gpkg_name = os.path.basename(self.gpkg_file).split(".")[0]
         gage_id = self.get_flowpath_attributes()
 
-        with open(self.ctx.calib_config_path, 'r') as file:
-            base_file = yaml.safe_load(file)
+        base_file = self.load_calib_config()
 
         base_strategy = base_file.get("general", {}).get("strategy", {})
-        strategy = {
-            "type": base_strategy.get("type", "estimation"),
-            "algorithm": base_strategy.get("algorithm", "dds"),
-        }
-        if "parameters" in base_strategy:
-            strategy["parameters"] = base_strategy["parameters"]
+        strategy = self.build_strategy_config(base_strategy)
 
         df_new = {
             "general": {
@@ -294,7 +443,13 @@ class ConfigurationCalib:
                 if not name:
                     continue
 
-                param_values = base_file.get(name, [])
+                param_values = base_file.get(name)
+                if param_values is None:
+                    raise ValueError(
+                        f"Calibration parameter block '{name}' was not found. "
+                        "Check configs/calib_config.yaml calibration.params_dir "
+                        "and the model files under configs/calibration/."
+                    )
 
                 if (self.ctx.ensemble_enabled
                     and self.ctx.ensemble_calib_params_groups.get(model) == "local"):

@@ -94,7 +94,8 @@ formulation :
   #   name              : config subdirectory and realization instance name
   #   basefile          : template file under configs/basefiles
   #   repo_name         : model repository name under $NGEN_DIR/extern
-  #   calib_params_block: calibration parameter block in calib_config.yaml
+  #   calib_params_block: calibration parameter block under configs/calibration/
+  #   calib_params_file : optional calibration parameter file under configs/calibration/
   #   library_file      : optional full path to model shared library
   #
   # Example: keep CFE in `models`, but use the Xinanjiang runoff option instead
