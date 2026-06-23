@@ -2,8 +2,9 @@
 #
 
 general:
-  input_dir  : "<path_to_input_directory>"  #-------------------------- Reusable basin resources directory. Preferred layout: <input_dir>/<gage_id>/hydrofabric and <input_dir>/<gage_id>/forcing.
+  input_dir  : "<path_to_input_directory>"  #-------------------------- Reusable resource directory. Path structure follows general.layout.
   output_dir : "<path_to_output_directory>" #-------------------------- Generated run artifacts directory: configs, realization files, model outputs, calibration outputs.
+  layout     : "basin" #----------------------------------------------- OPTIONS: basin | flat. Project-level resource layout used by workflow steps.
 
 
 ########################################################################
@@ -43,7 +44,7 @@ subsetting :
 
 
 ########################################################################
-#forcing data is stored under <input_dir>/<gage_id>/forcing by default
+#forcing data default path follows general.layout. basin: <input_dir>/<gage_id>/forcing; flat: <input_dir>/forcing/<gage_id>
 forcings : 
   format  : ".nc" #----------------------------------------------- Format .nc or .csv (recommended option .nc)
   rechunk : true #------------------------------------------------ Rechunk NetCDF forcing files for faster ngen reads

@@ -8,6 +8,53 @@ hydrofabric_path <- function(cat_dir, gpkg_name) {
   file.path(cat_dir, HYDROFABRIC_DIR, gpkg_name)
 }
 
+subsetting_work_dir <- function(id, config) {
+  if (identical(config$layout, "flat")) {
+    return(file.path(config$input_dir, paste0(".", id, "_subset_work")))
+  }
+
+  file.path(config$input_dir, id)
+}
+
+subset_gpkg_path <- function(id, config, gpkg_name = glue("gage_{id}.gpkg")) {
+  if (identical(config$layout, "flat")) {
+    return(file.path(config$input_dir, HYDROFABRIC_DIR, gpkg_name))
+  }
+
+  hydrofabric_path(file.path(config$input_dir, id), gpkg_name)
+}
+
+clean_subset_work_dir <- function(id, cat_dir, config) {
+  if (identical(config$layout, "basin")) {
+    clean_move_dem_dir(
+      id = id,
+      output_dir = config$input_dir,
+      dem_output_dir = config$dem$output_dir
+    )
+    return()
+  }
+
+  dem_source <- file.path(cat_dir, "dem")
+
+  if (is.null(config$dem$output_dir) || config$dem$output_dir == "") {
+    if (dir.exists(dem_source)) {
+      unlink(dem_source, recursive = TRUE, force = TRUE)
+    }
+  } else if (dir.exists(dem_source)) {
+    dem_target <- if (config$dem$output_dir == "dem") {
+      file.path(config$input_dir, "dem", id)
+    } else {
+      file.path(config$dem$output_dir, id)
+    }
+
+    if (dir.exists(dem_target)) {
+      unlink(dem_target, recursive = TRUE, force = TRUE)
+    }
+    dir.create(dirname(dem_target), recursive = TRUE, showWarnings = FALSE)
+    file.rename(dem_source, dem_target)
+  }
+}
+
 strip_ansi <- function(text) {
   gsub(paste0(intToUtf8(27), "\\[[0-9;]*[[:alpha:]]"), "", text)
 }
@@ -60,9 +107,11 @@ ProcessCatchmentID <- function(id, config) {
 
   print ("PROCESS CATCHMENT ID FUNCTION")
 
-  cat_dir = glue("{config$input_dir}/{id}")
+  cat_dir = subsetting_work_dir(id, config)
+  gpkg_file = subset_gpkg_path(id, config)
   dir.create(cat_dir, recursive = TRUE, showWarnings = FALSE)
-
+  dir.create(dirname(gpkg_file), recursive = TRUE, showWarnings = FALSE)
+  print (glue("AA: {cat_dir}, ==== {gpkg_file}"))
   setwd(cat_dir)
   wbt_wd(getwd())
 
@@ -75,6 +124,7 @@ ProcessCatchmentID <- function(id, config) {
   tryCatch({
     cat ("Processing catchment: ", id, "\n")
     RunDriver(gage_id = id,
+              gpkg_file = gpkg_file,
               config = config
               )
 
@@ -86,14 +136,13 @@ ProcessCatchmentID <- function(id, config) {
 
   # move (or delete) dem output directory out of the main output directory
 
-  clean_move_dem_dir(
-    id = id,
-    output_dir = config$input_dir,
-    dem_output_dir = config$dem$output_dir
-  )
+  clean_subset_work_dir(id, cat_dir, config)
 
   if (failed) {
     cat ("Basin failed:", id, "\n")
+    if (identical(config$layout, "flat") && file.exists(gpkg_file)) {
+      unlink(gpkg_file, force = TRUE)
+    }
     cat_failed_dir = glue("{config$input_dir}/basins_failed/{id}")
 
     if (file.exists(cat_failed_dir) ) {
@@ -105,6 +154,9 @@ ProcessCatchmentID <- function(id, config) {
   }
   else {
     cat ("Basin Passed:", id, "\n")
+    if (identical(config$layout, "flat") && dir.exists(cat_dir)) {
+      unlink(cat_dir, recursive = TRUE, force = TRUE)
+    }
   }
 
 }
@@ -137,7 +189,7 @@ ProcessGPKG <- function(gfile, config) {
      id <- 11111111
   }
 
-  cat_dir = glue("{config$input_dir}/{id}")
+  cat_dir = subsetting_work_dir(id, config)
   dir.create(cat_dir, recursive = TRUE, showWarnings = FALSE)
 
   setwd(cat_dir)
@@ -148,7 +200,6 @@ ProcessGPKG <- function(gfile, config) {
   
   dir.create("dem", recursive = TRUE, showWarnings = FALSE)
   dir.create(HYDROFABRIC_DIR, recursive = TRUE, showWarnings = FALSE)
-  file.copy(gfile, HYDROFABRIC_DIR)
 
   failed <- TRUE
 
@@ -157,7 +208,9 @@ ProcessGPKG <- function(gfile, config) {
 
     gpkg_name = basename(gfile)
 
-    gpkg_file = hydrofabric_path(cat_dir, gpkg_name)
+    gpkg_file = subset_gpkg_path(id, config, gpkg_name)
+    dir.create(dirname(gpkg_file), recursive = TRUE, showWarnings = FALSE)
+    file.copy(gfile, gpkg_file, overwrite = TRUE)
 
     RunDriver(gpkg_file = gpkg_file,
               config = config
@@ -171,14 +224,13 @@ ProcessGPKG <- function(gfile, config) {
     })
 
   # move (or delete) dem output directory out of the main output directory
-  clean_move_dem_dir(
-    id = id,
-    output_dir = config$input_dir,
-    dem_output_dir = config$dem$output_dir
-  )
+  clean_subset_work_dir(id, cat_dir, config)
 
   if (failed) {
     cat ("Basin failed:", id, "\n")
+    if (identical(config$layout, "flat") && file.exists(gpkg_file)) {
+      unlink(gpkg_file, force = TRUE)
+    }
     cat_failed_dir = glue("{config$input_dir}/basins_failed/{id}")
 
     if (file.exists(cat_failed_dir) ) {
@@ -190,6 +242,9 @@ ProcessGPKG <- function(gfile, config) {
   }
   else {
     cat ("Basin Passed:", id, "\n")
+    if (identical(config$layout, "flat") && dir.exists(cat_dir)) {
+      unlink(cat_dir, recursive = TRUE, force = TRUE)
+    }
   }
   
   return(cats_failed)
@@ -205,14 +260,16 @@ RunDriver <- function(gage_id = NULL,
 
   print ("RUN DRIVER FUNCTION")
 
-  outfile <- " "
-  if (is.null(gpkg_file)) {
-    if (is.null(gage_id)) {
-      stop("RunDriver requires either 'gage_id' or 'gpkg_file'.")
-    }
+  if (is.null(gage_id) && is.null(gpkg_file)) {
+    stop("RunDriver requires either 'gage_id' or 'gpkg_file'.")
+  }
 
+  outfile <- gpkg_file
+  if (!is.null(gage_id)) {
     start.time <- Sys.time()
-    outfile <- hydrofabric_path(getwd(), glue("gage_{gage_id}.gpkg"))
+    if (is.null(outfile)) {
+      outfile <- hydrofabric_path(getwd(), glue("gage_{gage_id}.gpkg"))
+    }
 
     # Get domain info for this gage
     state_code <- get_gage_state_code(gage_id)
@@ -273,8 +330,6 @@ RunDriver <- function(gage_id = NULL,
     time.taken <- as.numeric(Sys.time() - start.time, units = "secs") #end.time - start.time
     print (paste0("Time (geopackage) = ", time.taken))
 
-  } else { 
-    outfile <- gpkg_file
   }
 
   # check if the divide-attributes layer has the same number of rows as the divides layer

@@ -14,8 +14,10 @@ from src.python.forcing_files import (
 )
 from src.python.resource_paths import (
     find_gpkg_file,
-    forcing_dir_for_gpkg,
+    flat_hydrofabric_dir,
+    forcing_dir_for_resource,
     has_gpkg_file,
+    resource_id,
 )
 
 
@@ -35,6 +37,9 @@ class ForcingProcessor:
 
         self.input_dir        = self.config['general'].get('input_dir')
         self.output_dir       = Path(self.config['general'].get('output_dir'))
+        self.layout           = self.config["general"].get("layout", "basin")
+        if self.layout not in {"basin", "flat"}:
+            raise ValueError("general.layout must be one of: basin, flat")
         self.dsim             = self.config['formulation']
         self.verbosity        = self.dsim.get('verbosity', 0)
         self.dforcing         = self.config['forcings']
@@ -48,7 +53,19 @@ class ForcingProcessor:
         start_yr = pd.Timestamp(self.forcing_time['start_time']).year
         end_yr   = pd.Timestamp(self.forcing_time['end_time']).year + 1
 
-        forcing_dir      = os.path.join(self.input_dir, "{*}", f'forcing/{start_yr}_to_{end_yr}')
+        if self.layout == "flat":
+            forcing_dir = os.path.join(
+                self.input_dir,
+                "forcing",
+                "{*}",
+                f"{start_yr}_to_{end_yr}",
+            )
+        else:
+            forcing_dir = os.path.join(
+                self.input_dir,
+                "{*}",
+                f"forcing/{start_yr}_to_{end_yr}",
+            )
         self.forcing_dir = self.dforcing.get("forcing_dir", forcing_dir)
 
     def download_forcing(self):
@@ -66,17 +83,20 @@ class ForcingProcessor:
         return failed
 
 
-    def forcing_generate_catchment(self, dir):
-        os.chdir(dir)
+    def forcing_generate_catchment(self, resource):
+        resource = Path(resource)
+        work_dir = resource.parent if resource.is_file() else resource
+        os.chdir(work_dir)
 
-        if not has_gpkg_file(dir):
+        if not has_gpkg_file(resource):
             return
 
-        self.gpkg_file = str(find_gpkg_file(dir))
+        self.current_resource = resource
+        self.gpkg_file = str(find_gpkg_file(resource))
 
         fdir = self.forcing_dir
         if "{*}" in self.forcing_dir:
-            fdir = Path(self.forcing_dir.replace("{*}", Path(dir).name))
+            fdir = Path(self.forcing_dir.replace("{*}", resource_id(resource)))
 
         forcing_config = self.write_forcing_input_files(forcing_dir=fdir)
 
@@ -104,15 +124,18 @@ class ForcingProcessor:
 
     def load_gage_ids(self):
 
-        all_dirs = glob.glob(os.path.join(self.input_dir, '*/'), recursive=True)
-        assert all_dirs, f"No directories found in the input directory {self.input_dir}."
-        gpkg_dirs = [
-            g for g in all_dirs
-            if has_gpkg_file(g)
-        ]
+        if self.layout == "flat":
+            gpkg_dirs = sorted(flat_hydrofabric_dir(self.input_dir).glob("*.gpkg"))
+        else:
+            all_dirs = glob.glob(os.path.join(self.input_dir, '*/'), recursive=True)
+            gpkg_dirs = [
+                Path(g) for g in all_dirs
+                if has_gpkg_file(g)
+            ]
+        assert gpkg_dirs, f"No geopackages found in the input directory {self.input_dir}."
 
         # map gage_id -> directory
-        gage_dir_map = {Path(d).name: d for d in gpkg_dirs}
+        gage_dir_map = {resource_id(d): d for d in gpkg_dirs}
 
         if self.selected_gages == "all":
             print ("Gages to be processed: ", gpkg_dirs)
@@ -172,7 +195,15 @@ class ForcingProcessor:
 
         d['gpkg'] = self.gpkg_file
         d["years"] = [start_yr, end_yr]
-        d["out_dir"] = str(forcing_dir_for_gpkg(self.gpkg_file, start_yr, end_yr).parent)
+        d["out_dir"] = str(
+            forcing_dir_for_resource(
+                self.input_dir,
+                self.current_resource,
+                start_yr,
+                end_yr,
+                self.layout,
+            ).parent
+        )
 
         out_dir = Path(d['out_dir']) / f'{start_yr}_to_{end_yr}'
         are_identical = out_dir.resolve() == Path(forcing_dir).resolve()

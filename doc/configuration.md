@@ -27,11 +27,40 @@ Defines where input data are read and outputs are written.
 general:
   input_dir: "<path_to_input_directory>"
   output_dir: "<path_to_output_directory>"
+  layout: "basin"  # OPTIONS: basin | flat
 ```
 
-See [directory_layout.md](./directory_layout.md) for the default basin-first
-directory structure and the intended meaning of reusable resources versus
-generated run artifacts.
+`layout` is a project-level resource layout choice. The workflow supports
+`basin` and `flat`, but a project should use one style consistently. The
+default is `basin`.
+
+`basin` keeps reusable resources under each gage directory:
+
+```text
+<input_dir>/<gage_id>/hydrofabric/gage_<gage_id>.gpkg
+```
+
+`flat` organizes reusable resources by resource type:
+
+```text
+<input_dir>/hydrofabric/gage_<gage_id>.gpkg
+```
+
+For default forcing paths, `flat` writes forcing under:
+
+```text
+<input_dir>/forcing/<gage_id>/<start_year>_to_<end_year>/
+```
+
+When `layout: flat` and `subsetting.dem.output_dir: "dem"`, DEM files are
+retained under:
+
+```text
+<input_dir>/dem/<gage_id>/
+```
+
+See [directory_layout.md](./directory_layout.md) for more detail on reusable
+resources versus generated run artifacts.
 
 ### `subsetting`
 
@@ -52,6 +81,17 @@ forcings:
 ```
 
 Simulation time windows must fall within the forcing time range.
+
+When `forcings.forcing_dir` is not provided, the default forcing directory is
+derived from `general.layout`:
+
+```text
+# general.layout: basin
+<input_dir>/<gage_id>/forcing/<start_year>_to_<end_year>/
+
+# general.layout: flat
+<input_dir>/forcing/<gage_id>/<start_year>_to_<end_year>/
+```
 
 For NetCDF forcing, `rechunk: true` writes and uses a sibling
 `*_rechunked.nc` file when needed. Rechunking can substantially improve ngen
@@ -481,14 +521,21 @@ Then make sure `formulation.models` matches one of the registered formulations. 
 
 ### Missing geopackage
 
-Check that each selected gage has a geopackage under:
+Check that each selected gage has a geopackage under the configured resource
+layout. For the default `general.layout: basin`:
 
 ```text
 <input_dir>/<gage_id>/hydrofabric/*.gpkg
 ```
 
-During the transition, the Python workflow can also read legacy geopackages
-from `<input_dir>/<gage_id>/data/*.gpkg`.
+For `general.layout: flat`:
+
+```text
+<input_dir>/hydrofabric/gage_<gage_id>.gpkg
+```
+
+During the transition, the Python workflow can also read legacy basin-layout
+geopackages from `<input_dir>/<gage_id>/data/*.gpkg`.
 
 ### Missing forcing file
 

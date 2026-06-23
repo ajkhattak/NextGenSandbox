@@ -26,7 +26,13 @@ from src.python.formulations_registry import (
 )
 from src.python.model_instances import build_model_instances
 from src.python.observations import ObservationLoader
-from src.python.resource_paths import find_gpkg_file, has_gpkg_file
+from src.python.resource_paths import (
+    find_gpkg_file,
+    flat_hydrofabric_dir,
+    forcing_dir_for_resource,
+    has_gpkg_file,
+    resource_id,
+)
 
 @dataclass
 class SandboxContext:
@@ -65,7 +71,7 @@ class SandboxContext:
         ]
 
     def output_dir_name(self, gpkg_dir):
-        name = Path(gpkg_dir).name
+        name = resource_id(gpkg_dir)
         if self.sim_name_suffix:
             return f"{name}_{self.sim_name_suffix}"
         return name
@@ -78,6 +84,10 @@ class SandboxContext:
         self.input_dir = self.sandbox_config["general"].get("input_dir")
 
         self.output_dir = Path(self.sandbox_config["general"].get("output_dir"))
+
+        self.layout = self.sandbox_config["general"].get("layout", "basin")
+        if self.layout not in {"basin", "flat"}:
+            raise ValueError("general.layout must be one of: basin, flat")
 
         self.load_formulation_config()
 
@@ -123,11 +133,14 @@ class SandboxContext:
         forcing_end_yr = pd.Timestamp(self.forcing_time["end_time"]).year + 1
         self.forcing_year_dir = f"{forcing_start_yr}_to_{forcing_end_yr}"
 
-        forcing_dir = os.path.join(
-            self.input_dir,
-            "{*}",
-            "forcing",
-            self.forcing_year_dir,
+        forcing_dir = str(
+            forcing_dir_for_resource(
+                self.input_dir,
+                "{*}",
+                forcing_start_yr,
+                forcing_end_yr,
+                self.layout,
+            )
         )
 
         self.forcing_dir_is_configured = "forcing_dir" in dforcing
@@ -555,14 +568,17 @@ class SandboxContext:
         )
 
     def load_gpkg_dirs(self):
-        # Get all subdirectories inside input_dir
-        all_dirs = glob.glob(os.path.join(self.input_dir, '*/'), recursive=True)
+        if self.layout == "flat":
+            self.gpkg_dirs = sorted(flat_hydrofabric_dir(self.input_dir).glob("*.gpkg"))
+        else:
+            # Get all subdirectories inside input_dir
+            all_dirs = glob.glob(os.path.join(self.input_dir, '*/'), recursive=True)
 
-        # Filter directories that have a hydrofabric/geopackage resource.
-        self.gpkg_dirs = [
-            Path(g) for g in all_dirs
-            if has_gpkg_file(g)
-        ]
+            # Filter directories that have a hydrofabric/geopackage resource.
+            self.gpkg_dirs = [
+                Path(g) for g in all_dirs
+                if has_gpkg_file(g)
+            ]
 
         gage_ids = self.gage_ids or []  # Default to empty list [] if None
 
@@ -596,7 +612,7 @@ class SandboxContext:
             if "{*}" in self.forcing_dir:
                 for g in self.gpkg_dirs:
                     forcing_dir_local = self.forcing_dir
-                    fdir = Path(forcing_dir_local.replace("{*}", Path(g).name))
+                    fdir = Path(forcing_dir_local.replace("{*}", resource_id(g)))
                     fdir = self._resolve_forcing_dir(g, fdir)
 
                     if not fdir.exists() or not fdir.is_dir():
@@ -635,7 +651,7 @@ class SandboxContext:
             if "{*}" in self.forcing_dir:
                 for g in self.gpkg_dirs:
                     forcing_dir_local = self.forcing_dir
-                    fdir = Path(forcing_dir_local.replace("{*}", Path(g).name))
+                    fdir = Path(forcing_dir_local.replace("{*}", resource_id(g)))
                     fdir = self._resolve_forcing_dir(g, fdir)
 
                     if not fdir.exists():
