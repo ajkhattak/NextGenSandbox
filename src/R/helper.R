@@ -81,6 +81,22 @@ get_param <- function(input, param, default_value) {
     })
 }
 
+align_sf_to_raster_crs <- function(geom, raster, label = "geometry") {
+  geom_vect <- terra::vect(geom)
+
+  if (terra::same.crs(raster, geom_vect)) {
+    return(geom)
+  }
+
+  raster_crs <- terra::crs(raster)
+  if (is.null(raster_crs) || !nzchar(raster_crs)) {
+    warning(glue("Raster CRS is missing; cannot reproject {label}."))
+    return(geom)
+  }
+
+  sf::st_transform(geom, crs = raster_crs)
+}
+
 reprojection_function <- function(outfile, epsg = 5070){
   # File paths
   gpkg_path <- outfile

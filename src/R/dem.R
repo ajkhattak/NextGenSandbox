@@ -18,7 +18,12 @@ GetDEM <- function(div_infile,
   cat("=== Starting DEM processing ===\n")
   cat(glue("DEM input file1: {dem_input_file}\n"))
   
-  terraOptions(tempdir = "/Volumes/BigDrive/terra_temp")
+  terra_tempdir <- Sys.getenv("SANDBOX_TERRA_TMPDIR", unset = tempdir())
+  if (!dir.exists(terra_tempdir)) {
+    warning(glue("SANDBOX_TERRA_TMPDIR does not exist: {terra_tempdir}. Using R tempdir() instead."))
+    terra_tempdir <- tempdir()
+  }
+  terraOptions(tempdir = terra_tempdir)
   
   # ----------------------------
   # Load DEM safely
@@ -33,36 +38,40 @@ GetDEM <- function(div_infile,
   
   # ----------------------------
   # Read the geopackage
-  div      <- read_sf(div_infile, "divides")
-  crs_div  <- st_crs(div)
-  crs_elev <- crs(elev)
+  div <- read_sf(div_infile, "divides")
   
-  if (!identical(crs_div, crs_elev)) {
-    div <- st_transform(div, crs = crs_elev)
-    cat("Reprojected divides to DEM CRS.\n")
+  # ----------------------------
+  # Buffer hydrofabric divide polygons to avoid DEM edge effects.
+  
+  div_bf <- tryCatch({
+    st_buffer(div, dist = buffer_m)
+  }, error = function(e) {
+    cat("Failed to create DEM buffer; cropping to hydrofabric divide polygons instead.\n")
+    div
+  })
+  
+  cat(glue("Buffered hydrofabric divide polygons by {buffer_m} meters.\n"))
+  flush.console()
+
+  div_bf_vect <- vect(div_bf)
+  if (!same.crs(elev, div_bf_vect)) {
+    div_bf_vect <- project(div_bf_vect, crs(elev))
+    cat("\nReprojected buffered hydrofabric divide polygons to DEM CRS.\n")
   }
   
   # ----------------------------
-  # Buffer divides (to avoid boundary issues)
+  # Crop DEM to buffered hydrofabric divide polygons
   
   tryCatch({
-    div_bf <<- st_buffer(div,dist=buffer_m)
+    dem <- crop(elev, div_bf_vect, snap = "out")
+    cat("\nDEM cropped to buffered hydrofabric divide polygons.\n")
   }, error = function(e) {
-    cat ("Failed to create DEM buffer; cropping to divides instead\n")
-  })
-  
-  cat(glue("Buffered divides by {buffer_m} meters.\n"))
-  flush.console()
-  
-  # ----------------------------
-  # Crop DEM to buffered divides
-  
-  tryCatch({
-    dem <- crop(elev, vect(div_bf), snap = "out")
-    cat("DEM cropped to buffered divides.\n")
-  }, error = function(e) {
-    warning("Buffer crop failed; cropping to divides only.")
-    dem <- crop(elev, vect(div), snap = "out")
+    warning("Buffer crop failed; cropping to hydrofabric divide polygons only.")
+    div_vect <- vect(div)
+    if (!same.crs(elev, div_vect)) {
+      div_vect <- project(div_vect, crs(elev))
+    }
+    dem <- crop(elev, div_vect, snap = "out")
   })
   
   # ----------------------------

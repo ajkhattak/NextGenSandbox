@@ -16,6 +16,7 @@ slope_function <- function(div_infile) {
   # wbt_slope(dem = glue("{dem_output_dir}/dem_corr.tif"), output = glue("{dem_output_dir}/slope.tif"),
   #           verbose_mode = FALSE)
   slope <- rast(glue("{dem_output_dir}/slope.tif"))
+  div <- align_sf_to_raster_crs(div, slope, "hydrofabric divide polygons")
   
   slope_cat <- zonal::execute_zonal(data = slope,
                                     geom = div,
@@ -33,5 +34,4 @@ slope_function <- function(div_infile) {
   
   return(slope_cat)
 }
-
 

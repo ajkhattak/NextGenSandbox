@@ -2,15 +2,29 @@
 # STEP #2. Load custom .R files
 ################################################################################
 
-source(glue("{sandbox_dir}/src/R/twi_width.R"))
-source(glue("{sandbox_dir}/src/R/helper.R"))
-source(glue("{sandbox_dir}/src/R/giuh.R"))
-source(glue("{sandbox_dir}/src/R/nash_cascade.R"))
-source(glue("{sandbox_dir}/src/R/veg_type.R"))
-source(glue("{sandbox_dir}/src/R/driver.R"))
-source(glue("{sandbox_dir}/src/R/slope.R"))
-source(glue("{sandbox_dir}/src/R/aspect.R"))
-source(glue("{sandbox_dir}/src/R/dem.R"))
+current_file <- function() {
+  frames <- sys.frames()
+
+  for (frame in rev(frames)) {
+    if (!is.null(frame$ofile)) {
+      return(normalizePath(frame$ofile))
+    }
+  }
+
+  stop("Unable to determine path to custom_functions.R.")
+}
+
+subset_r_dir <- dirname(current_file())
+
+source(file.path(subset_r_dir, "twi_width.R"))
+source(file.path(subset_r_dir, "helper.R"))
+source(file.path(subset_r_dir, "giuh.R"))
+source(file.path(subset_r_dir, "nash_cascade.R"))
+source(file.path(subset_r_dir, "veg_type.R"))
+source(file.path(subset_r_dir, "driver.R"))
+source(file.path(subset_r_dir, "slope.R"))
+source(file.path(subset_r_dir, "aspect.R"))
+source(file.path(subset_r_dir, "dem.R"))
 
 # List all functions - give access to these function to each worker
 functions_lst = c("RunDriver", "add_model_attributes", "dem_function", "twi_function", 
