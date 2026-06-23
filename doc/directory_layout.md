@@ -1,9 +1,21 @@
 # Directory Layout
 
-NextGenSandboxHub uses a default basin-first directory layout. This layout is
-intended to separate reusable basin resources from generated run artifacts.
+NextGenSandboxHub supports two project-level resource layouts: `basin` and
+`flat`. Set the layout once under `general.layout` in `sandbox_config.yaml`.
+The default is `basin`.
 
-The default layout is:
+```yaml
+general:
+  layout: basin  # OPTIONS: basin | flat
+```
+
+A project should use one layout consistently. The code supports both layouts,
+but mixing styles within the same project makes later forcing, configuration,
+and run steps harder to reason about.
+
+## Basin Layout
+
+The default `basin` layout is:
 
 ```text
 <input_dir>/
@@ -29,6 +41,31 @@ The default layout is:
     output_sim_obs/
     pso_global_best/
 ```
+
+## Flat Layout
+
+The `flat` layout organizes reusable resources by resource type:
+
+```text
+<input_dir>/
+  hydrofabric/
+    gage_<gage_id>.gpkg
+    gage_<another_gage_id>.gpkg
+  forcing/
+    <gage_id>/
+      <start_year>_to_<end_year>/
+        <forcing>.nc
+        <forcing>_rechunked.nc
+  dem/
+    <gage_id>/  # optional; retained when subsetting.dem.output_dir is "dem"
+      <dem_files>
+    <another_gage_id>/
+      <dem_files>
+```
+
+This is useful when users prefer to manage resources by data type first. The
+gage ID remains distinguishable because each geopackage filename contains
+`gage_<gage_id>`.
 
 In this layout, `<input_dir>` is best understood as a reusable resource
 directory. It contains data that can be shared across many formulations and
@@ -162,7 +199,8 @@ This can work when the relevant config paths point Sandbox to those locations.
 The current workflow is most automatic when basin resources follow the default
 `input_dir/<gage_id>/hydrofabric` and `input_dir/<gage_id>/forcing` structure.
 During the transition, the Python workflow can still read geopackages from
-the older `input_dir/<gage_id>/data` structure.
+the older `input_dir/<gage_id>/data` structure and from flat
+`input_dir/hydrofabric/gage_<gage_id>.gpkg` files.
 
 ## Recommended Mental Model
 

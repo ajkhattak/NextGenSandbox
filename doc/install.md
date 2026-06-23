@@ -133,7 +133,7 @@ For formulation selection, `model_instances`, task types, and calibration config
   - Using RStudio
       - open `<path_to_sandboxhub>/src/R/main.R` in RStudio and source on main.R. Note Set file name `infile_config` [here](https://github.com/ajkhattak/NextGenSandboxHub/blob/main/src/R/main.R#L53) 
     
-    If everything goes well, a basin geopackage will be subsetted for each selected gage under `<input_dir>/<gage_id>/hydrofabric/gage_<gage_id>.gpkg`.
+    If everything goes well, a basin geopackage will be subsetted for each selected gage. With the default `general.layout: basin`, files are written under `<input_dir>/<gage_id>/hydrofabric/gage_<gage_id>.gpkg`. With `general.layout: flat`, files are written under `<input_dir>/hydrofabric/gage_<gage_id>.gpkg`.
 
 ### <ins> Step 6. Forcing Data Download
 The workflow uses [CIROH_DL_NextGen](https://github.com/ajkhattak/CIROH_DL_NextGen) forcing_prep tool to download atmospheric forcing data. To download the forcing data run:
