@@ -109,15 +109,34 @@ def Sandbox(args, sandbox_config, calib_config, rscript, dryrun=False):
     if (args.subset):
         print ("Generating geopackages...", flush=True)
 
-        subprocess.run(
-            [
-                str(rscript),
-                str(sandbox_dir / "src/R/main.R"),
-                str(sandbox_config),
-                str(sandbox_dir),
-            ],
-            check=True,
-        )
+        try:
+            subprocess.run(
+                [
+                    str(rscript),
+                    str(sandbox_dir / "src/R/main.R"),
+                    str(sandbox_config),
+                    str(sandbox_dir),
+                ],
+                check=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            if exc.returncode == 2:
+                sys.exit(
+                    "Subsetting setup/configuration failed. "
+                    "See the R error output above for the configuration issue."
+                )
+            if exc.returncode == 3:
+                sys.exit(
+                    "Subsetting failed for one or more basins. "
+                    "See the R error output above and "
+                    "<input_dir>/basins_failed/<gage_id>/subsetting_error.txt "
+                    "for basin-specific details."
+                )
+            sys.exit(
+                "Failed during geopackage generation/subsetting step. "
+                f"R exited with status {exc.returncode}. "
+                "See the R error output above for details."
+            )
         print ("DONE \u2713")
 
     if (args.forc):

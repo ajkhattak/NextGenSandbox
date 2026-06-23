@@ -25,6 +25,7 @@ ComputeVegTypeNLCD <- function(div_infile,
   # Read divides & NLCD raster data
   div  <- read_sf(div_infile, 'divides')
   nlcd <- rast(nlcd_data_path)
+  div <- align_sf_to_raster_crs(div, nlcd, "hydrofabric divide polygons")
 
   # Create mapping from NLCD codes to NWM vegetation types
   nlcd_to_nwm_lookup <- c(

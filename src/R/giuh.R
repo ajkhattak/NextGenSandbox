@@ -38,6 +38,7 @@ ComputeGIUH <- function(div_infile, vel_channel = 1, vel_overland = .5,
                              out_type = 'specific contributing area', verbose_mode = FALSE)
 
     sca <- rast(glue("{dem_output_dir}/giuh_sca.tif"))
+    river <- align_sf_to_raster_crs(river, sca, "flowpath polygons")
     rasterized_river <- rasterizeGeom(vect(river), sca, fun="length")
 
     writeRaster(rasterized_river, glue("{dem_output_dir}/giuh_river.tif"), overwrite = TRUE)
@@ -73,12 +74,7 @@ ComputeGIUH <- function(div_infile, vel_channel = 1, vel_overland = .5,
   
   # from basin outlet to catchment outlet workflow
   giuh_minute <- rast(glue("{dem_output_dir}/giuh_minute.tif"))
-  crs_div <- st_crs(div)
-  crs_giuh <- crs(giuh_minute)
-  
-  if (!identical(crs_div, crs_giuh)) {
-    div <- st_transform(div, crs = crs_giuh)
-  }
+  div <- align_sf_to_raster_crs(div, giuh_minute, "hydrofabric divide polygons")
   
   time_min_ftn = execute_zonal(data = giuh_minute,
                                geom = div,
@@ -133,7 +129,6 @@ ComputeGIUH <- function(div_infile, vel_channel = 1, vel_overland = .5,
 
   return(giuh_dist)
 }
-
 
 
 

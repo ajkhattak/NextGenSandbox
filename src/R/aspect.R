@@ -14,6 +14,7 @@ aspect_function <- function(div_infile) {
   dem <- rast(glue("{dem_output_dir}/dem_corr.tif"))
   aspect <- wbt_aspect(dem, glue("{dem_output_dir}/aspect.tif"))
   aspect <- rast(glue("{dem_output_dir}/aspect.tif"))
+  div <- align_sf_to_raster_crs(div, aspect, "hydrofabric divide polygons")
 
   aspect_cat <- zonal::execute_zonal(data = aspect,
                                     geom = div,
@@ -33,6 +34,5 @@ aspect_function <- function(div_infile) {
   return(aspect_cat)
   
 }
-
 
 

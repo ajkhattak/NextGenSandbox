@@ -8,26 +8,46 @@ hydrofabric_path <- function(cat_dir, gpkg_name) {
   file.path(cat_dir, HYDROFABRIC_DIR, gpkg_name)
 }
 
+strip_ansi <- function(text) {
+  gsub(paste0(intToUtf8(27), "\\[[0-9;]*[[:alpha:]]"), "", text)
+}
+
+write_subset_failure <- function(id, cat_dir, error) {
+  error_message <- strip_ansi(conditionMessage(error))
+  error_call <- conditionCall(error)
+  error_file <- file.path(cat_dir, "subsetting_error.txt")
+
+  details <- c(
+    glue("Basin: {id}"),
+    glue("Working directory: {cat_dir}"),
+    glue("Error: {error_message}")
+  )
+
+  if (!is.null(error_call)) {
+    details <- c(
+      details,
+      glue("Call: {strip_ansi(paste(deparse(error_call), collapse = ' '))}")
+    )
+  }
+
+  writeLines(details, error_file)
+
+  cat(glue("[ERROR] Basin {id} failed during subsetting.\n"))
+  cat(glue("[ERROR] {error_message}\n"))
+  cat(glue("[ERROR] Details written to: {error_file}\n"))
+}
+
 
 ############################ DRIVER_GIVEN_GAGE_ID ##############################
 # main script that loops over all the gage IDs and computes giuh/twi etc.
-DriverGivenGageIDs <- function(gage_ids, 
-                               output_dir,
-                               dem_aggregate_factor,
-                               dem_input_file = NULL,
-                               dem_output_dir = "",
-                               compute_divide_attributes = TRUE,
-                               veg_calc_enabled = NULL,
-                               veg_nlcd_path    = NULL, 
-                               veg_method       = NULL
-                               ) 
+DriverGivenGageIDs <- function(gage_ids, config)
   {
   
   print ("DRIVER GIVEN GAGE ID")
   
-  lapply(X = gage_ids, FUN = ProcessCatchmentID)
+  lapply(X = gage_ids, FUN = ProcessCatchmentID, config = config)
 
-  setwd(output_dir)
+  setwd(config$input_dir)
 
 }
 
@@ -36,11 +56,11 @@ DriverGivenGageIDs <- function(gage_ids,
 # for each catchment id
 # it calls run_driver for each gage id and computes giuh/twi etc.
 
-ProcessCatchmentID <- function(id) {
+ProcessCatchmentID <- function(id, config) {
 
   print ("PROCESS CATCHMENT ID FUNCTION")
 
-  cat_dir = glue("{output_dir}/{id}")
+  cat_dir = glue("{config$input_dir}/{id}")
   dir.create(cat_dir, recursive = TRUE, showWarnings = FALSE)
 
   setwd(cat_dir)
@@ -55,26 +75,26 @@ ProcessCatchmentID <- function(id) {
   tryCatch({
     cat ("Processing catchment: ", id, "\n")
     RunDriver(gage_id = id,
-              dem_input_file = dem_input_file,
-              compute_divide_attributes = compute_divide_attributes,
-              dem_aggregate_factor = dem_aggregate_factor,
-              veg_calc_enabled = veg_calc_enabled,
-              veg_nlcd_path    = veg_nlcd_path, 
-              veg_method       = veg_method
+              config = config
               )
 
     failed <- FALSE
   }, error = function(e) {
     failed <- TRUE
+    write_subset_failure(id, cat_dir, e)
   })
 
   # move (or delete) dem output directory out of the main output directory
 
-  clean_move_dem_dir(id = id, output_dir = output_dir, dem_output_dir = dem_output_dir)
+  clean_move_dem_dir(
+    id = id,
+    output_dir = config$input_dir,
+    dem_output_dir = config$dem$output_dir
+  )
 
   if (failed) {
     cat ("Basin failed:", id, "\n")
-    cat_failed_dir = glue("{output_dir}/basins_failed/{id}")
+    cat_failed_dir = glue("{config$input_dir}/basins_failed/{id}")
 
     if (file.exists(cat_failed_dir) ) {
       unlink(cat_failed_dir, recursive = TRUE)
@@ -91,30 +111,20 @@ ProcessCatchmentID <- function(id) {
 
 ############################ DRIVER_GIVEN_GPKG #################################
 # main script that loops over all the geopackages and computes giuh/twi etc.
-DriverGivenGPKG <- function(gage_files, 
-                            gpkg_dir, 
-                            output_dir,
-                            dem_aggregate_factor,
-                            dem_output_dir,
-                            dem_input_file = NULL,
-                            compute_divide_attributes = TRUE,
-                            veg_calc_enabled = NULL,
-                            veg_nlcd_path    = NULL, 
-                            veg_method       = NULL
-                            ) 
+DriverGivenGPKG <- function(gage_files, config)
   {
 
   print ("DRIVER GIVEN GEOPACKAGE FUNCTION")
 
   stopifnot(length(gage_files) >= 1)
 
-  cats_failed <- lapply(X = gage_files, FUN = ProcessGPKG, failed_dir)
-  setwd(output_dir)
+  cats_failed <- lapply(X = gage_files, FUN = ProcessGPKG, config = config)
+  setwd(config$input_dir)
 
   return(cats_failed)
 }
 
-ProcessGPKG <- function(gfile, failed_dir) {
+ProcessGPKG <- function(gfile, config) {
 
   print ("PROCESS GPKG FUNCTION")
 
@@ -127,7 +137,7 @@ ProcessGPKG <- function(gfile, failed_dir) {
      id <- 11111111
   }
 
-  cat_dir = glue("{output_dir}/{id}")
+  cat_dir = glue("{config$input_dir}/{id}")
   dir.create(cat_dir, recursive = TRUE, showWarnings = FALSE)
 
   setwd(cat_dir)
@@ -147,30 +157,29 @@ ProcessGPKG <- function(gfile, failed_dir) {
 
     gpkg_name = basename(gfile)
 
-    local_gpkg_file = hydrofabric_path(cat_dir, gpkg_name)
+    gpkg_file = hydrofabric_path(cat_dir, gpkg_name)
 
-    RunDriver(is_gpkg_provided = TRUE,
-              loc_gpkg_file = local_gpkg_file,
-              dem_input_file = dem_input_file,
-              compute_divide_attributes = compute_divide_attributes,
-              dem_aggregate_factor = dem_aggregate_factor,
-              veg_calc_enabled = veg_calc_enabled,
-              veg_nlcd_path    = veg_nlcd_path, 
-              veg_method       = veg_method
+    RunDriver(gpkg_file = gpkg_file,
+              config = config
               )
 
     failed <- FALSE
 
     }, error = function(e) {
       failed <- TRUE
+      write_subset_failure(id, cat_dir, e)
     })
 
   # move (or delete) dem output directory out of the main output directory
-  clean_move_dem_dir(id = id, output_dir = output_dir, dem_output_dir = dem_output_dir)
+  clean_move_dem_dir(
+    id = id,
+    output_dir = config$input_dir,
+    dem_output_dir = config$dem$output_dir
+  )
 
   if (failed) {
     cat ("Basin failed:", id, "\n")
-    cat_failed_dir = glue("{output_dir}/basins_failed/{id}")
+    cat_failed_dir = glue("{config$input_dir}/basins_failed/{id}")
 
     if (file.exists(cat_failed_dir) ) {
       unlink(cat_failed_dir, recursive = TRUE)
@@ -190,28 +199,23 @@ ProcessGPKG <- function(gfile, failed_dir) {
 ############################# RUN_DRIVER ######################################
 # main runner function
 RunDriver <- function(gage_id = NULL, 
-                      is_gpkg_provided = FALSE, 
-                      dem_input_file = NULL,
-                      loc_gpkg_file = "",
-                      compute_divide_attributes = TRUE,
-                      dem_aggregate_factor = 3,
-                      veg_calc_enabled = NULL,
-                      veg_nlcd_path    = NULL, 
-                      veg_method       = NULL
+                      gpkg_file = NULL,
+                      config
                       ) {
 
   print ("RUN DRIVER FUNCTION")
 
   outfile <- " "
-  if(!is_gpkg_provided) {
+  if (is.null(gpkg_file)) {
+    if (is.null(gage_id)) {
+      stop("RunDriver requires either 'gage_id' or 'gpkg_file'.")
+    }
+
     start.time <- Sys.time()
     outfile <- hydrofabric_path(getwd(), glue("gage_{gage_id}.gpkg"))
 
     # Get domain info for this gage
-    gage_metadata <- suppressMessages(readNWISsite(gage_id)) |> 
-      dplyr::select(state_cd)
-
-    state_code <- gage_metadata$state_cd
+    state_code <- get_gage_state_code(gage_id)
     state <- stateCd$STUSAB[which(stateCd$STATE == state_code)]
       if (state %in% c("HI", "AK")) {
         domain <- tolower(state)
@@ -225,10 +229,10 @@ RunDriver <- function(gage_id = NULL,
     layers = c("divides", "flowpaths", "network", "nexus",
                "flowpath-attributes","divide-attributes")
     
-    if (hf_version == "2.2") {
-      if (file.exists(hf_gpkg_path)) {
+    if (config$hydrofabric$version == "2.2") {
+      if (file.exists(config$hydrofabric$gpkg_path)) {
         print('USING LOCAL GPKG FILE FOR SUBSETTING')
-        hf_gpkg <- hf_gpkg_path
+        hf_gpkg <- config$hydrofabric$gpkg_path
       } else {
         print('USING REMOTE GPKG FILE FOR SUBSETTING')
         hf_gpkg = NULL
@@ -243,7 +247,7 @@ RunDriver <- function(gage_id = NULL,
         hfsubsetR::get_subset(comid = flowpath_id,
                               outfile = outfile,
                               gpkg = hf_gpkg,
-                              hf_version = hf_version,
+                              hf_version = config$hydrofabric$version,
                               lyrs = layers,
                               type = 'nextgen',
                               overwrite = TRUE)
@@ -251,16 +255,16 @@ RunDriver <- function(gage_id = NULL,
         hfsubsetR::get_subset(hl_uri = glue("gages-{gage_id}"),
                               outfile = outfile,
                               gpkg = hf_gpkg,
-                              hf_version = hf_version,
+                              hf_version = config$hydrofabric$version,
                               lyrs = layers,
                               type = 'nextgen',
                               overwrite = TRUE)
       }
-    } else if (hf_version == "2.1.1") {
+    } else if (config$hydrofabric$version == "2.1.1") {
       
       hfsubsetR::get_subset(nldi_feature = list(featureSource="nwissite", featureID=glue("USGS-{gage_id}")),
                             outfile = outfile, 
-                            hf_version = hf_version, 
+                            hf_version = config$hydrofabric$version,
                             domain = "conus",
                             lyrs = layers,
                             overwrite = TRUE)
@@ -270,14 +274,16 @@ RunDriver <- function(gage_id = NULL,
     print (paste0("Time (geopackage) = ", time.taken))
 
   } else { 
-    outfile <- loc_gpkg_file
+    outfile <- gpkg_file
   }
 
   # check if the divide-attributes layer has the same number of rows as the divides layer
-  if (compute_divide_attributes) {
+  if (config$hydrofabric$compute_divide_attributes) {
 
-    check_divs  <- st_read(outfile, layer = 'divides')
-    check_attrs <- st_read(outfile, layer = 'divide-attributes')
+    check_divs <- sf::st_read(outfile, layer = "divides", quiet = TRUE)
+    check_attrs <- suppressWarnings(
+      sf::st_read(outfile, layer = "divide-attributes", quiet = TRUE)
+    )
 
     id_col <- "divide_id"
 
@@ -286,12 +292,12 @@ RunDriver <- function(gage_id = NULL,
     missing_in_divs <- setdiff(check_attrs[[id_col]], check_divs[[id_col]])
 
     if (length(missing_in_attrs) > 0 || length(missing_in_divs) > 0) {
-      print("Mismatched rows detected:")
-      print(glue("DIVIDES HAS {nrow(check_divs)} ROWS BUT DIVIDE-ATTRIBUTES HAS {nrow(check_attrs)}!!"))
-
-      print(glue("IDs in divides but not in divide-attributes: {toString(missing_in_attrs)}"))
-      print(glue("IDs in divide-attributes but not in divides: {toString(missing_in_divs)}"))
-      stop()
+      stop(glue(
+        "Mismatched rows detected between divides and divide-attributes. ",
+        "divides rows: {nrow(check_divs)}; divide-attributes rows: {nrow(check_attrs)}. ",
+        "IDs in divides but not in divide-attributes: {toString(missing_in_attrs)}. ",
+        "IDs in divide-attributes but not in divides: {toString(missing_in_divs)}."
+      ))
     }
 
   } else {
@@ -302,16 +308,19 @@ RunDriver <- function(gage_id = NULL,
   ## Stop if .gpkg does not exist
 
   if (!file.exists(outfile)) {
-    print(glue("FILE '{outfile}' DOES NOT EXIST!!"))
-    stop()
+    stop(glue("Geopackage file does not exist: {outfile}"))
     }
 
   ############################### GET DEM ##################################
   
   start.time <- Sys.time()
   
-  GetDEM(div_infile = outfile, dem_input_file, buffer_m = 2000, 
-           aggregate_factor = dem_aggregate_factor)
+  GetDEM(
+    div_infile = outfile,
+    config$dem$input_file,
+    buffer_m = 2000,
+    aggregate_factor = config$dem$aggregate_factor
+  )
 
   time.taken <- as.numeric(Sys.time() - start.time, units = "secs") #end.time - start.time
   print (paste0("Time (dem func) = ", time.taken))
@@ -375,16 +384,21 @@ RunDriver <- function(gage_id = NULL,
   ####################### CALCULATE VEGETATION TYPE ############################
   # Calculate vegetation type from NLCD data if enabled
   divides_with_veg <- NULL
-  if (veg_calc_enabled && file.exists(veg_nlcd_path)) {
+  if (config$vegetation$enabled && file.exists(config$vegetation$nlcd_path)) {
     print("STEP: Computing vegetation type from NLCD data .................")
     start.time <- Sys.time()
 
     # Calculate vegetation type
-    divides_with_veg <- ComputeVegTypeNLCD(outfile, veg_nlcd_path, veg_method, nclasses = 2)
+    divides_with_veg <- ComputeVegTypeNLCD(
+      outfile,
+      config$vegetation$nlcd_path,
+      config$vegetation$method,
+      nclasses = 2
+    )
 
     time.taken <- as.numeric(Sys.time() - start.time, units = "secs")
     print (paste0("Time (vegetation calc) = ", time.taken))
-  } else if (veg_calc_enabled) {
+  } else if (config$vegetation$enabled) {
     print("WARNING: Vegetation calculation requested but NLCD data path not provided or file does not exist")
   }
 
@@ -402,7 +416,9 @@ RunDriver <- function(gage_id = NULL,
   # Append GIUH, TWI, width function, slope, and Nash cascade N and K parameters
   # to model attributes layers
   
-  d_attr <- read_sf(outfile, 'divide-attributes')
+  d_attr <- suppressWarnings(
+    sf::read_sf(outfile, "divide-attributes")
+  )
 
   d_attr$giuh <- giuh_dat_values$giuh             # append GIUH column to the model attributes layer
   d_attr$twi  <- twi_dat_values$twi               # append TWI column to the model attributes layer
@@ -428,9 +444,9 @@ RunDriver <- function(gage_id = NULL,
     d_attr$IVGTYP_nlcd <- divides_with_veg$IVGTYP_nlcd
   }
 
-  if (hf_version == "2.2") {
+  if (config$hydrofabric$version == "2.2") {
     sf::st_write(d_attr, outfile,layer = "divide-attributes", append = FALSE, overwrite = TRUE)
-  } else if (hf_version == "2.1.1") {
+  } else if (config$hydrofabric$version == "2.1.1") {
     sf::st_write(d_attr, outfile,layer = "model-attributes", append = FALSE)  
   }
   # Reproject to ensure all .gpkgs end up in Albers projection (EPSG:5070)

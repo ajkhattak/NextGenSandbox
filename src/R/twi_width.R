@@ -29,6 +29,7 @@ ComputeTWI <- function(div_infile, distribution = 'quantiles', nclasses = 5) {
   }
   
   twi = rast(glue("{dem_output_dir}/twi.tif"))
+  div <- align_sf_to_raster_crs(div, twi, "hydrofabric divide polygons")
   
   twi[twi < 0] <- 0
   twi[twi > 50] <- 50
@@ -89,13 +90,7 @@ ComputeWidth <- function(div_infile) {
   }
   
   flowpath_length <- rast(glue("{dem_output_dir}/downslope_fp_length.tif"))
-  
-  crs_div <- st_crs(div)
-  crs_flowpath_l <- crs(flowpath_length)
-  
-  if (!identical(crs_div, crs_flowpath_l)) {
-    div <- st_transform(div, crs = crs_flowpath_l)
-  }
+  div <- align_sf_to_raster_crs(div, flowpath_length, "hydrofabric divide polygons")
   
   fp_min_ftn = zonal::execute_zonal(data = flowpath_length,
                              geom = div,
