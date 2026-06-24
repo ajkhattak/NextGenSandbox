@@ -66,6 +66,10 @@ def forcing_dir_for_resource(
     """Return the default forcing directory for a basin resource."""
     input_dir = Path(input_dir)
     resource = Path(resource)
+    if str(resource) == "{*}":
+        if layout == "flat":
+            return input_dir / FORCING_DIR / "{*}" / f"{start_year}_to_{end_year}"
+        return input_dir / "{*}" / FORCING_DIR / f"{start_year}_to_{end_year}"
 
     if layout == "flat":
         return input_dir / FORCING_DIR / resource_id(resource) / f"{start_year}_to_{end_year}"
