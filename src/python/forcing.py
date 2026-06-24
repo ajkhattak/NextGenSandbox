@@ -123,16 +123,30 @@ class ForcingProcessor:
             )
 
     def load_gage_ids(self):
+        input_dir = Path(self.input_dir)
+        if not input_dir.is_dir():
+            raise FileNotFoundError(
+                f"Input directory does not exist: {input_dir}. "
+                "Run the subsetting step first or correct general.input_dir."
+            )
 
         if self.layout == "flat":
-            gpkg_dirs = sorted(flat_hydrofabric_dir(self.input_dir).glob("*.gpkg"))
+            hydrofabric_dir = flat_hydrofabric_dir(input_dir)
+            gpkg_dirs = sorted(hydrofabric_dir.glob("*.gpkg"))
+            expected_location = hydrofabric_dir / "*.gpkg"
         else:
-            all_dirs = glob.glob(os.path.join(self.input_dir, '*/'), recursive=True)
+            all_dirs = glob.glob(os.path.join(input_dir, '*/'), recursive=True)
             gpkg_dirs = [
                 Path(g) for g in all_dirs
                 if has_gpkg_file(g)
             ]
-        assert gpkg_dirs, f"No geopackages found in the input directory {self.input_dir}."
+            expected_location = input_dir / "<gage_id>" / "hydrofabric" / "*.gpkg"
+
+        if not gpkg_dirs:
+            raise FileNotFoundError(
+                f"No geopackages found for general.layout='{self.layout}'. "
+                f"Expected files matching: {expected_location}"
+            )
 
         # map gage_id -> directory
         gage_dir_map = {resource_id(d): d for d in gpkg_dirs}

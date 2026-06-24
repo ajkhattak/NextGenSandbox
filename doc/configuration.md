@@ -237,6 +237,87 @@ With `retention: all`, divide-level outputs are stored under
 `output_sim_obs/sim_obs_<iteration>.parquet`. This can require substantial
 storage for long or highly distributed calibrations.
 
+## Calibration Search
+
+The calibration search algorithm is configured in `configs/calib_config.yaml`
+under `general.strategy`.
+
+### PSO Parameters
+
+Set `algorithm: pso` to use particle swarm optimization. PSO currently supports
+the `uniform` model strategy, where one shared parameter set is calibrated for
+the basin.
+
+```yaml
+general:
+  strategy:
+    type: estimation
+    algorithm: pso
+    parameters:
+      particles: 20
+      pool: 4
+      options:
+        c1: 1.5
+        c2: 2.0
+        w: 0.9
+      options_schedule:
+        type: linear
+        end:
+          c1: 0.5
+          c2: 2.5
+          w: 0.4
+      initialization:
+        best_path: /path/to/previous/pso_global_best
+        nearby_fraction: 0.5
+        noise_fraction: 0.1
+```
+
+`particles` is the number of candidate parameter sets evaluated each PSO
+generation. Each particle owns an isolated ngen-cal worker directory and runs
+one ngen simulation per generation.
+
+`pool` is the maximum number of particle simulations run concurrently. If ngen
+itself uses MPI parallelism, approximate CPU demand is `pool * ngen_parallel`.
+
+`options` are the starting PSO coefficients:
+
+- `w`: inertia weight, controlling momentum from the previous velocity.
+- `c1`: cognitive coefficient, pulling particles toward their own best known
+  position.
+- `c2`: social coefficient, pulling particles toward the global best known
+  position.
+
+`options_schedule` is optional. With `type: linear`, the listed coefficients
+linearly move from their starting values in `options` to the values in `end`
+over the PSO iterations:
+
+```text
+factor = iteration / total_iterations
+value = start - factor * (start - end)
+```
+
+The schedule is recorded in `pso_options_log.txt`.
+
+`initialization` is optional. When `best_path` points to a previous DDS worker,
+PSO reads `best_params.txt` and `*_parameter_df_state.parquet` and uses that
+best parameter set as particle 0. When `best_path` points to a previous
+`pso_global_best` directory, PSO can use its saved best parameter state. If
+`best_path` is omitted or cannot be read, particle 0 uses the `init` values
+from the calibration parameter blocks.
+
+`nearby_fraction` controls how many particles are initialized near the seed.
+`noise_fraction` controls the standard deviation of the perturbation as a
+fraction of each parameter range. Remaining particles are initialized randomly
+within bounds.
+
+PSO writes several progress artifacts in the run directory:
+
+- `pso_progress.json`: current global best and the latest generation's particle
+  results.
+- `pso_global_best/`: copy of the particle worker that produced the best result.
+- `pso_global_best_log.txt`: best-so-far score/cost after each generation.
+- `pso_options_log.txt`: scheduled `w`, `c1`, and `c2` values by generation.
+
 Streamflow observation units must be `m3/s` or `m3/sec`. The workflow and
 streamflow plugin accept either label but do not perform unit conversion.
 
@@ -385,6 +466,20 @@ cfex_params:
     min: 0.0
     max: 15
     init: 4.05
+```
+
+Parameters use a linear calibration scale by default. To search in base-10
+logarithmic space, set `scale: log10` and provide `min`, `max`, and `init` as
+base-10 logarithms. The value is converted back to physical space before it is
+written to the ngen realization:
+
+```yaml
+cfes_params:
+  - name: Cgw
+    scale: log10
+    min: -5.744727  # log10(1.8e-6)
+    max: -2.744727  # log10(1.8e-3)
+    init: -3.744727 # log10(1.8e-4)
 ```
 
 If a model has no calibratable parameters for a workflow, leave `calib_params_block` empty in its model instance.
