@@ -1,6 +1,5 @@
-# this option is for the sandbox only and not part of the NoahOM config file.
-# Option: true | false, true = adjust incoming shortwave radiation to slope and aspect
-flat_domain = false   ! don't move the first 3 lines
+flat_domain = true ! Sandbox only: true sets slope/aspect to zero; false uses divide-attribute values
+! and adjusts incoming shortwave radiation to slope and aspect.
 
 &timing                                   ! and input/output paths
   dt                 = 3600.0             ! timestep [seconds]
