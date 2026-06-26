@@ -76,14 +76,19 @@ class Runner:
 
             realization = glob.glob(str(o_dir / "configs" / "realization_*.json"))
 
-            assert len(realization) == 1
+            if len(realization) != 1:
+                raise RuntimeError(
+                    f"Expected exactly one realization file in {o_dir / 'configs'}, "
+                    f"found {len(realization)}: {realization}"
+                )
             realization = realization[0]
 
             # defaults to serial run no-mpi mode
             run_cmd = f'{ngen_exe} {gpkg_file} all {gpkg_file} all {realization}'
 
+            partitioning = self.ctx.sandbox_config.get("simulation", {}).get("partitioning", {})
             file_par, num_cpus = helper.prepare_basin_partitioning(self.ctx.sandbox_dir, gpkg_file,
-                                                                   self.ctx.sandbox_config["simulation"]['partitioning'])
+                                                                   partitioning)
 
             self.file_par = os.path.join(o_dir, file_par) if file_par else None
             self.num_procs = int(num_cpus)
@@ -125,8 +130,9 @@ class Runner:
         gpkg_file = find_gpkg_file(i_dir)
         gpkg_name = gpkg_file.stem
 
+        partitioning = self.ctx.sandbox_config.get("simulation", {}).get("partitioning", {})
         file_par, num_cpus = helper.prepare_basin_partitioning(self.ctx.sandbox_dir, gpkg_file,
-                                                               self.ctx.sandbox_config["simulation"]['partitioning'])
+                                                               partitioning)
 
         self.file_par = os.path.join(o_dir, file_par) if file_par else None
 

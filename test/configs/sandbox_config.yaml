@@ -51,3 +51,7 @@ simulation :
   validation_time  : {"start_time" : "2010-11-22 14:00:00", "end_time" : "2010-12-23 02:00:00"} # Entire simulation period for validation; including spinup period
   valid_eval_time  : {"start_time" : "2010-11-23 14:00:00", "end_time" : "2010-12-23 02:00:00"} # Evalaution period for validation (excluding spinup period)
   restart_dir      : "<path_to_restart_dir>/{*}/202410042024_ngen_qaiklwj0_worker/" #----------- Restart experiment from the best iteration
+  partitioning:
+    mode: serial
+    max_nexus_per_proc: 25
+    max_procs: 1

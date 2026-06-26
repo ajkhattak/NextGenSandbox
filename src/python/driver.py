@@ -55,8 +55,9 @@ class Driver:
 
         # get num of cores for the basin
         gpkg_file = gpkg_dir
+        partitioning = ctx.sandbox_config.get("simulation", {}).get("partitioning", {})
         num_cpus = helper.prepare_basin_partitioning(ctx.sandbox_dir, gpkg_file,
-                                                     ctx.sandbox_config["simulation"]['partitioning'],
+                                                     partitioning,
                                                      create_par_file=False)
         # this meta data is needed to resubmit jobs on HPC after wallclock time outs
 
