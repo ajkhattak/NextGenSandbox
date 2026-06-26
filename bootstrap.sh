@@ -378,14 +378,10 @@ if [ "$BUILD_SUBSET" = "ON" ]; then
     ./utils/build_venv_subset.sh
 fi
 
-if [ "$BUILD_NGEN" = "ON" ]; then
-    source ./utils/build_models.sh NGEN=ON CLEAN=$BUILD_CLEAN
-fi
-
-if [ "$BUILD_MODELS" = "ON" ]; then
-    source ./utils/build_models.sh MODELS=ON CLEAN=$BUILD_CLEAN
-fi
-
-if [ "$BUILD_TROUTE" = "ON" ]; then
-    source ./utils/build_models.sh TROUTE=ON
+if [ "$BUILD_NGEN" = "ON" ] || [ "$BUILD_MODELS" = "ON" ] || [ "$BUILD_TROUTE" = "ON" ]; then
+    bash ./utils/build_models.sh \
+        NGEN="$BUILD_NGEN" \
+        MODELS="$BUILD_MODELS" \
+        TROUTE="$BUILD_TROUTE" \
+        CLEAN="$BUILD_CLEAN"
 fi

@@ -1,3 +1,5 @@
+#!/usr/bin/env bash
+
 ###############################################################
 # Author      : Ahmad Jan Khattak [ahmad.jan.khattak@noaa.gov | September 10, 2024]
 # Contributor : Sifan A. Koriche [sakoriche@ua.edu | December 18, 2024]
@@ -78,7 +80,7 @@ build_ngen()
 {
     pushd $SANDBOX_BUILD_DIR
 
-    if [ "$CLEAN" = true ]; then
+    if [ "$BUILD_CLEAN" = true ]; then
 	echo "Cleaning ngen repo"
 	rm -rf ngen
     fi
@@ -170,7 +172,7 @@ build_models() {
         local build="$2"
         shift 2
 
-	if [ "$CLEAN" = true ]; then
+	if [ "$BUILD_CLEAN" = true ]; then
             echo "Cleaning build directory: $build"
             rm -rf "$build"
         fi
@@ -244,7 +246,7 @@ if [ "$BUILD_NGEN" == "ON" ]; then
 fi
 if [ "$BUILD_MODELS" == "ON" ]; then
     echo "Building models..."
-    build_models --clean
+    build_models
 fi
 if [ "$BUILD_TROUTE" == "ON" ]; then
     echo "Building troute..."
