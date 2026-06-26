@@ -137,7 +137,7 @@ def Sandbox(args, sandbox_config, calib_config, rscript, dryrun=False):
                 f"R exited with status {exc.returncode}. "
                 "See the R error output above for details."
             )
-        print ("DONE \u2713")
+        print("NextGenSandbox subset step completed successfully.")
 
     if (args.forc):
         print ("Generating forcing data...")
@@ -147,7 +147,7 @@ def Sandbox(args, sandbox_config, calib_config, rscript, dryrun=False):
         if (status):
             sys.exit("Failed during downloading forcing data step...")
         else:
-            print ("DONE \u2713")
+            print("NextGenSandbox forcing step completed successfully.")
 
     if not (args.conf or args.run):
         print ("**********************************")
@@ -172,10 +172,10 @@ def Sandbox(args, sandbox_config, calib_config, rscript, dryrun=False):
         if (status):
             sys.exit("Failed during generating config files step...")
         else:
-            print ("DONE \u2713")
+            print("NextGenSandbox configuration step completed successfully.")
     
     if (args.run):
-        print ("Calling Runner...")
+        print ("Running NextGen simulations...")
 
         status = runner.Runner(ctx).run()
         #status  = _runner.run()
@@ -183,7 +183,7 @@ def Sandbox(args, sandbox_config, calib_config, rscript, dryrun=False):
         if (status):
             sys.exit("Failed during ngen-cal execution...")
         else:
-            print ("DONE \u2713")
+            print("NextGenSandbox run step completed successfully.")
     
     print ("**********************************")
     

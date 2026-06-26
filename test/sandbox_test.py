@@ -18,6 +18,10 @@ def run_step(label, command):
     print(label)
     subprocess.run(command, shell=True, check=True)
 
+def print_success(message):
+    print("-------------------------------------")
+    print(message)
+
 
 if __name__ == "__main__":
     try:
@@ -52,18 +56,26 @@ if __name__ == "__main__":
         # test sandbox -conf
         if args.subset:
             run_step("Running subset step", f"sandbox --subset -i {sandbox_config}")
+            print_success("SUCCESS: subset smoke-test step completed.")
         elif args.forc:
             run_step("Running forcing step", f"sandbox --forc -i {sandbox_config}")
+            print_success("SUCCESS: forcing smoke-test step completed.")
         elif args.conf:
             run_step("Running config generation step", f"sandbox --conf -i {sandbox_config}")
+            print_success("SUCCESS: configuration smoke-test step completed.")
         elif args.run:
             run_step("Running test simulation", f"sandbox --run -i {sandbox_config}")
+            print_success("SUCCESS: run smoke-test step completed.")
 
         elif args.all:
             run_step("Running subset step", f"sandbox --subset -i {sandbox_config}")
             run_step("Running forcing step", f"sandbox --forc -i {sandbox_config}")
             run_step("Running config generation step", f"sandbox --conf -i {sandbox_config}")
             run_step("Running test simulation", f"sandbox --run -i {sandbox_config}")
+            print_success(
+                "SUCCESS: NextGenSandbox smoke test completed. "
+                "Installation and the core workflow are ready."
+            )
 
         elif args.clean:
             output_dir = sandbox_test_dir / "output"
@@ -71,6 +83,7 @@ if __name__ == "__main__":
             if output_dir.exists():
                 print(f"Deleting: {output_dir}")
                 shutil.rmtree(output_dir)
+                print_success("SUCCESS: smoke-test output directory removed.")
             else:
                 print(f"Directory does not exist: {output_dir}")
     finally:
