@@ -170,10 +170,12 @@ Run the following command — assuming you have already set up the sandbox confi
     sandbox --run -i <sandbox_config_filename.yaml> -j <calib_config_filename.yaml>
  ```
 
-### <ins> Step 11. Run Workflow Smoke Test
+### <ins> Step 11. Scale With Sandbox Launcher
 
-After the workflow is built, configured, and the required data are available, run the following end-to-end test. Download a CONUS geopackage from [lynker-spatial](https://www.lynker-spatial.com/data?path=hydrofabric%2Fv2.2%2F) first.
+After one normal Sandbox configuration works, use the Sandbox Launcher to scale
+the same workflow across many gages, formulations, or long calibration jobs.
+The launcher builds on the same `sandbox_config.yaml` and `calib_config.yaml`
+concepts, then creates per-gage/per-model run directories and submits jobs
+through SLURM or local execution.
 
-```
-python test/sandbox_test.py --all --gpkg <path/to/conus_nextgen.gpkg>
-```
+See the [Sandbox Launcher guide](../tools/launcher/README.md).
