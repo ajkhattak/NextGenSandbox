@@ -1,6 +1,13 @@
 # Getting Started with NextGen Sandbox: Build, Configure, and Run
 
-Detailed instructions on how to install, configure, and get NextGenSandbox running.
+This guide explains how to install NextGenSandbox, verify the installation,
+and begin configuring a project. Use the [Quick Path](#quick-path) to build the
+workflow and run the smoke test on a new machine. Use the
+[Detailed Step-By-Step Setup](#detailed-step-by-step-setup) when you want the
+expanded explanation for each setup stage. After the smoke test passes, see
+[Configure A Project](#step-6-configure-a-project) for where to start adapting
+the workflow to your own basin, forcing, formulation, calibration, and output
+settings.
 
 ## Quick Path
 
