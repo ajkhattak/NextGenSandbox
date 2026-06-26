@@ -25,7 +25,11 @@ module load udunits
 #SANDBOX_PACKAGE_PATH=$(python -c "import sandbox, os; print(os.path.dirname(sandbox.__file__))")
 #source "${SANDBOX_PACKAGE_PATH}/.venv/venv_sandbox_py3.11/bin/activate"
 unset PYTHONPATH
-source /scratch4/NCEPDEV/ohd/Ahmad.Jan.Khattak/Code/NextGenSandboxHub/.venv/venv_sandbox_py3.11/bin/activate
+if [ -z "$SANDBOX_ENV" ]; then
+    echo "ERROR: SANDBOX_ENV is not set. Run ./bootstrap.sh --env and reload your shell before submitting."
+    exit 1
+fi
+source "$SANDBOX_ENV/bin/activate"
 
 # Debug info
 echo "Python executable: $(which python)"

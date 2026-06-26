@@ -1,6 +1,6 @@
 # Configuration Guide
 
-This guide explains how to configure NextGenSandboxHub runs. The workflow uses two main configuration files:
+This guide explains how to configure NextGenSandbox runs. The workflow uses two main configuration files:
 
 - `configs/sandbox_config.yaml`: workflow, inputs, formulation, model instances, and simulation settings.
 - `configs/calib_config.yaml`: calibration strategy, objectives, plugins, and the parameter-file directory.

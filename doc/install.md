@@ -1,6 +1,6 @@
 # Getting Started with NextGen Sandbox: Build, Configure, and Run
 
-Detailed instructions on how to install, configure, and get the NextGenSandboxHub running.
+Detailed instructions on how to install, configure, and get NextGenSandbox running.
 
 ## Quick Path
 
@@ -22,7 +22,7 @@ For a typical setup, the workflow is:
 ### <ins>  Step 1. Build Sandbox Workflow
   1.1 Clone the repository (if not already done):
      
-     git clone https://github.com/ajkhattak/NextGenSandboxHub && cd NextGenSandboxHub
+     git clone https://github.com/ajkhattak/NextGenSandbox && cd NextGenSandbox
      
   1.2 Ensure conda or Python (>=3.11) is available: \
      - Local machine: check Python version. \
@@ -33,7 +33,7 @@ For a typical setup, the workflow is:
      ./bootstrap.sh --env --verbose
     
 
-  Validate this step [here](https://github.com/ajkhattak/NextGenSandboxHub/blob/main/utils/venv/validation.md#step-13-validation).
+  Validate this step [here](https://github.com/ajkhattak/NextGenSandbox/blob/main/utils/venv/validation.md#step-13-validation).
 
   > **Important:** On first-time setup, open a new terminal (or reload your shell) before continuing.
 
@@ -51,7 +51,7 @@ For a typical setup, the workflow is:
      
      ./bootstrap.sh --sandbox
      
-  Validate this step [here](https://github.com/ajkhattak/NextGenSandboxHub/blob/main/utils/venv/validation.md#step-14-validation).
+  Validate this step [here](https://github.com/ajkhattak/NextGenSandbox/blob/main/utils/venv/validation.md#step-14-validation).
 
 ### <ins>  Step 2. Hydrofabric Installation
   #### Option #1: HPC machines (load conda module) or macOS
@@ -65,8 +65,8 @@ For a typical setup, the workflow is:
   Rscript $SANDBOX_DIR/src/R/install_load_libs.R --install
   ```
   #### Option #3: Using RStudio on macOS/Windows
-   - Open `<path_to_sandboxhub>/src/R/install_load_libs.R` in RStudio. Click Source to execute the script.
-   - Alternatively, run the following command in the RStudio Console: `Sys.setenv(SANDBOX_R_DEPS_MODE = "install"); source("~/<path_to_sandboxhub>/src/R/install_load_libs.R")`
+   - Open `<path_to_sandbox_repo>/src/R/install_load_libs.R` in RStudio. Click Source to execute the script.
+   - Alternatively, run the following command in the RStudio Console: `Sys.setenv(SANDBOX_R_DEPS_MODE = "install"); source("~/<path_to_sandbox_repo>/src/R/install_load_libs.R")`
 
   During `sandbox --subset`, the workflow checks that these R packages are
   already available. It does not install or compile missing R packages during a
@@ -91,7 +91,7 @@ The sandbox setup step configures the required environment variables: `SANDBOX_D
 > **Important:** Before continuing to later steps, you must install and build ngen and the required routing/models components.
 
 > **Note:** Build ngen and the required models after Step 1 has created the sandbox environment and after that environment is activated.
-Please activate the sandbox environment, then follow the instructions in the [build_models](https://github.com/ajkhattak/NextGenSandboxHub/blob/main/utils/build_models.sh) script to build ngen and models. For an example HPC setup, see [setup_hpc.sh](https://github.com/ajkhattak/NextGenSandboxHub/blob/main/utils/setup_hpc.sh). A typical build sequence is:
+Please activate the sandbox environment, then follow the instructions in the [build_models](https://github.com/ajkhattak/NextGenSandbox/blob/main/utils/build_models.sh) script to build ngen and models. For an example HPC setup, see [setup_hpc.sh](https://github.com/ajkhattak/NextGenSandbox/blob/main/utils/setup_hpc.sh). A typical build sequence is:
 ```
 ./bootstrap.sh --ngen
 ./bootstrap.sh --models
@@ -131,7 +131,7 @@ For formulation selection, `model_instances`, task types, and calibration config
     sandbox --subset -i <sandbox_config_filename.yaml>
     ```
   - Using RStudio
-      - open `<path_to_sandboxhub>/src/R/main.R` in RStudio and source on main.R. Note Set file name `infile_config` [here](https://github.com/ajkhattak/NextGenSandboxHub/blob/main/src/R/main.R#L53) 
+      - open `<path_to_sandbox_repo>/src/R/main.R` in RStudio and source on main.R. Note Set file name `infile_config` [here](https://github.com/ajkhattak/NextGenSandbox/blob/main/src/R/main.R#L53)
     
     If everything goes well, a basin geopackage will be subsetted for each selected gage. With the default `general.layout: basin`, files are written under `<input_dir>/<gage_id>/hydrofabric/gage_<gage_id>.gpkg`. With `general.layout: flat`, files are written under `<input_dir>/hydrofabric/gage_<gage_id>.gpkg`.
 

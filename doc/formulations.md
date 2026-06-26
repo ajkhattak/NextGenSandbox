@@ -32,7 +32,7 @@
 
 ## Supported Models — Source Code Links
 
-Here are the hydrologic and hydraulic modules supported by NextGenSandboxHub, along with links to their source-code repositories.
+Here are the hydrologic and hydraulic modules supported by NextGenSandbox, along with links to their source-code repositories.
 
 | Model / Module | GitHub Repository |
 |----------------|------------------|

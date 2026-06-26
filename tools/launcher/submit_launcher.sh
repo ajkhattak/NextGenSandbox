@@ -52,7 +52,11 @@ echo "==============================================="
 # --- HPC environment ---
 if [ "$RUN_ENV" = "slurm" ]; then
     unset PYTHONPATH
-    source /scratch4/NCEPDEV/ohd/Ahmad.Jan.Khattak/Code/NextGenSandboxHub/.venv/venv_sandbox_py3.11/bin/activate
+    if [ -z "$SANDBOX_ENV" ]; then
+        echo "ERROR: SANDBOX_ENV is not set. Run ./bootstrap.sh --env and reload your shell before submitting."
+        exit 1
+    fi
+    source "$SANDBOX_ENV/bin/activate"
 else    
     #source .venv/venv_sandbox_py3.11/bin/activate 2>/dev/null || true
     conda activate $SANDBOX_ENV
@@ -123,6 +127,4 @@ exit $exit_code
 #echo "LL Python executable: $(which python)"
 #python -c "import numpy; print('LL NumPy version:', numpy.__version__)"
 #python -c "import sqlite3; print('LL sqlite3 version:', sqlite3.sqlite_version)"
-
-
 

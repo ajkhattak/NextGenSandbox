@@ -1,6 +1,6 @@
 # Directory Layout
 
-NextGenSandboxHub supports two project-level resource layouts: `basin` and
+NextGenSandbox supports two project-level resource layouts: `basin` and
 `flat`. Set the layout once under `general.layout` in `sandbox_config.yaml`.
 The default is `basin`.
 
