@@ -4,7 +4,7 @@ Detailed instructions on how to install, configure, and get NextGenSandbox runni
 
 ## Quick Path
 
-For a typical setup, the workflow is:
+For a typical first-time setup, build the workflow and run the smoke test:
 
 1. Clone the repository and enter it:
    `git clone https://github.com/ajkhattak/NextGenSandbox && cd NextGenSandbox`
@@ -18,10 +18,14 @@ For a typical setup, the workflow is:
 9. `./bootstrap.sh --check`
 10. `./bootstrap.sh --ngen --models --troute`
 11. `./bootstrap.sh --check`
-12. Review [configuration.md](./configuration.md) and update `configs/sandbox_config.yaml`
-13. Run `sandbox --subset`, `sandbox --forc`, `sandbox --conf`, and `sandbox --run`
+12. Download a CONUS geopackage from [lynker-spatial](https://www.lynker-spatial.com/data?path=hydrofabric%2Fv2.2%2F)
+13. `python test/sandbox_test.py --all --gpkg <path/to/conus_nextgen.gpkg>`
 
-### <ins>  Step 1. Build Sandbox Workflow
+After the smoke test passes, review [configuration.md](./configuration.md) and update `configs/sandbox_config.yaml` for your own project.
+
+## Detailed Step-By-Step Setup
+
+### <ins> Step 1. Build Sandbox Workflow
   1.1 Clone the repository (if not already done):
      
      git clone https://github.com/ajkhattak/NextGenSandbox && cd NextGenSandbox
@@ -55,7 +59,12 @@ For a typical setup, the workflow is:
      
   Validate this step [here](https://github.com/ajkhattak/NextGenSandbox/blob/main/utils/venv/validation.md#step-14-validation).
 
-### <ins>  Step 2. Hydrofabric Installation
+### <ins> Step 2. Install Subsetting Dependencies
+This step installs the R packages and WhiteboxTools binary used by the
+hydrofabric basin-subsetting workflow. These dependencies are required before
+running `sandbox --subset`, which extracts basin geopackages from a larger
+hydrofabric file for the gage IDs listed in `sandbox_config.yaml`.
+
   #### Option #1: HPC machines (load conda module) or macOS
   Run the following command in a terminal:
   ```
@@ -74,9 +83,9 @@ For a typical setup, the workflow is:
   already available. It does not install or compile missing R packages during a
   subsetting run.
 
-### <ins>  Sandbox Virtual Environment Activation
+### <ins> Step 3. Activate Sandbox Environment
 The sandbox setup step configures the required environment variables: `SANDBOX_DIR, SANDBOX_BUILD_DIR, SANDBOX_DATA_DIR, SANDBOX_ENV`, enabling easy navigation and environment activation. By default, build artifacts live under `$SANDBOX_DIR/build` and persistent model data live under `$SANDBOX_DATA_DIR`.
->**NOTE:** This environment must be activated before performing Step 3 and subsequent steps.
+>**NOTE:** This environment must be activated before performing Step 4 and subsequent steps.
 
 **Activate the virtual environment:**
  - If using Conda:
@@ -89,7 +98,7 @@ The sandbox setup step configures the required environment variables: `SANDBOX_D
    ```
 
 
-### <ins> Step 3. Install NextGen (ngen) and Required Models
+### <ins> Step 4. Build NextGen And Required Models
 > **Important:** Before continuing to later steps, you must install and build ngen and the required routing/models components.
 
 > **Note:** Build ngen and the required models after Step 1 has created the sandbox environment and after that environment is activated.
@@ -110,7 +119,7 @@ Options:
   --troute   Build t-route
 ```
 
-### <ins> Environment Verification
+### <ins> Step 5. Verify Environment
 
 Before moving on to configuration, confirm that the environment bootstrap succeeded:
 
@@ -118,14 +127,14 @@ Before moving on to configuration, confirm that the environment bootstrap succee
 - Validate Step 1.3 with [utils/venv/validation.md](../utils/venv/validation.md#step-13-validation)
 - Validate Step 1.4 with [utils/venv/validation.md](../utils/venv/validation.md#step-14-validation)
 
-### <ins> Step 4. Setup configuration file
+### <ins> Step 6. Configure A Project
 Open the configuration file `$SANDBOX_DIR/configs/sandbox_config.yaml`
 
 Review and update the blocks in [sandbox_config.yaml](../configs/sandbox_config.yaml) to match your local environment. The file already contains detailed inline instructions for each configuration block.
 
 For formulation selection, `model_instances`, task types, and calibration config linkage, see the [configuration guide](./configuration.md).
 
-### <ins> Step 5. Hydrofabric Subsetting
+### <ins> Step 7. Subset Hydrofabric
   - Dependency: Step 2 & Step 4
   - Download domain (CONUS or oCONUS) from [lynker-spatial](https://www.lynker-spatial.com/data?path=hydrofabric%2Fv2.2%2F), for instance, conus/conus_nextgen.gpkg
   - From command line run:
@@ -137,24 +146,24 @@ For formulation selection, `model_instances`, task types, and calibration config
     
     If everything goes well, a basin geopackage will be subsetted for each selected gage. With the default `general.layout: basin`, files are written under `<input_dir>/<gage_id>/hydrofabric/gage_<gage_id>.gpkg`. With `general.layout: flat`, files are written under `<input_dir>/hydrofabric/gage_<gage_id>.gpkg`.
 
-### <ins> Step 6. Forcing Data Download
+### <ins> Step 8. Download Forcing Data
 The workflow uses [CIROH_DL_NextGen](https://github.com/ajkhattak/CIROH_DL_NextGen) forcing_prep tool to download atmospheric forcing data. To download the forcing data run:
 ```
    sandbox --forc -i <sandbox_config_filename.yaml>
 ```
 
-### <ins>  Step 7. Generate Configuration and Realization Files
+### <ins> Step 9. Generate Configuration And Realization Files
 If you have not already done so, review and update the sandbox config file [here](../configs/sandbox_config.yaml), particularly the `formulation` and `simulation` blocks, then run:
  ```
     sandbox --conf -i <sandbox_config_filename.yaml> -j <calib_config_filename.yaml>
  ```
-### <ins> Step 8. Run Calibration/Validation Simulations
+### <ins> Step 10. Run Simulations
 Run the following command — assuming you have already set up the sandbox configuration file [here](../configs/sandbox_config.yaml) and calibration configuration file [here](../configs/calib_config.yaml).
  ```
     sandbox --run -i <sandbox_config_filename.yaml> -j <calib_config_filename.yaml>
  ```
 
-### <ins> Workflow Smoke Test
+### <ins> Step 11. Run Workflow Smoke Test
 
 After the workflow is built, configured, and the required data are available, run the following end-to-end test. Download a CONUS geopackage from [lynker-spatial](https://www.lynker-spatial.com/data?path=hydrofabric%2Fv2.2%2F) first.
 

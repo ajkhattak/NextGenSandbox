@@ -111,7 +111,6 @@ ProcessCatchmentID <- function(id, config) {
   gpkg_file = subset_gpkg_path(id, config)
   dir.create(cat_dir, recursive = TRUE, showWarnings = FALSE)
   dir.create(dirname(gpkg_file), recursive = TRUE, showWarnings = FALSE)
-  print (glue("AA: {cat_dir}, ==== {gpkg_file}"))
   setwd(cat_dir)
   wbt_wd(getwd())
 
