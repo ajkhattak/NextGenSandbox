@@ -6,18 +6,20 @@ Detailed instructions on how to install, configure, and get NextGenSandbox runni
 
 For a typical setup, the workflow is:
 
-1. `./bootstrap.sh --env --verbose`
-2. Reload your shell or open a new terminal
-3. `./bootstrap.sh --check`
-4. `./bootstrap.sh --sandbox`
-5. `./bootstrap.sh --check`
-6. Activate the sandbox Python environment
-7. `./bootstrap.sh --subset`
-8. `./bootstrap.sh --check`
-9. `./bootstrap.sh --ngen --models --troute`
-10. `./bootstrap.sh --check`
-11. Review [configuration.md](./configuration.md) and update `configs/sandbox_config.yaml`
-12. Run `sandbox --subset`, `sandbox --forc`, `sandbox --conf`, and `sandbox --run`
+1. Clone the repository and enter it:
+   `git clone https://github.com/ajkhattak/NextGenSandbox && cd NextGenSandbox`
+2. `./bootstrap.sh --env --verbose`
+3. Reload your shell or open a new terminal
+4. `./bootstrap.sh --check`
+5. `./bootstrap.sh --sandbox`
+6. `./bootstrap.sh --check`
+7. Activate the sandbox Python environment
+8. `./bootstrap.sh --subset`
+9. `./bootstrap.sh --check`
+10. `./bootstrap.sh --ngen --models --troute`
+11. `./bootstrap.sh --check`
+12. Review [configuration.md](./configuration.md) and update `configs/sandbox_config.yaml`
+13. Run `sandbox --subset`, `sandbox --forc`, `sandbox --conf`, and `sandbox --run`
 
 ### <ins>  Step 1. Build Sandbox Workflow
   1.1 Clone the repository (if not already done):
