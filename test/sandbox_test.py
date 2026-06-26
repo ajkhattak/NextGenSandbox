@@ -13,6 +13,11 @@ from pathlib import Path
 import sandbox
 import shutil
 
+def run_step(label, command):
+    print("-------------------------------------")
+    print(label)
+    subprocess.run(command, shell=True, check=True)
+
 
 if __name__ == "__main__":
     try:
@@ -31,63 +36,42 @@ if __name__ == "__main__":
     sandbox_test_dir = Path(__file__).resolve().parent
 
     sandbox_config   = sandbox_test_dir / "configs" / "sandbox_config.yaml"
+    original_config = sandbox_config.read_text()
 
-    with open(sandbox_config, 'r') as file:
-        d = yaml.safe_load(file)
+    try:
+        d = yaml.safe_load(original_config)
 
         # modify values
         d["general"]["input_dir"] = str(sandbox_test_dir / "input")
         d["general"]["output_dir"] = str(sandbox_test_dir / "output")
         d["subsetting"]["hydrofabric"]["gpkg_path"] = str(Path(args.conus_gpkg).resolve())
 
-    with open(sandbox_config, "w") as f:
-        yaml.safe_dump(d, f, sort_keys=False)
+        with open(sandbox_config, "w") as f:
+            yaml.safe_dump(d, f, sort_keys=False)
 
-    # test sandbox -conf
-    if args.subset:
-        print ("-------------------------------------")
-        print ("Running subset step")
-        run_conf = f"sandbox --subset -i {sandbox_config}"
-        result = subprocess.call(run_conf, shell=True)
-    elif args.forc:
-        run_conf = f"sandbox --forc -i {sandbox_config}"
-        result = subprocess.call(run_conf, shell=True)
-    elif args.conf:
-        run_conf = f"sandbox --conf -i {sandbox_config}"
-        result = subprocess.call(run_conf, shell=True)
-    elif args.run:
-        run_conf = f"sandbox --run -i {sandbox_config}"
-        result = subprocess.call(run_conf, shell=True)
-        
-    elif args.all:
-        print ("-------------------------------------")
-        print ("Running subset step")
-        run_conf = f"sandbox --subset -i {sandbox_config}"
-        result = subprocess.call(run_conf, shell=True)
-        
-        print ("-------------------------------------")
-        print ("Running forcing step")
-        run_conf = f"sandbox --forc -i {sandbox_config}"
-        result = subprocess.call(run_conf, shell=True)
-        
-        print ("-------------------------------------")
-        print ("Running config generation step")
-        run_conf = f"sandbox --conf -i {sandbox_config}"
-        result = subprocess.call(run_conf, shell=True)
-        
-        print ("-------------------------------------")
-        print ("Running test simulation")
-        run_conf = f"sandbox --run -i {sandbox_config}"
-        result = subprocess.call(run_conf, shell=True)
+        # test sandbox -conf
+        if args.subset:
+            run_step("Running subset step", f"sandbox --subset -i {sandbox_config}")
+        elif args.forc:
+            run_step("Running forcing step", f"sandbox --forc -i {sandbox_config}")
+        elif args.conf:
+            run_step("Running config generation step", f"sandbox --conf -i {sandbox_config}")
+        elif args.run:
+            run_step("Running test simulation", f"sandbox --run -i {sandbox_config}")
 
-    elif args.clean:
-        output_dir = sandbox_test_dir / "output"
-        
-        if output_dir.exists():
-            print(f"Deleting: {output_dir}")
-            shutil.rmtree(output_dir)
-        else:
-            print(f"Directory does not exist: {output_dir}")
+        elif args.all:
+            run_step("Running subset step", f"sandbox --subset -i {sandbox_config}")
+            run_step("Running forcing step", f"sandbox --forc -i {sandbox_config}")
+            run_step("Running config generation step", f"sandbox --conf -i {sandbox_config}")
+            run_step("Running test simulation", f"sandbox --run -i {sandbox_config}")
 
-    # revert back
-    subprocess.run(["git", "checkout", "--", sandbox_config], check=True)
+        elif args.clean:
+            output_dir = sandbox_test_dir / "output"
+
+            if output_dir.exists():
+                print(f"Deleting: {output_dir}")
+                shutil.rmtree(output_dir)
+            else:
+                print(f"Directory does not exist: {output_dir}")
+    finally:
+        sandbox_config.write_text(original_config)
