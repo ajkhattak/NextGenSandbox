@@ -44,6 +44,10 @@ status_ok() {
     printf "  [OK]      %s\n" "$1"
 }
 
+status_set() {
+    printf "  [SET]     %s\n" "$1"
+}
+
 status_warn() {
     printf "  [WARN]    %s\n" "$1"
 }
@@ -88,6 +92,36 @@ check_file() {
         status_ok "$label: $path"
     else
         status_fail "$label not found: $path"
+    fi
+}
+
+show_path_value() {
+    local var="$1"
+    local value="$2"
+
+    if [ -n "${!var:-}" ]; then
+        status_set "$var: $value"
+    else
+        status_warn "$var is not set in the current shell; using default: $value"
+    fi
+}
+
+check_expected_dir() {
+    local path="$1"
+    local label="$2"
+    local setup_hint="$3"
+
+    if [ -d "$path" ]; then
+        if [ -w "$path" ]; then
+            status_ok "$label exists: $path"
+        else
+            status_warn "$label exists but is not writable: $path"
+        fi
+    else
+        status_warn "$label does not exist yet: $path"
+        if [ -n "$setup_hint" ]; then
+            echo "           Run: $setup_hint"
+        fi
     fi
 }
 
@@ -172,12 +206,26 @@ run_check() {
     echo "This check is read-only; it does not install packages or create directories."
     echo ""
 
-    echo "Paths"
+    echo "Configured Paths"
+    show_path_value "SANDBOX_DIR" "$sandbox_dir"
+    show_path_value "SANDBOX_BUILD_DIR" "$sandbox_build_dir"
+    show_path_value "SANDBOX_DATA_DIR" "$sandbox_data_dir"
+    show_path_value "SANDBOX_CONDARC" "$sandbox_condarc"
+    show_path_value "NGEN_DIR" "$ngen_dir"
+    echo "           [SET] means the path is configured, not that the component is built."
+    echo ""
+
+    echo "Path Availability"
     check_dir "$sandbox_dir" "SANDBOX_DIR"
-    check_dir "$sandbox_build_dir" "SANDBOX_BUILD_DIR"
-    check_dir "$sandbox_data_dir" "SANDBOX_DATA_DIR"
-    check_file "$sandbox_condarc" "SANDBOX_CONDARC"
-    check_dir "$ngen_dir" "NGEN_DIR"
+    check_expected_dir "$sandbox_build_dir" "SANDBOX_BUILD_DIR" "./bootstrap.sh --env --verbose"
+    check_expected_dir "$sandbox_data_dir" "SANDBOX_DATA_DIR" "./bootstrap.sh --env --verbose"
+    if [ -f "$sandbox_condarc" ]; then
+        status_ok "SANDBOX_CONDARC exists: $sandbox_condarc"
+    else
+        status_warn "SANDBOX_CONDARC does not exist yet: $sandbox_condarc"
+        echo "           Run: ./bootstrap.sh --env --verbose"
+    fi
+    check_expected_dir "$ngen_dir" "NGEN_DIR build root" "./bootstrap.sh --ngen"
     echo ""
 
     echo "Shell Setup"
@@ -240,7 +288,12 @@ run_check() {
     else
         status_fail "sandbox command not found in sandbox env"
     fi
-    check_dir "$forcing_env" "Forcing env"
+    if [ -x "$forcing_env/bin/python" ]; then
+        status_ok "Forcing Python: $forcing_env/bin/python"
+    else
+        status_fail "Forcing Python env not found: $forcing_env"
+        echo "           Run: ./bootstrap.sh --sandbox"
+    fi
     if [ -x "$subset_env/bin/Rscript" ]; then
         status_ok "Subset Rscript: $subset_env/bin/Rscript"
     else
