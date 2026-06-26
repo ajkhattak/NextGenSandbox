@@ -8,8 +8,39 @@ import json
 from src.python.models_registry import register_model
 from src.python.configuration import ConfigurationGenerator
 
+
 @register_model("NOM")
 class NOMConfigurationGenerator(ConfigurationGenerator):
+    @staticmethod
+    def _extract_flat_domain(lines):
+        """Return the terrain multiplier and remove the Sandbox-only directive."""
+        values = []
+        config_lines = []
+
+        for line_number, line in enumerate(lines, start=1):
+            setting = line.split("!", maxsplit=1)[0].strip()
+            key, separator, value = setting.partition("=")
+
+            if separator and key.strip().lower() == "flat_domain":
+                value = value.strip().lower()
+                if value not in {"true", "false"}:
+                    raise ValueError(
+                        "NOM basefile flat_domain must be either true or false "
+                        f"(line {line_number}), provided: {value!r}"
+                    )
+                values.append(value)
+                continue
+
+            config_lines.append(line)
+
+        if not values:
+            raise ValueError("NOM basefile must define flat_domain = true or false")
+        if len(values) > 1:
+            raise ValueError("NOM basefile defines flat_domain more than once")
+
+        terrain_multiplier = 0.0 if values[0] == "true" else 1.0
+        return terrain_multiplier, config_lines
+
     def __init__(self, ctx, static_data, output_dir):
         super().__init__(static_data)
         self.ctx = ctx
@@ -61,9 +92,7 @@ class NOMConfigurationGenerator(ConfigurationGenerator):
         start_time = pd.Timestamp(self.ctx.simulation_time['start_time']).strftime("%Y%m%d%H%M")
         end_time   = pd.Timestamp(self.ctx.simulation_time['end_time']).strftime("%Y%m%d%H%M")
 
-        flat_domain = 0.0 if lines[2].split("=")[1].strip().lower() == "true" else 1.0
-
-        lines = lines[3:] # skipping the first 3 lines
+        terrain_multiplier, lines = self._extract_flat_domain(lines)
 
         for catID in self.static_data.catids:
             cat_name = 'cat-' + str(catID)
@@ -85,9 +114,15 @@ class NOMConfigurationGenerator(ConfigurationGenerator):
 
 
             nom_file = os.path.join(nom_dir, fname_nom)
-            aspect = str(self.static_data.gdf.loc[cat_name]['aspect_mean'] * flat_domain)
+            aspect = str(
+                self.static_data.gdf.loc[cat_name]["aspect_mean"]
+                * terrain_multiplier
+            )
 
-            terrain_slope = str(self.static_data.gdf.loc[cat_name]['terrain_slope']*flat_domain)
+            terrain_slope = str(
+                self.static_data.gdf.loc[cat_name]["terrain_slope"]
+                * terrain_multiplier
+            )
 
             with open(nom_file, 'w') as file:
                 for line in lines:
@@ -115,4 +150,3 @@ class NOMConfigurationGenerator(ConfigurationGenerator):
                         file.write(f'  vegtyp        = {veg_type} \n')
                     else:
                         file.write(line)
-
