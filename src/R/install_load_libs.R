@@ -178,6 +178,21 @@ if (any(missing_github)) {
   )
 }
 
+prepare_whitebox <- function(exe_path) {
+  whitebox_data_dir <- file.path(whitebox::wbt_data_dir(), "WBT")
+  dir.create(whitebox_data_dir, recursive = TRUE, showWarnings = FALSE)
+
+  Sys.setenv(
+    WHITEBOX_EXE = exe_path,
+    R_WHITEBOX_EXE_PATH = exe_path
+  )
+
+  initialized <- whitebox::wbt_init(exe_path = exe_path)
+  if (!isTRUE(initialized) || !whitebox::check_whitebox_binary()) {
+    stop("WhiteboxTools executable could not be initialized: ", exe_path)
+  }
+}
+
 # WhiteboxTools install (still sets env dynamically)
 if (os_type == "Linux") {
   sandbox_build_dir <- Sys.getenv("SANDBOX_BUILD_DIR")
@@ -194,8 +209,7 @@ if (os_type == "Linux") {
 
   if (file.exists(wbt_expected)) {
 
-    Sys.setenv(WHITEBOX_EXE = wbt_expected)
-    whitebox::wbt_init(exe_path = wbt_expected)
+    prepare_whitebox(wbt_expected)
     message("Using existing WhiteboxTools: ", wbt_expected)
   } else {
 
@@ -219,8 +233,7 @@ if (os_type == "Linux") {
     whitebox::install_whitebox(pkg_dir = custom_lib, force = TRUE)
 
     if (file.exists(wbt_expected)) {
-     Sys.setenv(WHITEBOX_EXE = wbt_expected)
-     whitebox::wbt_init(exe_path = wbt_expected)
+     prepare_whitebox(wbt_expected)
      message("WhiteboxTools installed at: ", wbt_expected)
     } else {
      stop("WhiteboxTools installation failed!")
