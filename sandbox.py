@@ -190,7 +190,7 @@ def Sandbox(args, sandbox_config, calib_config, rscript, dryrun=False):
 
 def main():
 
-    parser = argparse.ArgumentParser(description="NextGen SandboxHub workflow")
+    parser = argparse.ArgumentParser(description="NextGenSandbox workflow")
     parser.add_argument("--subset", action='store_true',    help="Subset basin")
     parser.add_argument("--forc",   action='store_true',    help="Download forcing data")
     parser.add_argument("--conf",   action='store_true',    help="Generate config files")
