@@ -1,5 +1,6 @@
 # NextGenSandbox
-The Next-Generation Water Resources Modeling Framework ([NextGen](https://github.com/NOAA-OWP/ngen)), developed by the NOAA's Office of Water Prediction is a language- and model-agnostic framework, which allows to run a mosaic of surface and subsurface models in a single basin comprised of 10s-100s sub-catchments. 
+
+NextGenSandbox is a workflow tool for setting up, running, calibrating, and evaluating [NextGen/ngen](https://github.com/NOAA-OWP/ngen) hydrologic modeling experiments. It brings together common setup steps such as hydrofabric subsetting, forcing preparation, model configuration, calibration, validation, and large-scale job launching so users can move from basin resources to repeatable simulations with less manual wiring.
 
 ### Schematic 
 A conceptual workflow diagram of NextGenSandbox is available [here](https://github.com/ajkhattak/NextGenSandbox/blob/main/doc/schematic.md)
