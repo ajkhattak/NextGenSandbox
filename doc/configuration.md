@@ -1,14 +1,36 @@
 # Configuration Guide
 
-This guide explains how to configure NextGenSandbox runs. The workflow uses two main configuration files:
+This guide is the field reference for the main NextGenSandbox configuration
+files. It focuses on what each setting means and links to focused guides for
+details.
 
-- `configs/sandbox_config.yaml`: workflow, inputs, formulation, model instances, and simulation settings.
-- `configs/calib_config.yaml`: calibration strategy, objectives, plugins, and the parameter-file directory.
-- `configs/calibration/*.yaml`: model-specific calibration parameter blocks.
+The workflow uses two core configuration files:
+
+- `configs/sandbox_config.yaml`: workflow paths, resource preparation,
+  observations, formulation, model instances, and simulation settings.
+- `configs/calib_config.yaml`: ngen-cal search strategy, objective function,
+  plugins, and calibration parameter linkage.
+
+Two supporting configuration areas are also commonly edited:
+
+- `configs/calibration/*.yaml`: calibratable parameter ranges for each model.
+- `configs/basefiles/*`: model basefiles, or model configuration templates,
+  used to generate model-specific input files.
 
 If you are setting up your first custom project, read this guide together with
-[workflow.md](./workflow.md), which shows the recommended single-basin workflow
-and when to scale runs with the Sandbox Launcher.
+[workflow.md](./workflow.md).
+
+## Related Guides
+
+| Topic | Guide |
+|---|---|
+| Installation and smoke test | [install.md](./install.md) |
+| Single-basin and launcher workflows | [workflow.md](./workflow.md) |
+| Project directory layouts | [directory_layout.md](./directory_layout.md) |
+| Supported formulations | [formulations.md](./formulations.md) |
+| Observation files and custom objectives | [observations.md](./observations.md) |
+| Formulations, model instances, and basefiles | [model_configuration.md](./model_configuration.md) |
+| Calibration search and parameter files | [calibration.md](./calibration.md) |
 
 ## Command Requirements
 
@@ -21,391 +43,123 @@ Different commands use different parts of `sandbox_config.yaml`.
 | `sandbox --conf -i <config> -j <calib_config>` | `general`, `forcings`, `formulation`, `simulation` |
 | `sandbox --run -i <config> -j <calib_config>` | `general`, `forcings`, `formulation`, `simulation` |
 
-## Core Blocks
+## `sandbox_config.yaml`
 
 ### `general`
 
-Defines where input data are read and outputs are written.
-
-```yaml
-general:
-  input_dir: "<path_to_input_directory>"
-  output_dir: "<path_to_output_directory>"
-  layout: "basin"  # OPTIONS: basin | flat
-```
-
-`layout` is a project-level resource layout choice. The workflow supports
-`basin` and `flat`, but a project should use one style consistently. The
-default is `basin`.
-
-`basin` keeps reusable resources under each gage directory:
-
-```text
-<input_dir>/<gage_id>/hydrofabric/gage_<gage_id>.gpkg
-```
-
-`flat` organizes reusable resources by resource type:
-
-```text
-<input_dir>/hydrofabric/gage_<gage_id>.gpkg
-```
-
-For default forcing paths, `flat` writes forcing under:
-
-```text
-<input_dir>/forcing/<gage_id>/<start_year>_to_<end_year>/
-```
-
-When `layout: flat` and `subsetting.dem.output_dir: "dem"`, DEM files are
-retained under:
-
-```text
-<input_dir>/dem/<gage_id>/
-```
-
-See [directory_layout.md](./directory_layout.md) for more detail on reusable
-resources versus generated run artifacts.
-
-### `subsetting`
-
-Controls hydrofabric subsetting, DEM processing, vegetation processing, and selected gages. This block is used by `sandbox --subset`.
-
-### `forcings`
-
-Controls forcing time range, format, domain, and optional forcing directory.
-
-```yaml
-forcings:
-  format: ".nc"
-  rechunk: true
-  time:
-    start_time: "2016-10-01 00:00:00"
-    end_time: "2020-09-30 23:00:00"
-  domain: "conus"
-```
-
-Simulation time windows must fall within the forcing time range.
-
-When `forcings.forcing_dir` is not provided, the default forcing directory is
-derived from `general.layout`:
-
-```text
-# general.layout: basin
-<input_dir>/<gage_id>/forcing/<start_year>_to_<end_year>/
-
-# general.layout: flat
-<input_dir>/forcing/<gage_id>/<start_year>_to_<end_year>/
-```
-
-For NetCDF forcing, `rechunk: true` writes and uses a sibling
-`*_rechunked.nc` file when needed. Rechunking can substantially improve ngen
-forcing-read performance. Existing rechunked files are reused when they are
-newer than the source forcing file. Set `rechunk: false` to use the source
-NetCDF file directly.
-
-### `observations`
-
-The optional `observations` block configures one or more local CSV or Parquet
-datasets for the selected simulation gages. During configuration generation,
-the sandbox resolves file paths and validates the file schema without loading
-the observation values. When local streamflow observations are not configured,
-ngen-cal uses its built-in provider to download streamflow observations from
-USGS.
-
-```yaml
-observations:
-  objective: kge
-
-  streamflow:
-    layout: point
-    path: "/path/to/observations/gage_{gage_id}_streamflow.parquet"
-    time_column: value_time
-    value_column: value
-    units: "m3/sec"
-
-  ET:
-    layout: distributed
-    path: "/path/to/observations/gage_{gage_id}_ET.parquet"
-    time_column: value_time
-    units: "m/d"
-    simulated: ACTUAL_ET
-```
-
-Multiple observation types, such as streamflow and ET, may be loaded together.
-`path` supports `{gage_id}` and `{variable}` placeholders.
-
-When `observations.objective` is provided, the sandbox replaces the objective
-from `configs/calib_config.yaml` with the corresponding bundled
-multi-variable objective. Supported values are `kge`, `nse`, and `nnse`.
-These objectives are minimized. A custom objective may also be provided using
-its Python import path.
-
-When one observation type is configured, ngen-cal receives an ordinary
-datetime-indexed series. When multiple observation types are configured, the
-local observation plugin returns one series indexed by `value_time` and
-`variable`. Distributed observations are converted to basin-area-weighted
-series using `areasqkm` from the basin geopackage. The default ngen-cal
-objective may only be used when streamflow is the sole configured observation
-type. A custom objective function import path is required for multiple
-observation variables or for a single non-streamflow variable.
-
-The bundled multi-variable objectives compute the selected efficiency metric
-independently for each variable and minimize the L2 norm of their losses:
-
-```yaml
-observations:
-  objective: nnse
-```
-
-For multiple observation variables, both observed and simulated series must
-contain a MultiIndex level named `variable`. The objective aligns each variable
-independently before computing the metric, allowing variables with different
-frequencies to be evaluated safely. Ordinary Series are also supported for a
-single observation variable. For a metric value `E`, each variable contributes
-`(1 - E)^2` to the combined objective.
-
-The optional `simulated` value identifies which generated simulation output
-corresponds to the observation variable. Its units are defined once under
-`simulation.outputs.divide_variables`. `units` describes the observed values, while
-the output variable's `units` describes the raw model output before temporal
-aggregation.
-
-The observation plugin reads the simulated column from `cat-<divide_id>.csv`
-files in the current ngen-cal worker directory using `Time` as the timestamp
-column. It computes a basin-area-weighted series and resamples it to the
-observed variable frequency. ET is summed when resampled; SWE is averaged.
-After resampling, supported simulated units are converted to the observation
-units. For example, hourly simulated ET in `m/h` may be summed and converted
-for comparison with daily observed ET in `mm/d`.
-
-Configure divide-level output independently under `simulation`. These
-variables are available for calibration, diagnostics, or post-processing:
-
-```yaml
-simulation:
-  outputs:
-    divide_variables:
-      ACTUAL_ET:
-        units: "m/h"
-      POTENTIAL_ET:
-        units: "m/h"
-      INFILTRATION:
-        units: "m/h"
-```
-
-When `divide_variables` is non-empty, catchment output is enabled automatically
-and each requested BMI variable is written to every `cat-<divide_id>.csv`
-file. Units are required for every requested output variable. They are recorded
-for observation matching and are not passed to ngen.
-
-The plugin trims all configured observation datasets to their common time
-window before combining them. The common start is the latest dataset start,
-and the common end is the earliest dataset end, limited by the requested
-calibration period. Datasets retain their native frequencies; the plugin does
-not resample or interpolate values.
-
-`units` is required for every observation type and every
-`simulation.outputs.divide_variables` entry. The sandbox records these values but does
-not pass them to ngen. The observation plugin currently converts depth units
-between `m`, `mm`, `m/h`, `mm/h`, `m/d`, and `mm/d`. Unsupported or
-temporally incompatible unit combinations raise an error.
-
-Calibration output retention is configured under `simulation.outputs`:
-
-```yaml
-simulation:
-  outputs:
-    calibration:
-      retention: best  # options: best, all
-```
-
-With `retention: best`, divide-level outputs retain only `output_best`,
-and the save-simulation-observation plugin keeps two files:
-
-- `output_sim_obs/sim_obs_0.parquet` preserves the first iteration.
-- `output_sim_obs/sim_obs_best.parquet` is overwritten whenever ngen-cal
-  identifies a new best iteration.
-
-Each file has a MultiIndex named `value_time` and `variable`, with `sim_flow`
-and `obs_flow` columns. It preserves each variable's native timestamps, so
-unmatched timestamps remain null. Load one variable and retain only aligned
-pairs with:
-
-```python
-data = pd.read_parquet("output_sim_obs/sim_obs_best.parquet")
-et_pairs = data.xs("ET", level="variable").dropna()
-```
-
-With `retention: all`, divide-level outputs are stored under
-`output_<iteration>`, and simulation-observation outputs are stored as
-`output_sim_obs/sim_obs_<iteration>.parquet`. This can require substantial
-storage for long or highly distributed calibrations.
-
-## Calibration Search
-
-The calibration search algorithm is configured in `configs/calib_config.yaml`
-under `general.strategy`.
-
-### PSO Parameters
-
-Set `algorithm: pso` to use particle swarm optimization. PSO currently supports
-the `uniform` model strategy, where one shared parameter set is calibrated for
-the basin.
-
-```yaml
-general:
-  strategy:
-    type: estimation
-    algorithm: pso
-    parameters:
-      particles: 20
-      pool: 4
-      options:
-        c1: 1.5
-        c2: 2.0
-        w: 0.9
-      options_schedule:
-        type: linear
-        end:
-          c1: 0.5
-          c2: 2.5
-          w: 0.4
-      initialization:
-        best_path: /path/to/previous/pso_global_best
-        nearby_fraction: 0.5
-        noise_fraction: 0.1
-```
-
-`particles` is the number of candidate parameter sets evaluated each PSO
-generation. Each particle owns an isolated ngen-cal worker directory and runs
-one ngen simulation per generation.
-
-`pool` is the maximum number of particle simulations run concurrently. If ngen
-itself uses MPI parallelism, approximate CPU demand is `pool * ngen_parallel`.
-
-`options` are the starting PSO coefficients:
-
-- `w`: inertia weight, controlling momentum from the previous velocity.
-- `c1`: cognitive coefficient, pulling particles toward their own best known
-  position.
-- `c2`: social coefficient, pulling particles toward the global best known
-  position.
-
-`options_schedule` is optional. With `type: linear`, the listed coefficients
-linearly move from their starting values in `options` to the values in `end`
-over the PSO iterations:
-
-```text
-factor = iteration / total_iterations
-value = start - factor * (start - end)
-```
-
-The schedule is recorded in `pso_options_log.txt`.
-
-`initialization` is optional. When `best_path` points to a previous DDS worker,
-PSO reads `best_params.txt` and `*_parameter_df_state.parquet` and uses that
-best parameter set as particle 0. When `best_path` points to a previous
-`pso_global_best` directory, PSO can use its saved best parameter state. If
-`best_path` is omitted or cannot be read, particle 0 uses the `init` values
-from the calibration parameter blocks.
-
-`nearby_fraction` controls how many particles are initialized near the seed.
-`noise_fraction` controls the standard deviation of the perturbation as a
-fraction of each parameter range. Remaining particles are initialized randomly
-within bounds.
-
-PSO writes several progress artifacts in the run directory:
-
-- `pso_progress.json`: current global best and the latest generation's particle
-  results.
-- `pso_global_best/`: copy of the particle worker that produced the best result.
-- `pso_global_best_log.txt`: best-so-far score/cost after each generation.
-- `pso_options_log.txt`: scheduled `w`, `c1`, and `c2` values by generation.
-
-Streamflow observation units must be `m3/s` or `m3/sec`. The workflow and
-streamflow plugin accept either label but do not perform unit conversion.
-
-`layout: point` describes one value per timestamp.
-
-`layout: distributed` describes one value per timestamp and sub-basin.
-Distributed CSV or Parquet files may use either layout:
-
-- Wide format: one time column and one column per sub-basin.
-- Long format: provide `id_column` and `value_column` to identify the
-  sub-basin and observed value columns.
-
-## Formulations
-
-The `formulation.models` value lists the model components used by a run.
-
-```yaml
-formulation:
-  models: "NOM,CFE,T-ROUTE"
-```
-
-Run this command to list supported formulations:
-
-```bash
-sandbox --formulations
-```
-
-`T-ROUTE` may be omitted from a supported formulation; the workflow appends it automatically. All other model components must match a registered formulation exactly.
-
-## Model Instances
-
-`models` selects model components. `model_instances` customizes the configured instance used for a component.
-
-For example, use `CFE` in `models`, then select the CFE-X (CFE with Xinanjiang scheme) instance through `model_instances`:
-
-```yaml
-formulation:
-  models: "NOM,CFE,T-ROUTE"
-
-  model_instances:
-    CFE:
-      - name: cfe-x
-        basefile: "config_cfe-x.yaml"
-        repo_name: "cfe"
-        calib_params_block: "cfex_params"
-```
-
-Do not put `CFE-S` or `CFE-X` in `models`. `CFE` defaults to the `cfe-s`/Schaake instance. Use `model_instances.CFE` to select another configured instance such as `cfe-x`.
-
-Official variant names are validated by family. For example, `cfe-s` fields
-must contain CFE-S markers such as `cfe-s`/`cfes`, while `cfe-x` fields must
-contain CFE-X markers such as `cfe-x`/`cfex`. Custom files and parameter blocks
-are allowed within the same family:
-
-```yaml
-model_instances:
-  CFE:
-    - name: cfe-x
-      basefile: "config_cfe-x_custom.yaml"
-      calib_params_block: "cfex_params_custom"
-      calib_params_file: "cfe-x-custom.yaml"
-```
-
-Mixed family markers are rejected. For example, `name: cfe-x` cannot use
-`config_cfe-s.yaml` or `cfes_params`. Custom variant names, such as
-`cfe-custom`, may use their own basefile, parameter block, and parameter file.
-
-### Model Instance Fields
+Defines the project resource and output locations.
 
 | Field | Meaning |
 |---|---|
-| `name` | Instance name and config subdirectory name, for example `cfe-x`. |
-| `basefile` | Base configuration template under `configs/basefiles`. |
-| `repo_name` | Model repository name under `$NGEN_DIR/extern`. |
-| `calib_params_block` | Calibration parameter block name loaded from `configs/calibration/*.yaml`. |
-| `calib_params_file` | Optional calibration parameter file under `configs/calibration/`. If omitted, the workflow tries the instance name, model name, and block name. |
-| `ngen_cal_model_name` | Optional model name expected by `ngen-cal` if different from the sandbox model key. |
-| `library_file` | Optional full path to a model shared library. If omitted, the workflow searches under `$NGEN_DIR/extern/<repo_name>`. |
+| `input_dir` | Reusable resource directory. Hydrofabric, forcing, and related inputs are stored here. |
+| `output_dir` | Generated run artifact directory. Config files, realization files, model outputs, and calibration outputs are written here. |
+| `layout` | Project-level resource layout. Options: `basin` or `flat`. |
 
-The parent key, such as `CFE`, is the sandbox model component. The `name` field is the configured instance of that component.
+See [directory_layout.md](./directory_layout.md) for the exact path structure
+for both layouts.
 
-## Simulation Task Types
+### `subsetting`
 
-The `simulation.task_type` controls which time blocks are required.
+Controls hydrofabric basin subsetting, optional DEM-derived attributes,
+optional vegetation attributes, and selected gages. This block is used by
+`sandbox --subset`.
+
+| Field | Meaning |
+|---|---|
+| `hydrofabric.version` | Hydrofabric version, such as `"2.2"`. |
+| `hydrofabric.gpkg_path` | Source hydrofabric geopackage used for subsetting. |
+| `hydrofabric.compute_divide_attributes` | Whether to compute divide attributes locally. If the source hydrofabric already includes required attributes, set to `FALSE`. |
+| `dem.output_dir` | DEM output location. `dem` keeps DEM files under the project layout; empty/null removes temporary DEM files. |
+| `dem.input_file` | Optional local DEM file or VRT. If omitted and attributes are computed, the default DEM source is used. |
+| `dem.aggregate_factor` | Positive integer aggregation factor for coarsening DEM resolution. |
+| `vegetation.enabled` | Whether to compute vegetation attributes. |
+| `vegetation.nlcd_path` | Path to NLCD raster used for vegetation classification. |
+| `vegetation.classification_method` | Vegetation classification method, such as `majority` or `fraction`. |
+| `gages.option` | Gage selection mode. Options: `ids`, `file`, or `gpkg`. |
+| `gages.ids` | List of gage IDs when `option: ids`. |
+| `gages.file.path` | CSV path when `option: file`. |
+| `gages.file.column` | Column containing gage IDs when `option: file`. |
+| `gages.gpkg.dir` | Directory or file path for existing geopackages when `option: gpkg`. |
+| `gages.gpkg.pattern` | Filename pattern used when selecting existing geopackages. |
+| `gages.gpkg.select` | Selected gages/geopackages from `gages.gpkg.dir`. |
+
+See [workflow.md](./workflow.md#subset-hydrofabric) for the project-level
+subsetting workflow.
+
+### `forcings`
+
+Controls forcing time range, format, domain, and optional rechunking.
+
+| Field | Meaning |
+|---|---|
+| `format` | Forcing file format. Common values: `.nc` or `.csv`. |
+| `rechunk` | Whether to write/use rechunked NetCDF forcing for faster ngen reads. |
+| `time.start_time` | First forcing timestamp to prepare. |
+| `time.end_time` | Last forcing timestamp to prepare. |
+| `domain` | Forcing domain, such as `conus`, `HI`, `PR`, or `AK`. |
+| `select` | Gage selection for forcing download. Can be one ID, a list, CSV input, or `all`. |
+| `forcing_dir` | Optional explicit forcing directory. If omitted, the workflow derives the path from `general.layout`. |
+
+Simulation time windows must fall within the forcing time range. See
+[forcing.md](./forcing.md) for forcing-specific notes.
+
+### `observations`
+
+Optional local observations used by calibration plugins and custom objective
+functions.
+
+| Field | Meaning |
+|---|---|
+| `objective` | Optional objective shortcut or import path. Supported bundled shortcuts: `kge`, `nse`, `nnse`. |
+| `<variable>.layout` | Observation layout. Options: `point` or `distributed`. |
+| `<variable>.path` | CSV or Parquet observation path. Supports `{gage_id}` and `{variable}` placeholders. |
+| `<variable>.time_column` | Timestamp column name. |
+| `<variable>.value_column` | Value column name for point or long-format distributed data. |
+| `<variable>.id_column` | Sub-basin ID column for long-format distributed data. |
+| `<variable>.units` | Observation units. Required for local observations. |
+| `<variable>.simulated` | Simulation output variable corresponding to the observation variable. |
+
+See [observations.md](./observations.md) for file layouts, units, simulated
+variables, and multi-variable objectives.
+
+### `formulation`
+
+Controls the selected model formulation and model-specific instances.
+
+| Field | Meaning |
+|---|---|
+| `models` | Comma-separated model components, such as `"PET,CFE,T-ROUTE"`. |
+| `clean` | Config/output cleanup policy for generated files. |
+| `verbosity` | Logging verbosity. Use `0` unless debugging. |
+| `model_instances` | Optional per-model instance customization. |
+| `ensemble.enabled` | Enables ensemble/member generation. |
+| `ensemble.calib_params_groups` | Scope of calibratable parameters for ensemble/member workflows, such as `local` or `global`. |
+
+See [model_configuration.md](./model_configuration.md) for formulation rules,
+model instances, CFE variants, basefiles, LSTM, and dHBV.
+
+### `simulation`
+
+Controls task type, gages, time windows, output retention, and partitioning.
+
+| Field | Meaning |
+|---|---|
+| `task_type` | Workflow task. Options: `control`, `calibration`, `validation`, `calibvalid`, `restart`. |
+| `gage_ids_input` | Gage IDs to run. Can be one ID, a list, or a CSV path depending on workflow. |
+| `sim_name_suffix` | Suffix appended to the gage ID to name the run directory. |
+| `simulation_time` | Time window for `control` runs. |
+| `calibration_time` | Full calibration period, including spinup. |
+| `calib_eval_time` | Evaluation period within `calibration_time`. |
+| `validation_time` | Full validation period, including spinup. |
+| `valid_eval_time` | Evaluation period within `validation_time`. |
+| `restart_dir` | Restart source directory for `restart` runs. Supports `{*}` placeholders. |
+| `outputs.divide_variables` | BMI variables written to `cat-<divide_id>.csv` files, with required units. |
+| `outputs.calibration.retention` | Calibration output retention. Options: `best` or `all`. |
+| `partitioning.mode` | Execution mode. Options: `serial` or `parallel`. |
+| `partitioning.max_nexus_per_proc` | Maximum nexus count per processor in parallel mode. |
+| `partitioning.max_procs` | Maximum number of processors to use. |
+
+Required time fields depend on `task_type`.
 
 | `task_type` | Required time/config fields |
 |---|---|
@@ -415,252 +169,72 @@ The `simulation.task_type` controls which time blocks are required.
 | `calibvalid` | `calibration_time`, `calib_eval_time`, `validation_time`, `valid_eval_time` |
 | `restart` | `calibration_time`, `calib_eval_time`, `restart_dir` |
 
-Example:
+## `calib_config.yaml`
 
-```yaml
-simulation:
-  task_type: "calibvalid"
-  gage_ids_input: "03366500"
-  sim_name_suffix: "basecase"
+`configs/calib_config.yaml` controls ngen-cal behavior. The sandbox reads this
+file, fills run-specific paths, adds plugin settings when needed, and writes a
+run-local `ngen-cal_calib_config.yaml`.
 
-  calibration_time:
-    start_time: "2015-10-01 00:00:00"
-    end_time: "2020-09-30 23:00:00"
-  calib_eval_time:
-    start_time: "2016-10-01 00:00:00"
-    end_time: "2020-09-30 23:00:00"
-  validation_time:
-    start_time: "2020-10-01 00:00:00"
-    end_time: "2022-09-30 23:00:00"
-  valid_eval_time:
-    start_time: "2021-10-01 00:00:00"
-    end_time: "2022-09-30 23:00:00"
-```
+### `general`
 
-## Calibration Config Linkage
+| Field | Meaning |
+|---|---|
+| `strategy.type` | ngen-cal strategy type, usually `estimation`. |
+| `strategy.algorithm` | Search algorithm, such as `dds` or `pso`. |
+| `strategy.parameters` | Optional algorithm-specific settings. |
+| `log` | Enables ngen-cal logging. |
+| `start_iteration` | First calibration iteration. |
+| `iterations` | Number of calibration iterations or generations. |
+| `random_seed` | Random seed for reproducibility. |
+| `workdir` | ngen-cal working directory. Usually left as `./`. |
 
-`calib_params_block` must match a parameter block loaded from the directory
-configured by `configs/calib_config.yaml`:
+### `calibration`
 
-```yaml
-calibration:
-  params_dir: calibration
-```
+| Field | Meaning |
+|---|---|
+| `params_dir` | Directory under `configs/` containing model calibration parameter files. Default: `calibration`. |
 
-With the default layout, those files live under `configs/calibration/`.
-Bundled model defaults define their calibration parameter files in
-`src/python/model_instances.py`.
+### `model`
 
-For example:
+| Field | Meaning |
+|---|---|
+| `type` | Model type passed to ngen-cal, usually `ngen`. |
+| `binary` | Filled by the sandbox with the ngen executable path. |
+| `realization` | Filled by the sandbox with the realization file. |
+| `hydrofabric` | Filled by the sandbox with the basin geopackage. |
+| `eval_feature` | Filled by the sandbox with the target evaluation feature. |
+| `strategy` | ngen-cal parameter strategy, commonly `uniform`. |
+| `params` | Filled by the sandbox from model calibration parameter blocks. |
+| `eval_params.objective` | Objective function name or import path. |
+| `eval_params.target` | Optimization target, usually `min`. |
+| `plugins` | ngen-cal plugin classes to load. |
+| `plugin_settings` | Optional plugin settings. Often written by the sandbox for local observations. |
 
-```yaml
-formulation:
-  model_instances:
-    CFE:
-      - name: cfe-x
-        calib_params_block: "cfex_params"
-```
+See [calibration.md](./calibration.md) for PSO settings, calibration parameter
+files, and calibration output retention.
 
-must correspond to a block in one of the calibration parameter files, for
-example `configs/calibration/cfe-x.yaml`:
+## Supporting Files
 
-```yaml
-cfex_params:
-  - name: b
-    min: 0.0
-    max: 15
-    init: 4.05
-```
+### `configs/calibration/*.yaml`
 
-Parameters use a linear calibration scale by default. To search in base-10
-logarithmic space, set `scale: log10` and provide `min`, `max`, and `init` as
-base-10 logarithms. The value is converted back to physical space before it is
-written to the ngen realization:
+These files define calibratable parameter names, ranges, initial values, and
+optional scaling for each model. Users can adjust them to change the
+calibration search space. See [calibration.md](./calibration.md#model-calibration-parameter-files).
 
-```yaml
-cfes_params:
-  - name: Cgw
-    scale: log10
-    min: -5.744727  # log10(1.8e-6)
-    max: -2.744727  # log10(1.8e-3)
-    init: -3.744727 # log10(1.8e-4)
-```
+### `configs/basefiles/*`
 
-If a model has no calibratable parameters for a workflow, leave `calib_params_block` empty in its model instance.
-
-## Examples
-
-### PET + Default CFE
-
-```yaml
-formulation:
-  models: "PET,CFE,T-ROUTE"
-```
-
-### NOM + CFE-X
-
-```yaml
-formulation:
-  models: "NOM,CFE,T-ROUTE"
-  model_instances:
-    CFE:
-      - name: cfe-x
-        basefile: "config_cfe-x.yaml"
-        repo_name: "cfe"
-        calib_params_block: "cfex_params"
-```
-
-### SNOW17 + PET + SACSMA
-
-```yaml
-formulation:
-  models: "SNOW17,PET,SACSMA,T-ROUTE"
-```
-
-### CASAM
-
-```yaml
-formulation:
-  models: "NOM,CASAM,T-ROUTE"
-```
-
-## Running LSTM
-
-LSTM requires external trained-model weights in addition to the normal sandbox configuration. These weights/models are not built by the sandbox workflow itself; the user must place them in a readable location and point `config_lstm.yaml` at them.
-
-Recommended layout:
-
-```text
-$SANDBOX_DATA_DIR/lstm/
-  trained_neuralhydrology_models/
-    <training-run-1>/
-      config.yml
-      model_epoch*.pt
-      train_data/
-        train_data_scaler.yml
-    <training-run-2>/
-      config.yml
-      model_epoch*.pt
-      train_data/
-        train_data_scaler.yml
-```
-
-Using `$SANDBOX_DATA_DIR/lstm` keeps trained models separate from the LSTM source code under `SANDBOX_DIR/extern/lstm`.
-
-To run LSTM, the user must configure two things in `configs/basefiles/config_lstm.yaml`:
-
-1. `train_cfg_file`
-2. `attributes_file`
-
-Example:
-
-```yaml
-train_cfg_file: $SANDBOX_DATA_DIR/lstm/trained_neuralhydrology_models/<training-run>/config.yml
-attributes_file: /path/to/attributes.parquet
-```
-
-For LSTM ensembles, both values may be lists; see Example 2 in the `configs/basefiles/config_lstm.yaml`.
-
-The workflow automatically updates `run_dir` so it matches the directory containing each referenced training `config.yml`. Users do not need to edit `run_dir` manually.
-
-Before running `sandbox --conf` or `sandbox --run`, check that:
-
-1. `train_cfg_file` exists
-2. `attributes_file` exists
-3. the training run directory contains `train_data/train_data_scaler.yml`
-4. the training run directory contains the required `model_epoch*.pt` files
-
-You may keep the trained data anywhere on disk and use absolute paths, as long as `train_cfg_file` and `attributes_file` point to valid locations.
-
-## Running dHBV
-
-dHBV requires external trained-model weights in addition to the normal sandbox configuration. These weights/models are not built by the sandbox workflow itself; the user must place them in a readable location and point `config_dhbv.yaml` at them.
-
-Recommended layout:
-
-```text
-$SANDBOX_DATA_DIR/dhbv2/
-  dhbv_2_mts/
-    model/
-      dhbv_2_mts/
-        config.yaml
-        dhbv_attrs.parquet
-        ...
-```
-
-Using `$SANDBOX_DATA_DIR/dhbv2` keeps trained models separate from the dHBV source code under `SANDBOX_DIR/extern/dhbv2`.
-
-To run dHBV, set `model_dir` in `configs/basefiles/config_dhbv.yaml`:
-
-```yaml
-model_dir: dhbv_2_mts/model/dhbv_2_mts
-```
-
-Relative `model_dir` values are resolved under `$SANDBOX_DATA_DIR/dhbv2/`. Absolute paths are also supported.
-
-`attributes_file` is optional. If omitted, the workflow defaults to:
-
-```text
-<model_dir>/dhbv_attrs.parquet
-```
-
-Set `attributes_file` only if your attribute parquet lives outside the model directory.
+These model basefiles are templates used to generate model-specific input files
+during `sandbox --conf`. Users can adjust them to change model initialization
+values, model switches, static attribute files, or trained-model paths. See
+[model_configuration.md](./model_configuration.md#model-basefiles).
 
 ## Troubleshooting
 
-### Unsupported formulation
-
-Run:
-
-```bash
-sandbox --formulations
-```
-
-Then make sure `formulation.models` matches one of the registered formulations. Use `CFE`, not `CFE-S` or `CFE-X`, in `models`.
-
-### Missing geopackage
-
-Check that each selected gage has a geopackage under the configured resource
-layout. For the default `general.layout: basin`:
-
-```text
-<input_dir>/<gage_id>/hydrofabric/*.gpkg
-```
-
-For `general.layout: flat`:
-
-```text
-<input_dir>/hydrofabric/gage_<gage_id>.gpkg
-```
-
-During the transition, the Python workflow can also read legacy basin-layout
-geopackages from `<input_dir>/<gage_id>/data/*.gpkg`.
-
-### Missing forcing file
-
-Check the forcing directory derived from `forcings.time`, or set `forcings.forcing_dir` explicitly.
-
-### Missing shared library
-
-Confirm the model has been built under `$NGEN_DIR/extern/<repo_name>`, or set `library_file` in the relevant `model_instances` entry.
-
-### Calibration parameter block not found
-
-Make sure `calib_params_block` matches a block name in one of the files under
-the directory configured by `calibration.params_dir` in `configs/calib_config.yaml`.
-
-### LSTM trained data missing
-
-Check all of the following:
-
-- `configs/basefiles/config_lstm.yaml` points to valid `train_cfg_file` and `attributes_file` paths
-- the training run directory contains `train_data/train_data_scaler.yml`
-- the trained weight files referenced by the run directory are present
-
-### dHBV trained data missing
-
-Check all of the following:
-
-- `configs/basefiles/config_dhbv.yaml` points to a valid `model_dir`
-- `model_dir` contains the trained dHBV bundle
-- `dhbv_attrs.parquet` exists under `model_dir`, or `attributes_file` points to a valid parquet file
+| Problem | What to check |
+|---|---|
+| Unsupported formulation | Run `sandbox --formulations`; use `CFE`, not `CFE-S` or `CFE-X`, in `formulation.models`. |
+| Missing geopackage | Check the path expected by `general.layout`; see [directory_layout.md](./directory_layout.md). |
+| Missing forcing file | Check the forcing directory derived from `forcings.time`, or set `forcings.forcing_dir`. |
+| Missing shared library | Confirm the model was built under `$NGEN_DIR/extern/<repo_name>`, or set `library_file` in `model_instances`. |
+| Calibration parameter block not found | Make sure `calib_params_block` exists in `configs/calibration/*.yaml`. |
+| LSTM or dHBV trained data missing | Check the model basefile and data paths; see [model_configuration.md](./model_configuration.md). |
