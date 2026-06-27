@@ -629,23 +629,7 @@ class SandboxContext:
 
                     self.forcing_files.append(str(forcing_file))
             else:
-                if not Path(self.forcing_dir).exists():
-                    raise ValueError(f"Forcing directory {self.forcing_dir} does not exist.")
-
-                if not Path(self.forcing_dir).is_dir():
-                    forcing_file = self.forcing_dir
-                else:
-                    forcing_file = select_netcdf_forcing_file(
-                        self.forcing_dir,
-                        prefer_corrected=self.is_corrected_forcing,
-                    )
-
-                forcing_file = prepare_rechunked_forcing_file(
-                    forcing_file,
-                    sandbox_dir=self.sandbox_dir,
-                    enabled=self.rechunk_forcing,
-                )
-
+                forcing_file = self._resolve_single_netcdf_forcing_file()
                 self.forcing_files.append(str(forcing_file))
         else:
             if "{*}" in self.forcing_dir:
@@ -670,6 +654,39 @@ class SandboxContext:
         if legacy_dir.exists():
             return legacy_dir
         return forcing_dir
+
+    def _resolve_single_netcdf_forcing_file(self):
+        forcing_path = Path(self.forcing_dir)
+
+        if not forcing_path.exists():
+            raise ValueError(f"Forcing directory or file {forcing_path} does not exist.")
+
+        if forcing_path.is_dir():
+            forcing_file = select_netcdf_forcing_file(
+                forcing_path,
+                prefer_corrected=self.is_corrected_forcing,
+            )
+        else:
+            if len(self.gpkg_dirs) != 1:
+                raise ValueError(
+                    "forcings.forcing_dir points to a single NetCDF file, "
+                    f"but {len(self.gpkg_dirs)} gages are configured. "
+                    "A single forcing file is only supported for one-gage runs. "
+                    "For multiple gages, use a forcing directory pattern with "
+                    "{*} or the default layout-derived forcing directories."
+                )
+            if forcing_path.suffix != ".nc":
+                raise ValueError(
+                    "forcings.forcing_dir points to a file, but NetCDF forcing "
+                    f"requires a .nc file: {forcing_path}"
+                )
+            forcing_file = forcing_path
+
+        return prepare_rechunked_forcing_file(
+            forcing_file,
+            sandbox_dir=self.sandbox_dir,
+            enabled=self.rechunk_forcing,
+        )
 
     def process_clean_input_param(self, clean):
         clean_lst = []

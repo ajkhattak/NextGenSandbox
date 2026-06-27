@@ -60,3 +60,26 @@ python utils/python/rechunk_forcing.py -i /path/to/forcing.nc
 
 Acknowledgement: the rechunking utility is adapted from Austin Raney's
 approach for improving ngen forcing-read performance.
+
+## Single-file NetCDF forcing
+
+For a one-gage run, `forcings.forcing_dir` may point directly to a single
+NetCDF forcing file instead of a directory:
+
+```yaml
+forcings:
+  format: ".nc"
+  forcing_dir: "/path/to/gage_50147800_forcing.nc"
+```
+
+This is useful when a user already has one basin-specific forcing file and does
+not want to place it in the default Sandbox forcing directory layout.
+
+This mode is only valid when exactly one gage is configured for the run. If
+multiple gages are selected and `forcing_dir` points to one `.nc` file, the
+workflow raises an error. For multiple gages, use the default layout-derived
+forcing directories or a path pattern with `{*}`.
+
+If `rechunk: true`, the workflow writes a sibling file named
+`*_rechunked.nc`, so the forcing file's parent directory must be writable. Set
+`rechunk: false` if the source forcing directory is read-only.
