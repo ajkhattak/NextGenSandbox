@@ -6,6 +6,10 @@ This guide explains how to configure NextGenSandbox runs. The workflow uses two 
 - `configs/calib_config.yaml`: calibration strategy, objectives, plugins, and the parameter-file directory.
 - `configs/calibration/*.yaml`: model-specific calibration parameter blocks.
 
+If you are setting up your first custom project, read this guide together with
+[workflow.md](./workflow.md), which shows the recommended single-basin workflow
+and when to scale runs with the Sandbox Launcher.
+
 ## Command Requirements
 
 Different commands use different parts of `sandbox_config.yaml`.
