@@ -8,9 +8,13 @@ For a new machine or first-time setup, follow the [install guide](https://github
 
 ## Configuration
 
-Guidance for setting up `sandbox_config.yaml`, `calib_config.yaml`, formulations, model instances, and task types is available in the [configuration guide](https://github.com/ajkhattak/NextGenSandbox/blob/main/doc/configuration.md).
+NextGenSandbox configuration defines the resources, models, and run behavior
+for a project. This includes project directory layout, hydrofabric subsetting,
+forcing preparation, local observations, model formulations and variants,
+simulation or calibration task types, output retention, and calibration search
+settings.
 
-The default basin-first directory structure, including how `input_dir` and `output_dir` are used, is described in the [directory layout guide](https://github.com/ajkhattak/NextGenSandbox/blob/main/doc/directory_layout.md).
+Start with the [configuration guide](https://github.com/ajkhattak/NextGenSandbox/blob/main/doc/configuration.md) for the main field reference. The [directory layout guide](https://github.com/ajkhattak/NextGenSandbox/blob/main/doc/directory_layout.md) explains how reusable resources and generated outputs are organized.
 
 Detailed guides are also available for [model configuration](https://github.com/ajkhattak/NextGenSandbox/blob/main/doc/model_configuration.md), [calibration settings](https://github.com/ajkhattak/NextGenSandbox/blob/main/doc/calibration.md), and [observations/objectives](https://github.com/ajkhattak/NextGenSandbox/blob/main/doc/observations.md).
 
