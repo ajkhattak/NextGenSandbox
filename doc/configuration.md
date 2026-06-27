@@ -11,7 +11,9 @@ The workflow uses two core configuration files:
 - `configs/calib_config.yaml`: ngen-cal search strategy, objective function,
   plugins, and calibration parameter linkage.
 
-Two supporting configuration areas are also commonly edited:
+Two supporting configuration areas provide default values. Users usually leave
+them unchanged at first, but can modify them when they need to customize model
+initial values or calibration parameter ranges:
 
 - `configs/calibration/*.yaml`: calibratable parameter ranges for each model.
 - `configs/basefiles/*`: model basefiles, or model configuration templates,
