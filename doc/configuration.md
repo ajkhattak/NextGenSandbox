@@ -100,7 +100,7 @@ Controls forcing time range, format, domain, and optional rechunking.
 | `time.end_time` | Last forcing timestamp to prepare. |
 | `domain` | Forcing domain, such as `conus`, `HI`, `PR`, or `AK`. |
 | `select` | Gage selection for forcing download. Can be one ID, a list, CSV input, or `all`. |
-| `forcing_dir` | Optional explicit forcing directory. If omitted, the workflow derives the path from `general.layout`. |
+| `forcing_dir` | Optional explicit forcing directory. If omitted, the workflow derives the path from `general.layout`. For one-gage NetCDF runs, this may point directly to a single `.nc` file. |
 
 Simulation time windows must fall within the forcing time range. See
 [forcing.md](./forcing.md) for forcing-specific notes.
