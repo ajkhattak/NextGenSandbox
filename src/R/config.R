@@ -60,3 +60,32 @@ validate_positive_integer <- function(value, field_name) {
 
   as.integer(numeric_value)
 }
+
+is_simple_gage_selector <- function(value) {
+  is.character(value) && is.null(names(value))
+}
+
+normalize_simple_gage_selector <- function(value, project_ids, field_name) {
+  if (is.null(value) || identical(tolower(as.character(value)[1]), "all")) {
+    return(project_ids)
+  }
+
+  if (!is_simple_gage_selector(value)) {
+    stop(sprintf(
+      "%s must be 'all', a gage ID string, or a list of gage IDs. Full option/file/gpkg selectors are only supported under general$gages.",
+      field_name
+    ))
+  }
+
+  selected <- as.character(value)
+  missing <- setdiff(selected, project_ids)
+  if (length(missing) > 0) {
+    stop(sprintf(
+      "%s contains gages outside general$gages: %s",
+      field_name,
+      paste(missing, collapse = ", ")
+    ))
+  }
+
+  selected
+}

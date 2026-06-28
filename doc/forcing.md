@@ -52,6 +52,10 @@ forcings:
   rechunk: true
 ```
 
+To download or prepare forcing for a subset of the project gages, set
+`forcings.gages` to `all`, one gage ID, or a list of gage IDs. The full project
+gage set is defined once under `general.gages`.
+
 The standalone utility is:
 
 ```bash

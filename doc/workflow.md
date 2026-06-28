@@ -29,12 +29,14 @@ formulation, and calibration settings work before scaling up.
 
 1. Copy or edit `configs/sandbox_config.yaml`.
 2. Set `general.input_dir`, `general.output_dir`, and `general.layout`.
-3. Configure `subsetting` with the source hydrofabric and selected gage IDs.
-4. Configure `forcings` for the simulation period and forcing source.
-5. Configure `formulation` and any `model_instances`.
-6. Configure `simulation` for the task type, time periods, output settings,
+3. Configure `general.gages` with the full project gage set.
+4. Configure `subsetting` with the source hydrofabric and, if needed, a
+   step-specific gage filter.
+5. Configure `forcings` for the simulation period and forcing source.
+6. Configure `formulation` and any `model_instances`.
+7. Configure `simulation` for the task type, time periods, output settings,
    and partitioning.
-7. For calibration runs, review `configs/calib_config.yaml` and the relevant
+8. For calibration runs, review `configs/calib_config.yaml` and the relevant
    files under `configs/calibration/`.
 
 ### Subset Hydrofabric
@@ -45,19 +47,26 @@ domain of interest from
 For example, for CONUS workflows, configure `subsetting.hydrofabric.gpkg_path`
 to point to the downloaded `conus_nextgen.gpkg` or equivalent hydrofabric file.
 
-The `subsetting` block controls which gages are extracted and whether optional
-DEM-derived divide attributes or vegetation attributes are generated. The
-selected gage IDs are usually configured under:
+`general.gages` defines the full project gage set. The `subsetting.gages`
+field is an optional filter on that set, so a project can subset all configured
+gages or just a smaller list for one run.
 
 ```yaml
+general:
+  gages:
+    option: ids
+    ids: ["01308000", "03366500"]
+
 subsetting:
   hydrofabric:
     version: "2.2"
     gpkg_path: "/path/to/conus_nextgen.gpkg"
-  gages:
-    option: ids
-    ids: ["01308000"]
+  gages: ["01308000"]
 ```
+
+Step-level gage filters under `subsetting`, `forcings`, and `simulation` may be
+`all`, one gage ID, or a list of IDs. CSV and geopackage selection should be
+configured under `general.gages`.
 
 Run:
 

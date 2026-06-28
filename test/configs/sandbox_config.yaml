@@ -3,6 +3,9 @@
 general:
   input_dir  : "./input/data"  
   output_dir : "./output" 
+  gages:
+    option: ids
+    ids: ["01308000"]
 
 # make sure to install yaml package using install.packages("yaml") if not installed already
 subsetting :
@@ -19,10 +22,7 @@ subsetting :
     nlcd_path                : "<path_to>/Annual_NLCD_LndCov_2021_CU_C1V1.tif" 
     classification_method    : "fraction"
 
-  gages:
-    option: "ids"
-
-    ids: ["01308000"]
+  gages: all
 
 
 ########################################################################
@@ -31,7 +31,7 @@ forcings :
   format  : ".nc"
   time    : {"start_time" : "2016-10-01 00:00:00", "end_time" : "2017-09-30 23:00:00"}
   domain  : "conus"
-  select  : "01308000"
+  gages   : all
   
 ########################################################################
 formulation :
@@ -43,7 +43,7 @@ formulation :
 
 simulation :
   task_type        : "control" 
-  gage_ids_input   :  "01308000"
+  gages            : all
   sim_name_suffix  :  "pet_cfe" 
   simulation_time : {"start_time" : "2016-10-01 00:00:00", "end_time" : "2016-10-02 23:00:00"} # only needed when task_type is control
   calibration_time : {"start_time" : "2016-10-01 00:00:00", "end_time" : "2021-09-30 23:00:00"} # Entire simulation period for calibration; including spinup period

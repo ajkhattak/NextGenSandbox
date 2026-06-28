@@ -16,10 +16,11 @@ class TestSimulationTimeWindows(unittest.TestCase):
     def test_rejects_calibration_eval_time_outside_calibration_time(self):
         context = SandboxContext.__new__(SandboxContext)
         context.formulation = ""
+        context.project_gages = ["01109403"]
         context.sandbox_config = {
             "simulation": {
                 "task_type": "calibration",
-                "gage_ids_input": "01109403",
+                "gages": "01109403",
                 "calibration_time": {
                     "start_time": "2010-01-01 00:00:00",
                     "end_time": "2010-09-30 23:00:00",
@@ -40,10 +41,11 @@ class TestSimulationTimeWindows(unittest.TestCase):
     def test_accepts_calibration_eval_time_within_calibration_time(self):
         context = SandboxContext.__new__(SandboxContext)
         context.formulation = ""
+        context.project_gages = ["01109403"]
         context.sandbox_config = {
             "simulation": {
                 "task_type": "calibration",
-                "gage_ids_input": "01109403",
+                "gages": "01109403",
                 "calibration_time": {
                     "start_time": "2010-01-01 00:00:00",
                     "end_time": "2017-09-30 23:00:00",
@@ -75,10 +77,11 @@ class TestSimulationTimeWindows(unittest.TestCase):
     def test_rejects_validation_eval_time_outside_validation_time(self):
         context = SandboxContext.__new__(SandboxContext)
         context.formulation = ""
+        context.project_gages = ["01109403"]
         context.sandbox_config = {
             "simulation": {
                 "task_type": "validation",
-                "gage_ids_input": "01109403",
+                "gages": "01109403",
                 "validation_time": {
                     "start_time": "2018-01-01 00:00:00",
                     "end_time": "2018-09-30 23:00:00",

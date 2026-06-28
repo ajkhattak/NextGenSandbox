@@ -68,6 +68,10 @@ load_subset_config <- function(runtime) {
 
   inputs <- yaml.load_file(runtime$infile_config)
 
+  general_gages <- get_param(inputs, "general$gages", NULL)
+  subsetting_gages <- get_param(inputs, "subsetting$gages", NULL)
+  subset_gages <- resolve_subset_gages(general_gages, subsetting_gages)
+
   list(
     sandbox_dir = runtime$sandbox_dir,
     infile_config = runtime$infile_config,
@@ -88,16 +92,16 @@ load_subset_config <- function(runtime) {
       aggregate_factor = get_param(inputs, "subsetting$dem$aggregate_factor", 3)
     ),
     gages = list(
-      option = get_param(inputs, "subsetting$gages$option", NULL),
-      ids = get_param(inputs, "subsetting$gages$ids", NULL),
+      option = subset_gages$option,
+      ids = subset_gages$ids,
       file = list(
-        path = get_param(inputs, "subsetting$gages$file$path", NULL),
-        column = get_param(inputs, "subsetting$gages$file$column", "")
+        path = subset_gages$file$path,
+        column = subset_gages$file$column
       ),
       gpkg = list(
-        dir = get_param(inputs, "subsetting$gages$gpkg$dir", NULL),
-        pattern = get_param(inputs, "subsetting$gages$gpkg$pattern", "gage_"),
-        select = get_param(inputs, "subsetting$gages$gpkg$select", NULL)
+        dir = subset_gages$gpkg$dir,
+        pattern = subset_gages$gpkg$pattern,
+        select = subset_gages$gpkg$select
       )
     ),
     vegetation = list(
@@ -108,14 +112,96 @@ load_subset_config <- function(runtime) {
   )
 }
 
+resolve_subset_gages <- function(general_gages, subset_gages) {
+  if (is.null(general_gages)) {
+    stop("general$gages must be defined. Use subsetting$gages only as an optional filter: all, one ID, or a list of IDs.")
+  }
+
+  option <- general_gages$option
+  if (is.null(option)) {
+    stop("general$gages$option must be defined. OPTIONS: ids | file | gpkg")
+  }
+
+  full_gages <- list(
+    option = option,
+    ids = general_gages$ids,
+    file = list(
+      path = general_gages$file$path,
+      column = ifelse(is.null(general_gages$file$column), "gage_id", general_gages$file$column)
+    ),
+    gpkg = list(
+      dir = general_gages$gpkg$dir,
+      pattern = ifelse(is.null(general_gages$gpkg$pattern), "gage_", general_gages$gpkg$pattern),
+      select = general_gages$gpkg$select
+    )
+  )
+
+  if (is.null(subset_gages)) {
+    return(full_gages)
+  }
+
+  if (!is_simple_gage_selector(subset_gages)) {
+    stop("When general$gages is configured, subsetting$gages may only be 'all', a gage ID string, or a list of IDs.")
+  }
+
+  if (option == "ids") {
+    selected <- normalize_simple_gage_selector(
+      subset_gages,
+      as.character(full_gages$ids),
+      "subsetting$gages"
+    )
+    full_gages$option <- "ids"
+    full_gages$ids <- selected
+    return(full_gages)
+  }
+
+  if (option == "file") {
+    project_ids <- read.csv(full_gages$file$path, colClasses = c("character"))[[full_gages$file$column]]
+    selected <- normalize_simple_gage_selector(
+      subset_gages,
+      as.character(project_ids),
+      "subsetting$gages"
+    )
+    full_gages$option <- "ids"
+    full_gages$ids <- selected
+    return(full_gages)
+  }
+
+  if (option == "gpkg") {
+    if (is.null(full_gages$gpkg$select)) {
+      if (identical(tolower(as.character(subset_gages)[1]), "all")) {
+        return(full_gages)
+      }
+      full_gages$gpkg$select <- as.character(subset_gages)
+      return(full_gages)
+    }
+
+    selected <- normalize_simple_gage_selector(
+      subset_gages,
+      as.character(full_gages$gpkg$select),
+      "subsetting$gages"
+    )
+    full_gages$gpkg$select <- selected
+    return(full_gages)
+  }
+
+  stop(sprintf("Invalid option '%s'. general$gages$option must be one of: ids, file, gpkg", option))
+}
+
 validate_subset_config <- function(config) {
   if (is.null(config$input_dir) || trimws(config$input_dir) == "") {
     stop("Invalid input: 'general$input_dir' is missing or empty.")
   }
 
   gpkg_path <- config$hydrofabric$gpkg_path
-  if (is.null(gpkg_path) || trimws(gpkg_path) == "" || !file.exists(gpkg_path)) {
-    stop("Invalid input: 'subsetting$hydrofabric$gpkg_path' is missing, empty, or does not exist.")
+  if (is.null(gpkg_path) || trimws(gpkg_path) == "") {
+    stop("Invalid input: 'subsetting$hydrofabric$gpkg_path' is missing or empty.")
+  }
+  if (!file.exists(gpkg_path)) {
+    stop(sprintf(
+      "Invalid input: 'subsetting$hydrofabric$gpkg_path' does not exist: %s",
+      gpkg_path
+    ))
   }
 
   dem_input_file <- config$dem$input_file

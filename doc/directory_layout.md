@@ -143,7 +143,7 @@ The default layout is convenient, but not every path is fixed.
 Hydrofabric sources can be selected with:
 
 ```yaml
-subsetting:
+general:
   gages:
     option: gpkg
     gpkg:
@@ -151,6 +151,9 @@ subsetting:
       pattern: "gage_"
       select: ["50147800"]
 ```
+
+Workflow steps can then filter this project set with simple selectors such as
+`gages: all`, `gages: "50147800"`, or `gages: ["50147800", "03366500"]`.
 
 Forcing can be pointed at an explicit directory or file:
 
