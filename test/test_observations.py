@@ -16,10 +16,11 @@ class TestObservationLoader(unittest.TestCase):
 
         context = SandboxContext.__new__(SandboxContext)
         context.formulation = ""
+        context.project_gages = ["12345678"]
         context.sandbox_config = {
             "simulation": {
                 "task_type": "control",
-                "gage_ids_input": "12345678",
+                "gages": "12345678",
                 "outputs": {
                     "calibration": {
                         "retention": "sometimes",
@@ -36,10 +37,11 @@ class TestObservationLoader(unittest.TestCase):
 
         context = SandboxContext.__new__(SandboxContext)
         context.formulation = ""
+        context.project_gages = ["12345678"]
         context.sandbox_config = {
             "simulation": {
                 "task_type": "control",
-                "gage_ids_input": "12345678",
+                "gages": "12345678",
                 "outputs": {
                     "divide_variables": {
                         "ACTUAL_ET": {},
@@ -59,10 +61,11 @@ class TestObservationLoader(unittest.TestCase):
 
         context = SandboxContext.__new__(SandboxContext)
         context.formulation = ""
+        context.project_gages = ["12345678"]
         context.sandbox_config = {
             "simulation": {
                 "task_type": "control",
-                "gage_ids_input": "12345678",
+                "gages": "12345678",
                 "simulation_time": {
                     "start_time": "2020-01-01 00:00:00",
                     "end_time": "2020-01-02 00:00:00",

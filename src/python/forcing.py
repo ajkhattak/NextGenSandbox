@@ -12,6 +12,7 @@ from src.python.forcing_files import (
     select_netcdf_forcing_file,
     select_source_netcdf_forcing_file,
 )
+from src.python.gages import load_general_gages, resolve_step_gages
 from src.python.resource_paths import (
     find_gpkg_file,
     flat_hydrofabric_dir,
@@ -40,12 +41,17 @@ class ForcingProcessor:
         self.layout           = self.config["general"].get("layout", "basin")
         if self.layout not in {"basin", "flat"}:
             raise ValueError("general.layout must be one of: basin, flat")
+        self.project_gages    = load_general_gages(self.config)
         self.dsim             = self.config['formulation']
         self.verbosity        = self.dsim.get('verbosity', 0)
         self.dforcing         = self.config['forcings']
         self.forcing_time     = self.dforcing["time"]
         self.forcing_format   = self.dforcing.get('format', '.nc')
-        self.selected_gages   = self.dforcing.get('select', 'all')
+        self.selected_gages   = resolve_step_gages(
+            project_gages=self.project_gages,
+            step_value=self.dforcing.get("gages"),
+            field_name="forcings.gages",
+        )
         self.rechunk_forcing  = self.dforcing.get("rechunk", True)
 
         self.forcing_venv_dir = Path(os.environ.get("FORCING_ENV"))
@@ -151,31 +157,7 @@ class ForcingProcessor:
         # map gage_id -> directory
         gage_dir_map = {resource_id(d): d for d in gpkg_dirs}
 
-        if self.selected_gages == "all":
-            print ("Gages to be processed: ", gpkg_dirs)
-            return gpkg_dirs
-
-        if isinstance(self.selected_gages, str) and self.selected_gages.lower().endswith(".csv"):
-            path = Path(self.selected_gages)
-
-            if not path.is_file():
-                raise FileNotFoundError(f"gage_ids file not found: {path}")
-
-            df = pd.read_csv(path, dtype=str)
-
-            if 'gage_id' not in df.columns:
-                raise ValueError("CSV must contain a 'gage_id' column")
-
-            selected_ids = df['gage_id'].tolist()
-
-        elif isinstance(self.selected_gages, str):
-            selected_ids = [self.selected_gages]
-
-        elif isinstance(self.selected_gages, (list, tuple, set)):
-            selected_ids = [str(x) for x in self.selected_gages]
-
-        else:
-            raise TypeError("forcing: 'select' must be a CSV path, a string ID, or a list of IDs")
+        selected_ids = self.selected_gages
 
         # ---------- filter directories ----------
         selected_dirs = [gage_dir_map[g] for g in selected_ids if g in gage_dir_map]

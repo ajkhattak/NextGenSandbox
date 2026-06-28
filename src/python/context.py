@@ -24,6 +24,7 @@ from src.python.formulations_registry import (
     is_registered_formulation,
     with_default_routing,
 )
+from src.python.gages import load_general_gages, resolve_step_gages
 from src.python.model_instances import build_model_instances
 from src.python.observations import ObservationLoader
 from src.python.resource_paths import (
@@ -88,6 +89,8 @@ class SandboxContext:
         self.layout = self.sandbox_config["general"].get("layout", "basin")
         if self.layout not in {"basin", "flat"}:
             raise ValueError("general.layout must be one of: basin, flat")
+
+        self.project_gages = load_general_gages(self.sandbox_config)
 
         self.load_formulation_config()
 
@@ -264,7 +267,11 @@ class SandboxContext:
             print("INFO: LSTM formulation -- setting task_type to control")
             self.task_type = "control"
 
-        self.gage_ids = self.load_gage_ids(dsim.get("gage_ids_input"))
+        self.gage_ids = resolve_step_gages(
+            project_gages=self.project_gages,
+            step_value=dsim.get("gages"),
+            field_name="simulation.gages",
+        )
 
         self.sim_name_suffix = dsim.get("sim_name_suffix") or None
 
@@ -530,42 +537,6 @@ class SandboxContext:
 
                 instance.library_file = str(matches[0])
                 
-
-    def load_gage_ids(self, gage_ids_input):
-
-        if gage_ids_input is None:
-            raise TypeError("gage_ids_input must be provided")
-
-        if (isinstance(gage_ids_input, str)
-            and gage_ids_input.lower().endswith(".csv")
-            ):
-
-            path = Path(gage_ids_input)
-
-            if not path.is_file():
-                raise FileNotFoundError(
-                    f"gage_ids file not found: {path}"
-                )
-
-            df = pd.read_csv(path, dtype=str)
-
-            if "gage_id" not in df.columns:
-                raise ValueError("CSV must contain 'gage_id' column")
-
-            return df["gage_id"].tolist()
-
-        # Single ID
-        if isinstance(gage_ids_input, str):
-            return [gage_ids_input]
-
-        # Multiple IDs
-        if isinstance(gage_ids_input, (list, tuple, set)):
-            return [str(x) for x in gage_ids_input]
-
-        raise TypeError(
-            "gage_ids_input must be a CSV "
-            "path, string ID, or list"
-        )
 
     def load_gpkg_dirs(self):
         if self.layout == "flat":

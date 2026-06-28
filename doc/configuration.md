@@ -56,9 +56,21 @@ Defines the project resource and output locations.
 | `input_dir` | Reusable resource directory. Hydrofabric, forcing, and related inputs are stored here. |
 | `output_dir` | Generated run artifact directory. Config files, realization files, model outputs, and calibration outputs are written here. |
 | `layout` | Project-level resource layout. Options: `basin` or `flat`. |
+| `gages.option` | Project gage selection mode. Options: `ids`, `file`, or `gpkg`. |
+| `gages.ids` | Full project gage list when `gages.option: ids`. |
+| `gages.file.path` | CSV path when `gages.option: file`. |
+| `gages.file.column` | CSV column containing gage IDs when `gages.option: file`. |
+| `gages.gpkg.dir` | Directory or file path for existing geopackages when `gages.option: gpkg`. |
+| `gages.gpkg.pattern` | Filename pattern used when discovering geopackages. |
+| `gages.gpkg.select` | Optional selected geopackages from `gages.gpkg.dir`. |
 
 See [directory_layout.md](./directory_layout.md) for the exact path structure
 for both layouts.
+
+`general.gages` defines the full project gage set. Step-specific gage settings
+under `subsetting`, `forcings`, and `simulation` are filters on this project
+set. They may be `all`, one gage ID, or a list of gage IDs. CSV and geopackage
+selection belong at the `general.gages` level.
 
 ### `subsetting`
 
@@ -77,13 +89,7 @@ optional vegetation attributes, and selected gages. This block is used by
 | `vegetation.enabled` | Whether to compute vegetation attributes. |
 | `vegetation.nlcd_path` | Path to NLCD raster used for vegetation classification. |
 | `vegetation.classification_method` | Vegetation classification method, such as `majority` or `fraction`. |
-| `gages.option` | Gage selection mode. Options: `ids`, `file`, or `gpkg`. |
-| `gages.ids` | List of gage IDs when `option: ids`. |
-| `gages.file.path` | CSV path when `option: file`. |
-| `gages.file.column` | Column containing gage IDs when `option: file`. |
-| `gages.gpkg.dir` | Directory or file path for existing geopackages when `option: gpkg`. |
-| `gages.gpkg.pattern` | Filename pattern used when selecting existing geopackages. |
-| `gages.gpkg.select` | Selected gages/geopackages from `gages.gpkg.dir`. |
+| `gages` | Optional subsetting filter. Use `all`, one gage ID, or a list of IDs from `general.gages`. |
 
 See [workflow.md](./workflow.md#subset-hydrofabric) for the project-level
 subsetting workflow.
@@ -99,7 +105,7 @@ Controls forcing time range, format, domain, and optional rechunking.
 | `time.start_time` | First forcing timestamp to prepare. |
 | `time.end_time` | Last forcing timestamp to prepare. |
 | `domain` | Forcing domain, such as `conus`, `HI`, `PR`, or `AK`. |
-| `select` | Gage selection for forcing download. Can be one ID, a list, CSV input, or `all`. |
+| `gages` | Optional forcing filter. Use `all`, one gage ID, or a list of IDs from `general.gages`. |
 | `forcing_dir` | Optional explicit forcing directory. If omitted, the workflow derives the path from `general.layout`. For one-gage NetCDF runs, this may point directly to a single `.nc` file. |
 
 Simulation time windows must fall within the forcing time range. See
@@ -147,7 +153,7 @@ Controls task type, gages, time windows, output retention, and partitioning.
 | Field | Meaning |
 |---|---|
 | `task_type` | Workflow task. Options: `control`, `calibration`, `validation`, `calibvalid`, `restart`. |
-| `gage_ids_input` | Gage IDs to run. Can be one ID, a list, or a CSV path depending on workflow. |
+| `gages` | Optional simulation filter. Use `all`, one gage ID, or a list of IDs from `general.gages`. |
 | `sim_name_suffix` | Suffix appended to the gage ID to name the run directory. |
 | `simulation_time` | Time window for `control` runs. |
 | `calibration_time` | Full calibration period, including spinup. |

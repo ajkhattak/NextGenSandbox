@@ -5,6 +5,16 @@ general:
   input_dir  : "<path_to_input_directory>"  #-------------------------- Reusable resource directory. Path structure follows general.layout.
   output_dir : "<path_to_output_directory>" #-------------------------- Generated run artifacts directory: configs, realization files, model outputs, calibration outputs.
   layout     : "basin" #----------------------------------------------- OPTIONS: basin | flat. Project-level resource layout used by workflow steps.
+  gages:
+    option: ids #------------------------------------------------------- OPTIONS: ids | file | gpkg. Defines the full project gage set.
+    ids: ["01308000"] #------------------------------------------------ List of project gage IDs.
+    file:
+      path: "<path_to_basin_ids_file>/basin_ids_file.csv" #------------ Path to CSV file with project gage IDs.
+      column: "gage_id" #---------------------------------------------- Column name containing gage IDs.
+    gpkg:
+      dir: "<path_to_gpkgs_dir>" #------------------------------------- Path to existing geopackages directory or a .gpkg file.
+      pattern: "gage_" #----------------------------------------------- Filename pattern used when discovering geopackages.
+      select: ["01308000"] #------------------------------------------- Selected gages/gpkgs from the gpkg directory.
 
 
 ########################################################################
@@ -28,19 +38,7 @@ subsetting :
     classification_method    : "fraction"  #----------------------------------- vegetation classfication method (majority or fraction). Defaults to 'majority' method
 
   # Note: only gage_ids that fall within the domain of the hydrofabric listed above will be subsetted
-  gages:
-    option: "ids"   # ------------------------------------------ OPTIONS: ids | file | gpkg
-
-    ids: ["01308000"] #----------------------------------------- List of gage IDs, for instance, ["01105000","08070500"]
-
-    file:
-      path: "<path_to_basin_ids_file>/basin_ids_file.csv" #----- Path to CSV file with column (set column name below) of basin gage IDs
-      column: "USGS.ID" #--------------------------------------- Name of column of gage IDs
-
-    gpkg:
-      dir: "<path_to_gpkgs_dir>" #------------------------------- Path to base directory for all (already downloaded/processed) geopackages (or path to .gpkg file).
-      pattern: "gage_" #----------------------------------------- Pattern of names, e.g., gage_<*> or hf_<*>
-      select: ["01308000"] #------------------------------------- Selected gages/gpkgs from the directory gpkg_dir
+  gages: all #--------------------------------------------------- Optional subset of general.gages. Use all, one ID, or a list of IDs.
 
 
 ########################################################################
@@ -51,7 +49,7 @@ forcings :
   time    : {"start_time" : "2016-10-01 00:00:00", "end_time" : "2020-09-30 23:00:00"} #---------- Forcing data time range [1-1-2016,12-31-2020]; simulation start/end times must fall within this period
 
   domain  : "conus"    #-------------------------------------------- options = ["conus", "HI", "PR", 'AK']
-  select  : "01308000" #-------------------------------------------- Provide a single gage id, or list of ids, or a .csv file (with columns gage_id and num_divides) or "all" to download data for all gages in the input_dir
+  gages   : all #--------------------------------------------------- Optional subset of general.gages. Use all, one ID, or a list of IDs.
 
 ########################################################################
 # Optional local CSV or Parquet observation datasets. Multiple observation types can
@@ -116,7 +114,7 @@ formulation :
 
 simulation :
   task_type        : "<pick_option>" #------------------------------------- Supported options: calibvalid, calibration, validation, restart, control
-  gage_ids_input   :  "01308000"   #--------------------------------------- Provide a single gage id, or list of ids, or a .csv file (with columns gage_id and num_divides)
+  gages            : all #------------------------------------------------- Optional subset of general.gages. Use all, one ID, or a list of IDs.
   sim_name_suffix  :  "pet_cfe" #------------------------------------------ User specified name appended to the gage_id. For example, 01105000_pet_cfe
   #simulation_time : {"start_time" : "2016-10-01 00:00:00", "end_time" : "2018-09-30 23:00:00"} # only needed when task_type is control
   calibration_time : {"start_time" : "2016-10-01 00:00:00", "end_time" : "2018-09-30 23:00:00"} # Entire simulation period for calibration; including spinup period
