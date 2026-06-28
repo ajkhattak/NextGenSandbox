@@ -1,63 +1,190 @@
-## Sandbox Launcher for Large-Scale NextGen Experiments (HPC and Local)
+# Sandbox Launcher
 
-Running large-scale NextGen experiments often involves 100s of gages, multiple hydrologic formulations, and long-running calibration cycles that must restart automatically 
-due to HPC wallclock limits. The Sandbox Launcher provides a fully automated workflow for managing these experiments on high-performance computing (HPC) systems.
+The Sandbox Launcher runs many gage/formulation experiments from one shared
+set of base configuration files. It is intended for larger calibration and
+validation campaigns where each gage/formulation run may need to resume across
+multiple scheduler submissions.
 
-The launcher supports two execution backends:
+The launcher supports:
 
-- **SLURM (HPC mode)** – for large-scale distributed experiments with automatic requeue support.
-- **Local mode** – for development, testing, and small-scale runs without a scheduler.
+- SLURM execution for HPC systems
+- local multiprocessing for small tests
+- per-gage/per-formulation config generation
+- automatic calibration restart selection
+- validation after calibration iterations are complete
+- status checks across all configured experiments
 
-The launcher:
+## Files
 
-- Automatically generates per-gage and per-model configuration files
-- Executes each gage–model experiment the selected backend (SLURM or local multiprocessing)
-- Detects completed calibration iterations and resumes incomplete ones
-- Organizes outputs into consistent, model-specific directory structures
-- Supports flexible model–gage mapping through a YAML configuration file
-- Handles validation runs with no additional user intervention
-- Ensures reproducibility and reduces manual HPC job management
-
-
-With a single command, the Sandbox Launcher orchestrates hundreds of experiments, making large-scale calibration and validation workflows efficient, automated, and repeatable.
+| File | Purpose |
+|---|---|
+| `launcher_config.yaml` | Preferred one-window launcher setup: project paths, templates, experiments, gages, and assignments. |
+| `models_gages_map.yaml` | Advanced/direct mapping format; optional when using `launcher_config.yaml` experiments and assignments. |
+| `basefiles/sandbox_config_base.yaml` | Base Sandbox config copied and customized per gage/formulation. |
+| `basefiles/calib_config_base.yaml` | Base calibration config copied per gage/formulation. |
+| `sandbox_launcher.py` | Main launcher CLI. |
+| `submit_launcher.sh` | Entry script for SLURM or local execution. |
+| `submit_gage.slurm` | SLURM worker script for one gage/formulation run. |
+| `check_status.sh` | Convenience wrapper for launcher status. |
 
 ## Setup
-Before starting, copy the `$SANDBOX_DIR/tools/launcher` directory to your desired working location. The path to this directory (<path_to_launcher>) will be referenced in sandbox_launcher.py (see below).
 
-- **Prepare the model–gage mapping file** \
-  Create a YAML configuration file that maps models to gages (i.e., which model(s) runs at which location(s)). You can use the following as a template: [models_gages_map.yaml](https://github.com/ajkhattak/NextGenSandbox/blob/main/tools/launcher/models_gages_map.yaml)
-- **Update base configuration files** \
-  Modify the base configuration files located in the launcher directory:
-   - launcher/basefiles/sandbox_config_base.yaml
-   - launcher/basefiles/calib_config_base.yaml
-- **Update SLURM scripts** \
-  Adapt the SLURM submission scripts to your system:
-   - [submit_gage.slurm](https://github.com/ajkhattak/NextGenSandbox/blob/main/tools/launcher/submit_gage.slurm)
-   - [submit_launcher.slurm](https://github.com/ajkhattak/NextGenSandbox/blob/main/tools/launcher/submit_launcher.slurm)
-- **Update paths inside sandbox_launcher.py** \
-  Set the base directory path in `sandbox_launcher.py` to match your local filesystem (to point to your copied launcher directory):
-  ```
-  base_dir = "<path/to/copied/launcher>"
-  ```
+1. Copy or edit `launcher_config.yaml`.
+2. Edit `basefiles/sandbox_config_base.yaml`.
+3. Edit `basefiles/calib_config_base.yaml`.
+4. Define experiments and assignments in `launcher_config.yaml`.
+5. On SLURM systems, edit account, partition, time, memory, and module loads in
+   `submit_launcher.sh` and `submit_gage.slurm`.
+
+The base Sandbox config must use the current major-release schema:
+
+```yaml
+general:
+  input_dir: "/path/to/reusable/resources"
+  output_dir: "/path/to/run/outputs"
+  resource_layout: gage
+  gages:
+    option: ids
+    ids: []
+
+forcings:
+  gages: all
+
+simulation:
+  gages: []
+```
+
+The launcher fills `general.gages.ids`, `simulation.gages`,
+`general.output_dir`, `formulation.models`, and optional
+`formulation.model_instances` for each generated config.
+
+## One-Window Launcher Config
+
+The preferred setup is to define experiments, gages, and assignments in
+`launcher_config.yaml`:
+
+```yaml
+project:
+  input_dir: "/path/to/inputs"
+  output_dir: "/path/to/outputs"
+  resource_layout: gage
+
+templates:
+  sandbox_config: basefiles/sandbox_config_base.yaml
+  calib_config: basefiles/calib_config_base.yaml
+
+experiments:
+  pet_cfe_x:
+    models: "PET, CFE, T-route"
+    model_instances:
+      CFE:
+        - name: cfe-x
+          basefile: "config_cfe-x.yaml"
+          repo_name: "cfe"
+          calib_params_block: "cfex_params"
+
+gages:
+  option: file
+  file:
+    path: "/path/to/gages.csv"
+    id_column: gage_id
+    group_column: group_name
+
+assignment:
+  default:
+    - all
+
+  groups:
+    snowy:
+      - snow17_sacsma
+      - nom_cfe_s
+
+    arid:
+      - pet_topmodel
+```
+
+`assignment.default: [all]` means run every experiment over every gage.
+Otherwise, list specific experiment names.
+
+When `gages.file.group_column` is configured, group-specific assignments can
+override the default. A gage may belong to more than one group either by
+appearing in multiple CSV rows or by using comma, semicolon, or pipe-separated
+group names in one cell.
+
+```csv
+gage_id,group_name
+01109403,snowy
+01109403,benchmark
+02299950,arid
+08070500,non-snowy|benchmark
+```
+
+If a gage belongs to multiple configured groups, the launcher merges the
+experiment lists and removes duplicates while preserving order. If a gage's
+group is not configured under `assignment.groups`, the gage falls back to
+`assignment.default`.
+
+## Direct Mapping Format
+
+For advanced use, `models_gages_map.yaml` can still define a fully resolved
+mapping. The launcher uses this file only when `launcher_config.yaml` does not
+define `experiments`, `gages`, and `assignment`.
+
+## Check
+
+Run a read-only configuration check before submitting jobs:
+
+```bash
+python tools/launcher/sandbox_launcher.py check --config tools/launcher/launcher_config.yaml
+```
+
+or, from a copied launcher directory:
+
+```bash
+python sandbox_launcher.py check --config launcher_config.yaml
+```
+
+## Dry Run
+
+Preview planned work without writing configs or submitting jobs:
+
+```bash
+python tools/launcher/sandbox_launcher.py run --backend local --dryrun
+```
 
 ## Run
-> **Important:** Run these commands from the <path_to_launcher> directory.
-### On HPC (SLURM)
-Submit the launcher job with:
-```
-sbatch launcher/submit_launcher.sh
-```
-### Locally (No SLURM)
-Run directly:
-```
-bash launcher/submit_launcher.sh
+
+Local mode:
+
+```bash
+bash tools/launcher/submit_launcher.sh
 ```
 
-### Check experiments status
-Run:
-```
-./launcher/check_status.sh
+SLURM mode:
+
+```bash
+sbatch tools/launcher/submit_launcher.sh
 ```
 
-> The launcher automatically detects whether it is running under SLURM and selects the appropriate execution backend.
-> *NOTE*: The launcher assumes that all required basin geopackages and forcing data have already been downloaded.
+The entry script detects whether it is running inside SLURM and selects the
+backend automatically.
+
+## Status
+
+```bash
+bash tools/launcher/check_status.sh
+```
+
+or:
+
+```bash
+python tools/launcher/sandbox_launcher.py status --config tools/launcher/launcher_config.yaml
+```
+
+## Notes
+
+- The launcher assumes hydrofabric and forcing resources already exist.
+- `SANDBOX_ENV` must point to the Sandbox Python environment.
+- Generated configs are written under `<output_dir>/<formulation_name>/configs`.
+- Status uses each run's `info_<gage_id>.yml`, `best_params.txt`, and validation
+  files under `output_sim_obs`.
