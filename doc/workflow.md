@@ -18,8 +18,8 @@ That guide explains the main configuration files:
 
 For project directory choices, also review
 [directory_layout.md](./directory_layout.md). It explains the supported
-`general.layout` values and how reusable resources differ from generated run
-artifacts.
+`general.resource_layout` values and how reusable resources differ from
+generated run artifacts.
 
 ## Single-Basin Project
 
@@ -28,7 +28,7 @@ keeps debugging simple and confirms that the selected hydrofabric, forcing,
 formulation, and calibration settings work before scaling up.
 
 1. Copy or edit `configs/sandbox_config.yaml`.
-2. Set `general.input_dir`, `general.output_dir`, and `general.layout`.
+2. Set `general.input_dir`, `general.output_dir`, and `general.resource_layout`.
 3. Configure `general.gages` with the full project gage set.
 4. Configure `subsetting` with the source hydrofabric and, if needed, a
    step-specific gage filter.
@@ -75,13 +75,13 @@ sandbox --subset -i configs/my_sandbox_config.yaml
 ```
 
 If subsetting succeeds, a basin geopackage is written for each selected gage.
-With the default `general.layout: basin`, geopackages are written under:
+With the default `general.resource_layout: gage`, geopackages are written under:
 
 ```text
 <input_dir>/<gage_id>/hydrofabric/gage_<gage_id>.gpkg
 ```
 
-With `general.layout: flat`, geopackages are written under:
+With `general.resource_layout: resource`, geopackages are written under:
 
 ```text
 <input_dir>/hydrofabric/gage_<gage_id>.gpkg

@@ -44,7 +44,7 @@ def has_gpkg_file(basin_dir: str | Path) -> bool:
     return False
 
 
-def flat_hydrofabric_dir(input_dir: str | Path) -> Path:
+def resource_hydrofabric_dir(input_dir: str | Path) -> Path:
     return Path(input_dir) / HYDROFABRIC_DIR
 
 
@@ -61,17 +61,17 @@ def forcing_dir_for_resource(
     resource: str | Path,
     start_year: int,
     end_year: int,
-    layout: str = "basin",
+    resource_layout: str = "gage",
 ) -> Path:
-    """Return the default forcing directory for a basin resource."""
+    """Return the default forcing directory for the configured resource layout."""
     input_dir = Path(input_dir)
     resource = Path(resource)
     if str(resource) == "{*}":
-        if layout == "flat":
+        if resource_layout == "resource":
             return input_dir / FORCING_DIR / "{*}" / f"{start_year}_to_{end_year}"
         return input_dir / "{*}" / FORCING_DIR / f"{start_year}_to_{end_year}"
 
-    if layout == "flat":
+    if resource_layout == "resource":
         return input_dir / FORCING_DIR / resource_id(resource) / f"{start_year}_to_{end_year}"
 
     if resource.is_file() and resource.suffix == ".gpkg":

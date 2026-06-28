@@ -2,9 +2,9 @@
 #
 
 general:
-  input_dir  : "<path_to_input_directory>"  #-------------------------- Reusable resource directory. Path structure follows general.layout.
+  input_dir  : "<path_to_input_directory>"  #-------------------------- Reusable resource directory. Path structure follows general.resource_layout.
   output_dir : "<path_to_output_directory>" #-------------------------- Generated run artifacts directory: configs, realization files, model outputs, calibration outputs.
-  layout     : "basin" #----------------------------------------------- OPTIONS: basin | flat. Project-level resource layout used by workflow steps.
+  resource_layout: "gage" #-------------------------------------------- OPTIONS: gage | resource. Project-level resource directory layout used by workflow steps.
   gages:
     option: ids #------------------------------------------------------- OPTIONS: ids | file | gpkg. Defines the full project gage set.
     ids: ["01308000"] #------------------------------------------------ List of project gage IDs.
@@ -42,7 +42,7 @@ subsetting :
 
 
 ########################################################################
-#forcing data default path follows general.layout. basin: <input_dir>/<gage_id>/forcing; flat: <input_dir>/forcing/<gage_id>
+#forcing data default path follows general.resource_layout. gage: <input_dir>/<gage_id>/forcing; resource: <input_dir>/forcing/<gage_id>
 forcings : 
   format  : ".nc" #----------------------------------------------- Format .nc or .csv (recommended option .nc)
   rechunk : true #------------------------------------------------ Rechunk NetCDF forcing files for faster ngen reads

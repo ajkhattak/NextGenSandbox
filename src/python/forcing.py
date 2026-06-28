@@ -15,9 +15,9 @@ from src.python.forcing_files import (
 from src.python.gages import load_general_gages, resolve_step_gages
 from src.python.resource_paths import (
     find_gpkg_file,
-    flat_hydrofabric_dir,
     forcing_dir_for_resource,
     has_gpkg_file,
+    resource_hydrofabric_dir,
     resource_id,
 )
 
@@ -38,9 +38,9 @@ class ForcingProcessor:
 
         self.input_dir        = self.config['general'].get('input_dir')
         self.output_dir       = Path(self.config['general'].get('output_dir'))
-        self.layout           = self.config["general"].get("layout", "basin")
-        if self.layout not in {"basin", "flat"}:
-            raise ValueError("general.layout must be one of: basin, flat")
+        self.resource_layout  = self.config["general"].get("resource_layout", "gage")
+        if self.resource_layout not in {"gage", "resource"}:
+            raise ValueError("general.resource_layout must be one of: gage, resource")
         self.project_gages    = load_general_gages(self.config)
         self.dsim             = self.config['formulation']
         self.verbosity        = self.dsim.get('verbosity', 0)
@@ -59,7 +59,7 @@ class ForcingProcessor:
         start_yr = pd.Timestamp(self.forcing_time['start_time']).year
         end_yr   = pd.Timestamp(self.forcing_time['end_time']).year + 1
 
-        if self.layout == "flat":
+        if self.resource_layout == "resource":
             forcing_dir = os.path.join(
                 self.input_dir,
                 "forcing",
@@ -136,8 +136,8 @@ class ForcingProcessor:
                 "Run the subsetting step first or correct general.input_dir."
             )
 
-        if self.layout == "flat":
-            hydrofabric_dir = flat_hydrofabric_dir(input_dir)
+        if self.resource_layout == "resource":
+            hydrofabric_dir = resource_hydrofabric_dir(input_dir)
             gpkg_dirs = sorted(hydrofabric_dir.glob("*.gpkg"))
             expected_location = hydrofabric_dir / "*.gpkg"
         else:
@@ -150,7 +150,7 @@ class ForcingProcessor:
 
         if not gpkg_dirs:
             raise FileNotFoundError(
-                f"No geopackages found for general.layout='{self.layout}'. "
+                f"No geopackages found for general.resource_layout='{self.resource_layout}'. "
                 f"Expected files matching: {expected_location}"
             )
 
@@ -197,7 +197,7 @@ class ForcingProcessor:
                 self.current_resource,
                 start_yr,
                 end_yr,
-                self.layout,
+                self.resource_layout,
             ).parent
         )
 
