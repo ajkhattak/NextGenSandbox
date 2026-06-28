@@ -36,6 +36,8 @@ simulation :
     max_nexus_per_proc: 20
     max_procs: 10
 
-sandbox_launcher :
-  exp_info : True
-  exp_info_dir : "info"
+  outputs:
+    metadata:
+      enabled: true
+      index_dir: metadata
+      run_file: run_metadata.yml

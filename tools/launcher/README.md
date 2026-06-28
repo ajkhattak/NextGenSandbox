@@ -52,11 +52,19 @@ forcings:
 
 simulation:
   gages: []
+  outputs:
+    metadata:
+      enabled: true
+      index_dir: metadata
+      run_file: run_metadata.yml
 ```
 
 The launcher fills `general.gages.ids`, `simulation.gages`,
 `general.output_dir`, `formulation.models`, and optional
 `formulation.model_instances` for each generated config.
+The `simulation.outputs.metadata` block is required because the launcher uses
+`<output_dir>/<formulation>/metadata/run_<gage_id>.yml` for status checks and
+resubmission after wallclock timeouts.
 
 ## One-Window Launcher Config
 
@@ -186,5 +194,5 @@ python tools/launcher/sandbox_launcher.py status --config tools/launcher/launche
 - The launcher assumes hydrofabric and forcing resources already exist.
 - `SANDBOX_ENV` must point to the Sandbox Python environment.
 - Generated configs are written under `<output_dir>/<formulation_name>/configs`.
-- Status uses each run's `info_<gage_id>.yml`, `best_params.txt`, and validation
-  files under `output_sim_obs`.
+- Status uses each run's `metadata/run_<gage_id>.yml`, `best_params.txt`, and
+  validation files under `output_sim_obs`.
