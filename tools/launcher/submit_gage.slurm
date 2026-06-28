@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
@@ -31,9 +32,13 @@ if [ -z "$SANDBOX_ENV" ]; then
 fi
 source "$SANDBOX_ENV/bin/activate"
 
+if [ -z "${SANDBOX_FILE:-}" ] || [ -z "${CALIB_FILE:-}" ]; then
+    echo "ERROR: SANDBOX_FILE and CALIB_FILE must be exported by the launcher."
+    exit 1
+fi
+
 # Debug info
 echo "Python executable: $(which python)"
-python -c "import numpy; print('NumPy version:', numpy.__version__)"
 python -c "import sqlite3; print('sqlite3 version:', sqlite3.sqlite_version)"
 
 echo "Running gage simulation..."
@@ -45,6 +50,5 @@ if [[ -n "$START_DELAY" ]]; then
     echo "Applying model-index startup delay: ${START_DELAY}s"
     sleep $START_DELAY
 fi
-python -c "import numpy; print('NumPy version:', numpy.__version__)"
 # === Run sandbox ===
-sandbox -run -i "$SANDBOX_FILE" -j "$CALIB_FILE"
+sandbox --run -i "$SANDBOX_FILE" -j "$CALIB_FILE"

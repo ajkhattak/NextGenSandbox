@@ -8,8 +8,6 @@
 #   - Local laptop (via bash)
 # ============================================================
 
-#** NOTE - search for MODIFY_ME and change according to your settings
-
 # -------------------------------
 # SLURM DIRECTIVES (ignored locally)
 # -------------------------------
@@ -37,12 +35,16 @@ else
     RUN_ENV="local"
 fi
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_FILE="${LAUNCHER_CONFIG:-$SCRIPT_DIR/launcher_config.yaml}"
+mkdir -p "$SCRIPT_DIR/log"
 
 echo "==============================================="
 echo " Sandbox Launcher Entry Script"
 echo " Environment: $RUN_ENV"
 echo " Host: $(hostname)"
 echo " Time: $(date)"
+echo " Launcher config: $CONFIG_FILE"
 echo "==============================================="
 
 # ============================================================
@@ -57,9 +59,12 @@ if [ "$RUN_ENV" = "slurm" ]; then
         exit 1
     fi
     source "$SANDBOX_ENV/bin/activate"
-else    
-    #source .venv/venv_sandbox_py3.11/bin/activate 2>/dev/null || true
-    conda activate $SANDBOX_ENV
+else
+    if [ -z "$SANDBOX_ENV" ]; then
+        echo "ERROR: SANDBOX_ENV is not set. Run ./bootstrap.sh --env and reload your shell before submitting."
+        exit 1
+    fi
+    source "$SANDBOX_ENV/bin/activate"
 fi
 
 echo "Python executable: $(which python)"
@@ -93,10 +98,10 @@ fi
 
 if [ "$RUN_ENV" = "slurm" ]; then
     echo "[submit_launcher] Running in SLURM mode"
-    python launcher/sandbox_launcher.py run --backend slurm
+    python "$SCRIPT_DIR/sandbox_launcher.py" run --backend slurm --config "$CONFIG_FILE"
 else
     echo "[submit_launcher] Running in LOCAL mode"
-    python launcher/sandbox_launcher.py run --backend local
+    python "$SCRIPT_DIR/sandbox_launcher.py" run --backend local --config "$CONFIG_FILE"
 fi
 
 exit_code=$?
@@ -127,4 +132,3 @@ exit $exit_code
 #echo "LL Python executable: $(which python)"
 #python -c "import numpy; print('LL NumPy version:', numpy.__version__)"
 #python -c "import sqlite3; print('LL sqlite3 version:', sqlite3.sqlite_version)"
-

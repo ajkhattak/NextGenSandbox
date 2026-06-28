@@ -1,65 +1,121 @@
-import yaml
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
 import pandas as pd
-
-gages_infile = "example_basins_file.csv" #--------------------------- input .csv file containing gage IDs
-
-
-# Read gage IDs
-df = pd.read_csv(gages_infile, dtype={"gage_ids": str})
-gages = df["gage_ids"].tolist()
+import yaml
 
 
-# Define available formulations
-formulations = {
-    "pet_cfe_s": "PET, CFE-S, T-route",
-    "pet_cfe_x": "PET, CFE-X, T-route",
-    "pet_topmodel": "PET, TopModel, T-route",
-    "nom_cfe_s": "NOM, CFE-S, T-route",
-    "nom_cfe_x": "NOM, CFE-X, T-route",
+DEFAULT_FORMULATIONS = {
+    "pet_cfe_s": {
+        "models": "PET, CFE, T-route",
+        "model_instances": {
+            "CFE": [
+                {
+                    "name": "cfe-s",
+                    "basefile": "config_cfe-s.yaml",
+                    "repo_name": "cfe",
+                    "calib_params_block": "cfes_params",
+                }
+            ]
+        },
+    },
+    "pet_cfe_x": {
+        "models": "PET, CFE, T-route",
+        "model_instances": {
+            "CFE": [
+                {
+                    "name": "cfe-x",
+                    "basefile": "config_cfe-x.yaml",
+                    "repo_name": "cfe",
+                    "calib_params_block": "cfex_params",
+                }
+            ]
+        },
+    },
+    "pet_topmodel": {
+        "models": "PET, TopModel, T-route",
+    },
+    "nom_cfe_s": {
+        "models": "NOM, CFE, T-route",
+        "model_instances": {
+            "CFE": [
+                {
+                    "name": "cfe-s",
+                    "basefile": "config_cfe-s.yaml",
+                    "repo_name": "cfe",
+                    "calib_params_block": "cfes_params",
+                }
+            ]
+        },
+    },
+    "nom_cfe_x": {
+        "models": "NOM, CFE, T-route",
+        "model_instances": {
+            "CFE": [
+                {
+                    "name": "cfe-x",
+                    "basefile": "config_cfe-x.yaml",
+                    "repo_name": "cfe",
+                    "calib_params_block": "cfex_params",
+                }
+            ]
+        },
+    },
 }
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Generate a launcher model-gage mapping YAML file."
+    )
+    parser.add_argument("gages_file", help="CSV file containing gage IDs.")
+    parser.add_argument(
+        "--column",
+        default="gage_id",
+        help="CSV column containing gage IDs. Default: gage_id.",
+    )
+    parser.add_argument(
+        "--default-formulations",
+        nargs="+",
+        default=["pet_cfe_s"],
+        help="Default formulation names assigned to each gage.",
+    )
+    parser.add_argument(
+        "--output",
+        default="models_gages_map.yaml",
+        help="Output YAML file.",
+    )
+    return parser.parse_args()
 
-# Default formulation assignment
-default_formulations = ["pet_cfe_s"]
+
+def main() -> None:
+    args = parse_args()
+    gages_file = Path(args.gages_file)
+    df = pd.read_csv(gages_file, dtype={args.column: str})
+
+    if args.column not in df.columns:
+        raise ValueError(f"{gages_file} must contain column '{args.column}'")
+
+    unknown = sorted(set(args.default_formulations) - set(DEFAULT_FORMULATIONS))
+    if unknown:
+        raise ValueError(f"Unknown default formulation(s): {', '.join(unknown)}")
+
+    gages = df[args.column].dropna().astype(str).tolist()
+    mapping = {gage: list(args.default_formulations) for gage in gages}
+
+    cfg = {
+        "formulations": DEFAULT_FORMULATIONS,
+        "groups": {},
+        "mapping": mapping,
+    }
+
+    with Path(args.output).open("w") as file:
+        yaml.safe_dump(cfg, file, sort_keys=False)
+
+    print(f"Generated launcher mapping file: {args.output}")
 
 
-# Initialize basins mapping using default formulations
-mapping = {
-    str(gage): default_formulations.copy()
-    for gage in gages
-}
-
-# ------------------------------------------------------------
-# Optional overrides - Examples
-# ------------------------------------------------------------
-
-mapping["02299950"] = [
-    "pet_cfe_s",
-    "pet_cfe_x"
-]
-
-mapping["01491000"] = [
-    "nom_cfe_s"
-]
-
-# ------------------------------------------------------------
-# Optional rule-based overrides - Examples
-# ------------------------------------------------------------
-for gage in gages:
-
-    if gage.startswith("08"):
-        mapping[str(gage)] = ["pet_topmodel"]
-        
-
-# Build final YAML structure - the file that launcher reads
-cfg = {
-    "formulations": formulations,
-    "mapping": mapping
-}
-
-# Write YAML
-with open("models_gages_map.yaml", "w") as f:
-    yaml.dump(cfg, f, sort_keys=False,default_style='"')
-
-print("Generated models gages mapping file")
+if __name__ == "__main__":
+    main()

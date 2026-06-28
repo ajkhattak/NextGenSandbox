@@ -3,24 +3,28 @@
 general:
   input_dir     : "/Users/ahmadjankhattak/Core/projects/synthetic_2026/inputs"
   output_dir    : "/Users/ahmadjankhattak/Core/projects/synthetic_2026/basecase"
+  resource_layout: gage
+  gages:
+    option: ids
+    ids: []
 
 
 ########################################################################
-#forcing data is stored under <input_dir>/gage_id/data/forcing
 forcings : 
   format     : ".nc"
   time       : {"start_time" : "2015-10-01 00:00:00", "end_time" : "2022-09-30 23:00:00"}
   domain     : "conus"        # options = ["conus", "HI", "PR", 'AK']
+  gages      : all
 
 ########################################################################
 formulation :
-  models             : <*>
+  models             : ""
   clean              : ['existing']
   verbosity          : 0
 
 simulation :
   task_type : "calibvalid" # calibvalid, calibration, validation, restart, control
-  gage_ids_input   :  <*>
+  gages     : []
   #simulation_time : {"start_time" : "2015-10-01 00:00:00", "end_time" : "2020-09-30 23:00:00"}
   calibration_time : {"start_time" : "2015-10-01 00:00:00", "end_time" : "2020-09-30 23:00:00"}
   calib_eval_time  : {"start_time" : "2016-10-01 00:00:00", "end_time" : "2020-09-30 23:00:00"}
