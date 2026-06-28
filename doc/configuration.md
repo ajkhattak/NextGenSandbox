@@ -55,7 +55,7 @@ Defines the project resource and output locations.
 |---|---|
 | `input_dir` | Reusable resource directory. Hydrofabric, forcing, and related inputs are stored here. |
 | `output_dir` | Generated run artifact directory. Config files, realization files, model outputs, and calibration outputs are written here. |
-| `layout` | Project-level resource layout. Options: `basin` or `flat`. |
+| `resource_layout` | Project-level resource directory layout. Options: `gage` or `resource`. |
 | `gages.option` | Project gage selection mode. Options: `ids`, `file`, or `gpkg`. |
 | `gages.ids` | Full project gage list when `gages.option: ids`. |
 | `gages.file.path` | CSV path when `gages.option: file`. |
@@ -106,7 +106,7 @@ Controls forcing time range, format, domain, and optional rechunking.
 | `time.end_time` | Last forcing timestamp to prepare. |
 | `domain` | Forcing domain, such as `conus`, `HI`, `PR`, or `AK`. |
 | `gages` | Optional forcing filter. Use `all`, one gage ID, or a list of IDs from `general.gages`. |
-| `forcing_dir` | Optional explicit forcing directory. If omitted, the workflow derives the path from `general.layout`. For one-gage NetCDF runs, this may point directly to a single `.nc` file. |
+| `forcing_dir` | Optional explicit forcing directory. If omitted, the workflow derives the path from `general.resource_layout`. For one-gage NetCDF runs, this may point directly to a single `.nc` file. |
 
 Simulation time windows must fall within the forcing time range. See
 [forcing.md](./forcing.md) for forcing-specific notes.
@@ -241,7 +241,7 @@ values, model switches, static attribute files, or trained-model paths. See
 | Problem | What to check |
 |---|---|
 | Unsupported formulation | Run `sandbox --formulations`; use `CFE`, not `CFE-S` or `CFE-X`, in `formulation.models`. |
-| Missing geopackage | Check the path expected by `general.layout`; see [directory_layout.md](./directory_layout.md). |
+| Missing geopackage | Check the path expected by `general.resource_layout`; see [directory_layout.md](./directory_layout.md). |
 | Missing forcing file | Check the forcing directory derived from `forcings.time`, or set `forcings.forcing_dir`. |
 | Missing shared library | Confirm the model was built under `$NGEN_DIR/extern/<repo_name>`, or set `library_file` in `model_instances`. |
 | Calibration parameter block not found | Make sure `calib_params_block` exists in `configs/calibration/*.yaml`. |

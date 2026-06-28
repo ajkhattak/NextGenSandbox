@@ -76,7 +76,7 @@ load_subset_config <- function(runtime) {
     sandbox_dir = runtime$sandbox_dir,
     infile_config = runtime$infile_config,
     input_dir = inputs$general$input_dir,
-    layout = get_param(inputs, "general$layout", "basin"),
+    resource_layout = get_param(inputs, "general$resource_layout", "gage"),
     hydrofabric = list(
       version = inputs$subsetting$hydrofabric$version,
       gpkg_path = inputs$subsetting$hydrofabric$gpkg_path,
@@ -237,11 +237,11 @@ validate_subset_config <- function(config) {
     stop(sprintf("Invalid option '%s'. Must be one of: %s", option, toString(allowed)))
   }
 
-  allowed_layouts <- c("basin", "flat")
-  if (!(config$layout %in% allowed_layouts)) {
+  allowed_layouts <- c("gage", "resource")
+  if (!(config$resource_layout %in% allowed_layouts)) {
     stop(sprintf(
-      "Invalid option '%s'. general$layout must be one of: %s",
-      config$layout,
+      "Invalid option '%s'. general$resource_layout must be one of: %s",
+      config$resource_layout,
       toString(allowed_layouts)
     ))
   }

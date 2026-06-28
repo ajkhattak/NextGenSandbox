@@ -29,9 +29,9 @@ from src.python.model_instances import build_model_instances
 from src.python.observations import ObservationLoader
 from src.python.resource_paths import (
     find_gpkg_file,
-    flat_hydrofabric_dir,
     forcing_dir_for_resource,
     has_gpkg_file,
+    resource_hydrofabric_dir,
     resource_id,
 )
 
@@ -86,9 +86,12 @@ class SandboxContext:
 
         self.output_dir = Path(self.sandbox_config["general"].get("output_dir"))
 
-        self.layout = self.sandbox_config["general"].get("layout", "basin")
-        if self.layout not in {"basin", "flat"}:
-            raise ValueError("general.layout must be one of: basin, flat")
+        self.resource_layout = self.sandbox_config["general"].get(
+            "resource_layout",
+            "gage",
+        )
+        if self.resource_layout not in {"gage", "resource"}:
+            raise ValueError("general.resource_layout must be one of: gage, resource")
 
         self.project_gages = load_general_gages(self.sandbox_config)
 
@@ -142,7 +145,7 @@ class SandboxContext:
                 "{*}",
                 forcing_start_yr,
                 forcing_end_yr,
-                self.layout,
+                self.resource_layout,
             )
         )
 
@@ -539,8 +542,8 @@ class SandboxContext:
                 
 
     def load_gpkg_dirs(self):
-        if self.layout == "flat":
-            self.gpkg_dirs = sorted(flat_hydrofabric_dir(self.input_dir).glob("*.gpkg"))
+        if self.resource_layout == "resource":
+            self.gpkg_dirs = sorted(resource_hydrofabric_dir(self.input_dir).glob("*.gpkg"))
         else:
             # Get all subdirectories inside input_dir
             all_dirs = glob.glob(os.path.join(self.input_dir, '*/'), recursive=True)

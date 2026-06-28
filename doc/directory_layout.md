@@ -1,21 +1,21 @@
 # Directory Layout
 
-NextGenSandbox supports two project-level resource layouts: `basin` and
-`flat`. Set the layout once under `general.layout` in `sandbox_config.yaml`.
-The default is `basin`.
+NextGenSandbox supports two project-level resource layouts: `gage` and
+`resource`. Set the layout once under `general.resource_layout` in
+`sandbox_config.yaml`. The default is `gage`.
 
 ```yaml
 general:
-  layout: basin  # OPTIONS: basin | flat
+  resource_layout: gage  # OPTIONS: gage | resource
 ```
 
 A project should use one layout consistently. The code supports both layouts,
 but mixing styles within the same project makes later forcing, configuration,
 and run steps harder to reason about.
 
-## Basin Layout
+## Gage Layout
 
-The default `basin` layout is:
+The default `gage` layout organizes resources by gage first:
 
 ```text
 <input_dir>/
@@ -42,9 +42,9 @@ The default `basin` layout is:
     pso_global_best/
 ```
 
-## Flat Layout
+## Resource Layout
 
-The `flat` layout organizes reusable resources by resource type:
+The `resource` layout organizes reusable resources by resource type:
 
 ```text
 <input_dir>/
@@ -96,10 +96,10 @@ configs/
     cfe_cfg_cat-*.txt
 ```
 
-## Why Basin First?
+## Why Gage First?
 
-Sandbox follows a basin-first layout by default because several workflow steps
-operate on one basin at a time:
+Sandbox follows a gage-first layout by default because several workflow steps
+operate on one gage/basin at a time:
 
 ```text
 <gage_id>/hydrofabric/gage_<gage_id>.gpkg
@@ -138,7 +138,7 @@ input/resource for `sandbox --conf` and `sandbox --run`.
 
 ## What Can Be Customized Today?
 
-The default layout is convenient, but not every path is fixed.
+The default `gage` layout is convenient, but not every path is fixed.
 
 Hydrofabric sources can be selected with:
 
@@ -163,7 +163,7 @@ forcings:
   forcing_dir: "/path/to/forcing/50147800/2016_to_2021"
 ```
 
-or, for multiple basins:
+or, for multiple gages:
 
 ```yaml
 forcings:
@@ -171,7 +171,7 @@ forcings:
   forcing_dir: "/path/to/resources/{*}/forcing/2016_to_2021"
 ```
 
-The `{*}` placeholder is replaced by each selected basin directory name.
+The `{*}` placeholder is replaced by each selected gage/resource ID.
 
 Observation paths can use placeholders:
 
@@ -199,10 +199,10 @@ project/
 ```
 
 This can work when the relevant config paths point Sandbox to those locations.
-The current workflow is most automatic when basin resources follow the default
+The current workflow is most automatic when resources follow the default
 `input_dir/<gage_id>/hydrofabric` and `input_dir/<gage_id>/forcing` structure.
 During the transition, the Python workflow can still read geopackages from
-the older `input_dir/<gage_id>/data` structure and from flat
+the older `input_dir/<gage_id>/data` structure and from resource-layout
 `input_dir/hydrofabric/gage_<gage_id>.gpkg` files.
 
 ## Recommended Mental Model
@@ -210,7 +210,7 @@ the older `input_dir/<gage_id>/data` structure and from flat
 Think of the directories as:
 
 ```text
-resources_dir = reusable basin resources
+resources_dir = reusable hydrologic resources
 runs_dir      = generated run artifacts
 ```
 

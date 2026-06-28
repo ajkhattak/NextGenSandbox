@@ -9,7 +9,7 @@ hydrofabric_path <- function(cat_dir, gpkg_name) {
 }
 
 subsetting_work_dir <- function(id, config) {
-  if (identical(config$layout, "flat")) {
+  if (identical(config$resource_layout, "resource")) {
     return(file.path(config$input_dir, paste0(".", id, "_subset_work")))
   }
 
@@ -17,7 +17,7 @@ subsetting_work_dir <- function(id, config) {
 }
 
 subset_gpkg_path <- function(id, config, gpkg_name = glue("gage_{id}.gpkg")) {
-  if (identical(config$layout, "flat")) {
+  if (identical(config$resource_layout, "resource")) {
     return(file.path(config$input_dir, HYDROFABRIC_DIR, gpkg_name))
   }
 
@@ -25,7 +25,7 @@ subset_gpkg_path <- function(id, config, gpkg_name = glue("gage_{id}.gpkg")) {
 }
 
 clean_subset_work_dir <- function(id, cat_dir, config) {
-  if (identical(config$layout, "basin")) {
+  if (identical(config$resource_layout, "gage")) {
     clean_move_dem_dir(
       id = id,
       output_dir = config$input_dir,
@@ -139,7 +139,7 @@ ProcessCatchmentID <- function(id, config) {
 
   if (failed) {
     cat ("Basin failed:", id, "\n")
-    if (identical(config$layout, "flat") && file.exists(gpkg_file)) {
+    if (identical(config$resource_layout, "resource") && file.exists(gpkg_file)) {
       unlink(gpkg_file, force = TRUE)
     }
     cat_failed_dir = glue("{config$input_dir}/basins_failed/{id}")
@@ -153,7 +153,7 @@ ProcessCatchmentID <- function(id, config) {
   }
   else {
     cat ("Basin Passed:", id, "\n")
-    if (identical(config$layout, "flat") && dir.exists(cat_dir)) {
+    if (identical(config$resource_layout, "resource") && dir.exists(cat_dir)) {
       unlink(cat_dir, recursive = TRUE, force = TRUE)
     }
   }
@@ -227,7 +227,7 @@ ProcessGPKG <- function(gfile, config) {
 
   if (failed) {
     cat ("Basin failed:", id, "\n")
-    if (identical(config$layout, "flat") && file.exists(gpkg_file)) {
+    if (identical(config$resource_layout, "resource") && file.exists(gpkg_file)) {
       unlink(gpkg_file, force = TRUE)
     }
     cat_failed_dir = glue("{config$input_dir}/basins_failed/{id}")
@@ -241,7 +241,7 @@ ProcessGPKG <- function(gfile, config) {
   }
   else {
     cat ("Basin Passed:", id, "\n")
-    if (identical(config$layout, "flat") && dir.exists(cat_dir)) {
+    if (identical(config$resource_layout, "resource") && dir.exists(cat_dir)) {
       unlink(cat_dir, recursive = TRUE, force = TRUE)
     }
   }

@@ -3,6 +3,7 @@
 general:
   input_dir  : "./input/data"  
   output_dir : "./output" 
+  resource_layout: gage
   gages:
     option: ids
     ids: ["01308000"]

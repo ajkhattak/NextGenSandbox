@@ -4,6 +4,7 @@ from pathlib import Path
 
 from src.python.resource_paths import (
     find_gpkg_file,
+    forcing_dir_for_resource,
     forcing_dir_for_gpkg,
     has_gpkg_file,
 )
@@ -42,6 +43,18 @@ class TestResourcePaths(unittest.TestCase):
                 forcing_dir_for_gpkg(hydrofabric_gpkg, 2016, 2021),
                 basin_dir / "forcing" / "2016_to_2021",
             )
+
+    def test_resource_layout_forcing_directory(self):
+        self.assertEqual(
+            forcing_dir_for_resource(
+                "/tmp/inputs",
+                "12345678",
+                2016,
+                2021,
+                resource_layout="resource",
+            ),
+            Path("/tmp/inputs/forcing/12345678/2016_to_2021"),
+        )
 
 
 if __name__ == "__main__":
