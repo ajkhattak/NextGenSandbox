@@ -20,6 +20,7 @@ import time
 import argparse
 import json
 from pathlib import Path
+from datetime import datetime, timezone
 
 from src.python import helper
 from src.python import generate
@@ -59,29 +60,6 @@ class Driver:
         num_cpus = helper.prepare_basin_partitioning(ctx.sandbox_dir, gpkg_file,
                                                      partitioning,
                                                      create_par_file=False)
-        # this meta data is needed to resubmit jobs on HPC after wallclock time outs
-
-        if ctx.sb_launcher:
-
-            # write meta data to YAML for restarting
-            sim_info = {
-                "basin_id"   : gpkg_id,
-                "num_cpus"  : num_cpus,
-                "input_dir"  : str(i_dir),
-                "output_dir" : str(o_dir),
-                "cwd"        : os.getcwd()
-            }
-
-            os.makedirs(str(o_dir.parent / ctx.exp_info_dir) , exist_ok=True)
-
-            # Write to YAML file
-            sim_yaml_file = o_dir.parent / ctx.exp_info_dir / f"info_{gpkg_id}.yml"
-
-            if not sim_yaml_file.exists():
-                with open(sim_yaml_file, "w") as f:
-                    yaml.dump(sim_info, f, default_flow_style=False)
-
-
         if ctx.verbosity >= 1:
             print("-- ", gpkg_name, end="")
 
@@ -90,6 +68,14 @@ class Driver:
         helper.create_clean_dirs(output_dir=o_dir,
                                  task_type=ctx.task_type,
                                  clean=ctx.clean)
+
+        if ctx.metadata_enabled:
+            self.write_run_metadata(
+                gpkg_id=gpkg_id,
+                num_cpus=num_cpus,
+                input_dir=i_dir,
+                output_dir=o_dir,
+            )
 
         # Call generate files
         gen = generate.Generate(ctx = self.ctx,
@@ -110,6 +96,33 @@ class Driver:
             print(self.colors.GREEN + "  %s " % result + self.colors.END)
 
         return basin_ids, num_cats
+
+    def write_run_metadata(self, gpkg_id, num_cpus, input_dir, output_dir):
+        ctx = self.ctx
+        metadata = {
+            "basin_id": gpkg_id,
+            "gage_id": gpkg_id,
+            "num_cpus": num_cpus,
+            "input_dir": str(input_dir),
+            "output_dir": str(output_dir),
+            "cwd": os.getcwd(),
+            "task_type": ctx.task_type,
+            "formulation": ctx.formulation,
+            "created_at_utc": datetime.now(timezone.utc).isoformat(),
+            "sandbox_config": str(ctx.sandbox_config_path),
+            "calib_config": str(ctx.calib_config_path),
+        }
+
+        run_metadata_file = output_dir / ctx.metadata_run_file
+        with run_metadata_file.open("w") as file:
+            yaml.safe_dump(metadata, file, default_flow_style=False, sort_keys=False)
+
+        if ctx.metadata_index_dir:
+            index_dir = output_dir.parent / ctx.metadata_index_dir
+            index_dir.mkdir(parents=True, exist_ok=True)
+            index_metadata_file = index_dir / f"run_{gpkg_id}.yml"
+            with index_metadata_file.open("w") as file:
+                yaml.safe_dump(metadata, file, default_flow_style=False, sort_keys=False)
 
 
     def main(self):

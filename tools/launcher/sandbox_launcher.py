@@ -32,7 +32,7 @@ class LauncherContext:
     map_cfg: dict[str, Any]
     output_dir: Path
     input_dir: Path
-    exp_info_dir_name: str
+    metadata_index_dir_name: str
     num_workers: int
     startup_delay_seconds: int
     assignment_summary: dict[str, dict[str, int]]
@@ -282,9 +282,12 @@ def load_context(config_file: Path) -> LauncherContext:
 
     output_dir = Path(base_sandbox_cfg["general"]["output_dir"]).expanduser()
     input_dir = Path(base_sandbox_cfg["general"]["input_dir"]).expanduser()
-    exp_info_dir_name = (
-        base_sandbox_cfg.get("sandbox_launcher", {}).get("exp_info_dir", "info")
+    metadata = (
+        base_sandbox_cfg.get("simulation", {})
+        .get("outputs", {})
+        .get("metadata", {})
     )
+    metadata_index_dir_name = metadata.get("index_dir", "metadata")
 
     return LauncherContext(
         launcher_dir=launcher_dir,
@@ -298,7 +301,7 @@ def load_context(config_file: Path) -> LauncherContext:
         map_cfg=map_cfg,
         output_dir=output_dir,
         input_dir=input_dir,
-        exp_info_dir_name=exp_info_dir_name,
+        metadata_index_dir_name=metadata_index_dir_name,
         num_workers=int(execution.get("num_workers", launcher_cfg.get("num_workers", 2))),
         startup_delay_seconds=int(
             execution.get(
@@ -321,12 +324,26 @@ def validate_base_sandbox_config(config: dict[str, Any]) -> None:
         raise ValueError("simulation.gage_ids_input is no longer supported; use simulation.gages")
     if "select" in forcings:
         raise ValueError("forcings.select is no longer supported; use forcings.gages")
+    if "sandbox_launcher" in config:
+        raise ValueError(
+            "sandbox_launcher is no longer supported; use "
+            "simulation.outputs.metadata"
+        )
     if "input_dir" not in general or "output_dir" not in general:
         raise ValueError("Base sandbox config must define general.input_dir and general.output_dir")
     if "models" not in (config.get("formulation") or {}):
         raise ValueError("Base sandbox config must define formulation.models")
     if "gages" not in simulation:
         raise ValueError("Base sandbox config must define simulation.gages")
+
+    metadata = simulation.get("outputs", {}).get("metadata", {})
+    if not metadata.get("enabled"):
+        raise ValueError(
+            "Launcher requires simulation.outputs.metadata.enabled: true "
+            "in the base sandbox config"
+        )
+    if not metadata.get("index_dir"):
+        raise ValueError("Launcher requires simulation.outputs.metadata.index_dir")
 
 
 def validate_mapping_config(map_cfg: dict[str, Any]) -> None:
@@ -402,7 +419,7 @@ def get_formulations_for_gage(ctx: LauncherContext, gage_id: str) -> list[tuple[
 
 def experiment_dirs(ctx: LauncherContext, model_dir: str) -> tuple[Path, Path]:
     model_output_dir = ctx.output_dir / model_dir
-    return model_output_dir / "configs", model_output_dir / ctx.exp_info_dir_name
+    return model_output_dir / "configs", model_output_dir / ctx.metadata_index_dir_name
 
 
 def generated_config_paths(exp_config_dir: Path, gage_id: str) -> dict[str, Path]:
@@ -422,7 +439,7 @@ def generate_config_files_for_gage(
     model_dir: str,
     gage_id: str,
     exp_config_dir: Path,
-    exp_info_dir: Path,
+    metadata_index_dir: Path,
     *,
     dryrun: bool = False,
 ) -> None:
@@ -453,7 +470,7 @@ def generate_config_files_for_gage(
         return
 
     paths["sandbox_main"].parent.mkdir(parents=True, exist_ok=True)
-    exp_info_dir.mkdir(parents=True, exist_ok=True)
+    metadata_index_dir.mkdir(parents=True, exist_ok=True)
 
     with paths["sandbox_main"].open("w") as file:
         yaml.safe_dump(sandbox_cfg, file, default_flow_style=False, sort_keys=False)
@@ -492,11 +509,11 @@ def get_max_iter(exp_config_dir: Path, gage_id: str) -> int:
     return int(cfg["general"]["iterations"])
 
 
-def read_info_file(exp_info_dir: Path, gage_id: str) -> dict[str, Any] | None:
-    info_file = exp_info_dir / f"info_{gage_id}.yml"
-    if not info_file.exists():
+def read_metadata_index_file(metadata_index_dir: Path, gage_id: str) -> dict[str, Any] | None:
+    metadata_file = metadata_index_dir / f"run_{gage_id}.yml"
+    if not metadata_file.exists():
         return None
-    return load_yaml(info_file)
+    return load_yaml(metadata_file)
 
 
 def parse_best_params(path: Path) -> tuple[int, float]:
@@ -510,13 +527,13 @@ def parse_best_params(path: Path) -> tuple[int, float]:
     return int(float(value(lines[0]))), round(float(value(lines[2])), 3)
 
 
-def get_current_iteration(exp_info_dir: Path, gage_id: str, *, status: bool = False) -> tuple[int, float]:
-    info = read_info_file(exp_info_dir, gage_id)
-    if info is None:
+def get_current_iteration(metadata_index_dir: Path, gage_id: str, *, status: bool = False) -> tuple[int, float]:
+    metadata = read_metadata_index_file(metadata_index_dir, gage_id)
+    if metadata is None:
         return 0, -999.0
 
     best_param_files = sorted(
-        Path(info["output_dir"]).glob("*_worker/best_params.txt"),
+        Path(metadata["output_dir"]).glob("*_worker/best_params.txt"),
         key=lambda path: path.stat().st_mtime,
         reverse=True,
     )
@@ -529,19 +546,19 @@ def get_current_iteration(exp_info_dir: Path, gage_id: str, *, status: bool = Fa
     return parse_best_params(best_param_files[0])
 
 
-def get_num_cpus(exp_info_dir: Path, gage_id: str) -> int:
-    info = read_info_file(exp_info_dir, gage_id)
-    if info is None:
+def get_num_cpus(metadata_index_dir: Path, gage_id: str) -> int:
+    metadata = read_metadata_index_file(metadata_index_dir, gage_id)
+    if metadata is None:
         return 1
-    return int(info.get("num_cpus", 1))
+    return int(metadata.get("num_cpus", 1))
 
 
-def check_validation_exists(exp_info_dir: Path, gage_id: str, *, status: bool = False) -> bool:
-    info = read_info_file(exp_info_dir, gage_id)
-    if info is None:
+def check_validation_exists(metadata_index_dir: Path, gage_id: str, *, status: bool = False) -> bool:
+    metadata = read_metadata_index_file(metadata_index_dir, gage_id)
+    if metadata is None:
         return False
 
-    output_dir = Path(info["output_dir"])
+    output_dir = Path(metadata["output_dir"])
     validation_files = list(output_dir.glob("*_worker/output_sim_obs/sim_obs_validation.*"))
     if validation_files:
         if not status:
@@ -556,7 +573,7 @@ def run_experiment(
     gage_id: str,
     job_name: str,
     exp_config_dir: Path,
-    exp_info_dir: Path,
+    metadata_index_dir: Path,
     current_iter: int,
     delay_seconds: int,
     *,
@@ -570,11 +587,11 @@ def run_experiment(
         max_iter = 1
     sandbox_file = paths["sandbox_main"] if current_iter < max_iter else paths["sandbox_validation"]
 
-    if check_validation_exists(exp_info_dir, gage_id):
+    if check_validation_exists(metadata_index_dir, gage_id):
         return
 
     if use_slurm:
-        num_cpus = get_num_cpus(exp_info_dir, gage_id)
+        num_cpus = get_num_cpus(metadata_index_dir, gage_id)
         cmd = [
             "sbatch",
             f"--cpus-per-task={num_cpus}",
@@ -612,7 +629,7 @@ def local_worker(args: tuple[Any, ...]) -> None:
         gage_id,
         job_name,
         exp_config_dir,
-        exp_info_dir,
+        metadata_index_dir,
         current_iter,
         delay_seconds,
         dryrun,
@@ -623,7 +640,7 @@ def local_worker(args: tuple[Any, ...]) -> None:
         gage_id,
         job_name,
         exp_config_dir,
-        exp_info_dir,
+        metadata_index_dir,
         current_iter,
         delay_seconds,
         use_slurm=False,
@@ -640,10 +657,10 @@ def check_status(ctx: LauncherContext) -> None:
     for gage_id in ctx.map_cfg["mapping"]:
         for formulation_name, _ in get_formulations_for_gage(ctx, gage_id):
             model_dir = model_name_to_dir(formulation_name)
-            exp_config_dir, exp_info_dir = experiment_dirs(ctx, model_dir)
-            current_iter, obj_value = get_current_iteration(exp_info_dir, gage_id, status=True)
+            exp_config_dir, metadata_index_dir = experiment_dirs(ctx, model_dir)
+            current_iter, obj_value = get_current_iteration(metadata_index_dir, gage_id, status=True)
             max_iter = get_max_iter(exp_config_dir, gage_id)
-            validation_exists = check_validation_exists(exp_info_dir, gage_id, status=True)
+            validation_exists = check_validation_exists(metadata_index_dir, gage_id, status=True)
             valid_flag = "YES" if validation_exists else "NO"
             status_text = f"{current_iter} | {max_iter} | {obj_value}"
             print(f"{gage_id:<12} {formulation_name:<24} {status_text:<24} {valid_flag:<10}")
@@ -673,10 +690,10 @@ def launcher_exit(incomplete_exists: bool) -> None:
 
 
 def is_experiment_complete(ctx: LauncherContext, gage_id: str, model_dir: str) -> bool:
-    exp_config_dir, exp_info_dir = experiment_dirs(ctx, model_dir)
-    current_iter, _ = get_current_iteration(exp_info_dir, gage_id, status=True)
+    exp_config_dir, metadata_index_dir = experiment_dirs(ctx, model_dir)
+    current_iter, _ = get_current_iteration(metadata_index_dir, gage_id, status=True)
     max_iter = get_max_iter(exp_config_dir, gage_id)
-    validation_exists = check_validation_exists(exp_info_dir, gage_id, status=True)
+    validation_exists = check_validation_exists(metadata_index_dir, gage_id, status=True)
     return current_iter >= max_iter and validation_exists
 
 
@@ -709,7 +726,7 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
 
             model_dir = model_name_to_dir(formulation_name)
             job_name = f"{model_dir}_{gage_id}"
-            exp_config_dir, exp_info_dir = experiment_dirs(ctx, model_dir)
+            exp_config_dir, metadata_index_dir = experiment_dirs(ctx, model_dir)
 
             if is_experiment_complete(ctx, gage_id, model_dir):
                 print(f"[{gage_id}] Experiment '{job_name}' already completed. Skipping.")
@@ -719,7 +736,7 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
                 print(f"[{gage_id}] Job '{job_name}' is already running or pending. Skipping.")
                 continue
 
-            current_iter, _ = get_current_iteration(exp_info_dir, gage_id)
+            current_iter, _ = get_current_iteration(metadata_index_dir, gage_id)
             if current_iter == 0:
                 print(f"[{gage_id}] Setup step; generating configs.")
                 generate_config_files_for_gage(
@@ -729,7 +746,7 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
                     model_dir,
                     gage_id,
                     exp_config_dir,
-                    exp_info_dir,
+                    metadata_index_dir,
                     dryrun=dryrun,
                 )
 
@@ -743,7 +760,7 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
                     gage_id,
                     job_name,
                     exp_config_dir,
-                    exp_info_dir,
+                    metadata_index_dir,
                     current_iter,
                     delay_seconds,
                     use_slurm=True,
@@ -756,7 +773,7 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
                     gage_id,
                     job_name,
                     exp_config_dir,
-                    exp_info_dir,
+                    metadata_index_dir,
                     current_iter,
                     delay_seconds,
                     use_slurm=False,
@@ -770,7 +787,7 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
                         gage_id,
                         job_name,
                         exp_config_dir,
-                        exp_info_dir,
+                        metadata_index_dir,
                         current_iter,
                         delay_seconds,
                         dryrun,

@@ -103,8 +103,6 @@ class SandboxContext:
 
         self.load_observations_config()
         
-        self.load_launcher_config()
-        
 
     def load_formulation_config(self):
         # Formulation block
@@ -309,6 +307,34 @@ class SandboxContext:
                 "output variable names to settings containing non-empty units"
             )
 
+        if "sandbox_launcher" in self.sandbox_config:
+            raise ValueError(
+                "sandbox_launcher is no longer supported. Use "
+                "simulation.outputs.metadata instead."
+            )
+
+        metadata_outputs = outputs.get("metadata", {}) or {}
+        if not isinstance(metadata_outputs, dict):
+            raise TypeError("simulation.outputs.metadata must be a mapping")
+
+        self.metadata_enabled = bool(metadata_outputs.get("enabled", False))
+        self.metadata_index_dir = metadata_outputs.get("index_dir")
+        self.metadata_run_file = metadata_outputs.get("run_file", "run_metadata.yml")
+
+        if self.metadata_enabled:
+            if not isinstance(self.metadata_run_file, str) or not self.metadata_run_file.strip():
+                raise ValueError(
+                    "simulation.outputs.metadata.run_file must be a non-empty string"
+                )
+            if self.metadata_index_dir is not None and (
+                not isinstance(self.metadata_index_dir, str)
+                or not self.metadata_index_dir.strip()
+            ):
+                raise ValueError(
+                    "simulation.outputs.metadata.index_dir must be a non-empty string "
+                    "when provided"
+                )
+
         if self.task_type in ["calibration", "calibvalid", "restart"]:
 
             if "calib_eval_time" not in dsim or not isinstance(dsim["calib_eval_time"], dict):
@@ -405,20 +431,6 @@ class SandboxContext:
             self.ensemble_models = []
 
         self.ensemble_size    = len([m.strip() for m in self.ensemble_models.split(",")]) if self.ensemble_enabled else 1
-
-    def load_launcher_config(self):
-        # Sandbox launcher block
-        dlauncher = self.sandbox_config.get("sandbox_launcher") or None
-
-        if dlauncher:
-
-            self.sb_launcher = dlauncher.get("exp_info", False)
-            self.exp_info_dir = dlauncher.get("exp_info_dir") or None
-
-            if self.exp_info_dir is None:
-                raise ValueError("sandbox_launcher is True, but exp_info_dir not provided")
-        else:
-            self.sb_launcher = False
 
     @staticmethod
     def parse_formulation_models(formulation):

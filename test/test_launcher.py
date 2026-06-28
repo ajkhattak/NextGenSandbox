@@ -77,6 +77,21 @@ class TestLauncherAssignment(unittest.TestCase):
                 "assignment.default",
             )
 
+    def test_launcher_requires_metadata_index(self):
+        config = {
+            "general": {
+                "input_dir": "/tmp/inputs",
+                "output_dir": "/tmp/outputs",
+                "gages": {"option": "ids", "ids": []},
+            },
+            "forcings": {"gages": "all"},
+            "formulation": {"models": "PET, CFE, T-route"},
+            "simulation": {"gages": []},
+        }
+
+        with self.assertRaisesRegex(ValueError, "metadata.enabled"):
+            launcher.validate_base_sandbox_config(config)
+
 
 if __name__ == "__main__":
     unittest.main()

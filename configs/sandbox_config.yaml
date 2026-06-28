@@ -37,7 +37,6 @@ subsetting :
     nlcd_path                : "<path_to>/Annual_NLCD_LndCov_2021_CU_C1V1.tif" # OPTIONAL (see src/R/main.R for more details)
     classification_method    : "fraction"  #----------------------------------- vegetation classfication method (majority or fraction). Defaults to 'majority' method
 
-  # Note: only gage_ids that fall within the domain of the hydrofabric listed above will be subsetted
   gages: all #--------------------------------------------------- Optional subset of general.gages. Use all, one ID, or a list of IDs.
 
 
@@ -129,6 +128,10 @@ simulation :
       #  units: "m/h"
     calibration:
       retention: best #----------------------------------------------------- Calibration outputs: best or all
+    metadata:
+      enabled: false #------------------------------------------------------- Write run_metadata.yml inside each gage output directory
+      run_file: run_metadata.yml #------------------------------------------- Metadata file written inside each gage output directory
+      #index_dir: metadata #------------------------------------------------- Optional launcher/status index directory for run_<gage_id>.yml files
 
   partitioning:
     mode: parallel     #----------------------------------------------------- Execution mode: parallel or serial

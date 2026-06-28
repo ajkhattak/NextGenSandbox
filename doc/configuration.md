@@ -163,6 +163,9 @@ Controls task type, gages, time windows, output retention, and partitioning.
 | `restart_dir` | Restart source directory for `restart` runs. Supports `{*}` placeholders. |
 | `outputs.divide_variables` | BMI variables written to `cat-<divide_id>.csv` files, with required units. |
 | `outputs.calibration.retention` | Calibration output retention. Options: `best` or `all`. |
+| `outputs.metadata.enabled` | Write a metadata file inside each gage output directory. |
+| `outputs.metadata.run_file` | Metadata file written inside each gage output directory, usually `run_metadata.yml`. |
+| `outputs.metadata.index_dir` | Optional directory under each experiment output where indexed `run_<gage_id>.yml` metadata files are written. Required by Sandbox Launcher. |
 | `partitioning.mode` | Execution mode. Options: `serial` or `parallel`. |
 | `partitioning.max_nexus_per_proc` | Maximum nexus count per processor in parallel mode. |
 | `partitioning.max_procs` | Maximum number of processors to use. |
