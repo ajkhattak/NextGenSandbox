@@ -30,7 +30,7 @@ subsetting :
 #forcing data is stored under <input_dir>/<gage_id>/forcing by default
 forcings : 
   format  : ".nc"
-  time    : {"start_time" : "2016-10-01 00:00:00", "end_time" : "2017-09-30 23:00:00"}
+  time    : {"start" : "2016-10-01", "end" : "2017-09-30 23:00:00"}
   domain  : "conus"
   gages   : all
   

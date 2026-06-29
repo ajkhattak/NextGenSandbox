@@ -45,7 +45,7 @@ subsetting :
 forcings : 
   format  : ".nc" #----------------------------------------------- Format .nc or .csv (recommended option .nc)
   rechunk : true #------------------------------------------------ Rechunk NetCDF forcing files for faster ngen reads
-  time    : {"start_time" : "2016-10-01 00:00:00", "end_time" : "2020-09-30 23:00:00"} #---------- Forcing data time range [1-1-2016,12-31-2020]; simulation start/end times must fall within this period
+  time    : {"start" : "2016-10-01", "end" : "2020-09-30 23:00:00"} #---------- Forcing data time range; simulation start/end times must fall within this period
 
   domain  : "conus"    #-------------------------------------------- options = ["conus", "HI", "PR", 'AK']
   gages   : all #--------------------------------------------------- Optional subset of general.gages. Use all, one ID, or a list of IDs.

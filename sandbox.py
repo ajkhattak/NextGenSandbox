@@ -8,6 +8,8 @@ import os
 import sys
 import subprocess
 import argparse
+import tempfile
+import yaml
 from pathlib import Path
 import sandbox
 import platform
@@ -188,6 +190,52 @@ def Sandbox(args, sandbox_config, calib_config, rscript, dryrun=False):
     print ("**********************************")
     
 
+def write_gage_override_config(
+    sandbox_config,
+    gage_id,
+    *,
+    subset=False,
+    forc=False,
+    conf=False,
+    run=False,
+):
+    with open(sandbox_config, "r") as file:
+        config = yaml.safe_load(file)
+
+    selected_steps = [
+        name
+        for name, enabled in {
+            "subset": subset,
+            "forc": forc,
+            "conf": conf,
+            "run": run,
+        }.items()
+        if enabled
+    ]
+    if len(selected_steps) != 1:
+        raise ValueError("--gage can be used with exactly one workflow step")
+
+    step = selected_steps[0]
+    if step == "subset":
+        config.setdefault("subsetting", {})["gages"] = gage_id
+    elif step == "forc":
+        config.setdefault("forcings", {})["gages"] = gage_id
+    else:
+        config.setdefault("simulation", {})["gages"] = gage_id
+
+    temp_file = tempfile.NamedTemporaryFile(
+        mode="w",
+        prefix=f"sandbox_{step}_{gage_id}_",
+        suffix=".yaml",
+        delete=False,
+    )
+    with temp_file:
+        yaml.safe_dump(config, temp_file, default_flow_style=False, sort_keys=False)
+
+    temp_path = Path(temp_file.name)
+    return temp_path, temp_path
+
+
 def main():
 
     parser = argparse.ArgumentParser(description="NextGenSandbox workflow")
@@ -197,6 +245,7 @@ def main():
     parser.add_argument("--run",    action='store_true',    help="Run NextGen simulations")
     parser.add_argument("-i",       dest="sandbox_infile",  type=str, required=False, metavar="FILE", help="sandbox config file")
     parser.add_argument("-j",       dest="calib_infile",    type=str, required=False, metavar="FILE", help="caliberation config file")
+    parser.add_argument("--gage",   dest="gage_id",         type=str, required=False, help="Run selected workflow step for one gage ID")
 
     parser.add_argument("--dryrun", action="store_true",         help="caliberation config file")
     parser.add_argument("--formulations", action="store_true", help="List supported formulations and exit")
@@ -232,6 +281,16 @@ def main():
     else:
         calib_config = f"{sandbox_dir}/configs/calib_config.yaml"
 
+    temp_config = None
+    if args.gage_id:
+        sandbox_config, temp_config = write_gage_override_config(
+            sandbox_config,
+            args.gage_id,
+            subset=args.subset,
+            forc=args.forc,
+            conf=args.conf,
+            run=args.run,
+        )
 
     if (len(sys.argv) < 2):
         print ("No arguments are provide")
@@ -242,4 +301,8 @@ def main():
     # check if expected Python virtual env exists and activated
     check_sandbox_venv(sandbox_build_dir)
 
-    Sandbox(args, sandbox_config, calib_config, rscript, args.dryrun)
+    try:
+        Sandbox(args, sandbox_config, calib_config, rscript, args.dryrun)
+    finally:
+        if temp_config:
+            temp_config.unlink(missing_ok=True)

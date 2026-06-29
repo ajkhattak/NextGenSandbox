@@ -12,7 +12,7 @@ general:
 ########################################################################
 forcings : 
   format     : ".nc"
-  time       : {"start_time" : "2015-10-01 00:00:00", "end_time" : "2022-09-30 23:00:00"}
+  time       : {"start" : "2015-10-01", "end" : "2022-09-30 23:00:00"}
   domain     : "conus"        # options = ["conus", "HI", "PR", 'AK']
   gages      : all
 

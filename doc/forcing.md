@@ -49,8 +49,13 @@ when they are newer than the source forcing file.
 ```yaml
 forcings:
   format: ".nc"
+  time:
+    start: "2015-10-01"
+    end: "2022-09-30 23:00:00"
   rechunk: true
 ```
+
+Date-only values default to `00:00:00`.
 
 To download or prepare forcing for a subset of the project gages, set
 `forcings.gages` to `all`, one gage ID, or a list of gage IDs. The full project
