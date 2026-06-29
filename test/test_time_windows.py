@@ -1,9 +1,35 @@
 import unittest
 
 from src.python.context import SandboxContext
+from src.python.time_windows import normalize_forcing_time_config
 
 
 class TestSimulationTimeWindows(unittest.TestCase):
+    def test_normalizes_forcing_time_schema(self):
+        forcing_time = normalize_forcing_time_config(
+            {
+                "start": "2015-10-01",
+                "end": "2022-09-30 23:00:00",
+            }
+        )
+
+        self.assertEqual(
+            forcing_time,
+            {
+                "start_time": "2015-10-01 00:00:00",
+                "end_time": "2022-09-30 23:00:00",
+            },
+        )
+
+    def test_forcing_time_rejects_legacy_keys(self):
+        with self.assertRaisesRegex(ValueError, "start/end"):
+            normalize_forcing_time_config(
+                {
+                    "start_time": "2015-10-01 00:00:00",
+                    "end_time": "2022-09-30 23:00:00",
+                }
+            )
+
     def test_validate_formulation_sets_parsed_model_list(self):
         context = SandboxContext.__new__(SandboxContext)
         context.formulation = "PET,CFE"

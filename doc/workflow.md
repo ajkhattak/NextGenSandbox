@@ -109,6 +109,33 @@ The step-by-step order makes failures easier to diagnose:
 - `sandbox --conf` generates model configuration and realization files.
 - `sandbox --run` executes ngen or ngen-cal for the configured task.
 
+### Parallel Subset Or Forcing Batches
+
+For subsetting and forcing preparation, you can run several independent serial
+Sandbox commands in parallel without using Python multiprocessing. The batch
+helper reads the selected gages directly from the Sandbox configuration. For
+example, if `general.gages` lists three gages and `forcings.gages: all`, all
+three forcing jobs are included. If `forcings.gages` lists only one or two of
+them, only that subset is included.
+
+For a local machine or macOS terminal, run the helper directly and choose a
+small number of jobs:
+
+```bash
+tools/batch/run_sandbox_resources_parallel.sh \
+  --step forc \
+  --config configs/sandbox_config1.yaml \
+  --jobs 2
+```
+
+For HPC, submit the same helper through Slurm and set `--jobs` to the number
+of CPUs allocated to the job, such as `--jobs "$SLURM_CPUS_PER_TASK"`. The
+helper script contains an editable Slurm header template.
+
+For subsetting, change `--step forc` to `--step subset`. The wrapper writes
+per-gage logs plus `selected_gages.txt`, `success_gages.txt`, and
+`failed_gages.txt` under the log directory.
+
 ## Scale With Sandbox Launcher
 
 After one normal Sandbox configuration works, use the Sandbox Launcher to scale

@@ -6,6 +6,37 @@ import pandas as pd
 NGEN_TIMESTEP = pd.Timedelta(hours=1)
 
 
+def normalize_forcing_time_config(time_config):
+    if not isinstance(time_config, dict):
+        raise TypeError("forcings.time must be a YAML dictionary/object")
+
+    legacy_keys = {"start_time", "end_time"}.intersection(time_config)
+    if legacy_keys:
+        raise ValueError(
+            "forcings.time uses start/end now; replace start_time/end_time "
+            "with start/end"
+        )
+
+    missing = [
+        key for key in ("start", "end")
+        if key not in time_config
+    ]
+    if missing:
+        raise ValueError(
+            f"forcings.time missing required field(s): {', '.join(missing)}"
+        )
+
+    start = parse_timestamp(time_config["start"], "forcings.time.start")
+    end = parse_timestamp(time_config["end"], "forcings.time.end")
+
+    normalized = {
+        "start_time": format_timestamp(start),
+        "end_time": format_timestamp(end),
+    }
+    validate_time_window("forcings.time", normalized)
+    return normalized
+
+
 def normalize_simulation_time_config(dsim, task_type):
     time_config = dsim["time"]
     if not isinstance(time_config, dict):

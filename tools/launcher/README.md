@@ -48,6 +48,9 @@ general:
     ids: []
 
 forcings:
+  time:
+    start: "2015-10-01"
+    end: "2022-09-30 23:00:00"
   gages: all
 
 simulation:

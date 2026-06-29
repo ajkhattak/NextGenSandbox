@@ -20,6 +20,7 @@ from src.python.resource_paths import (
     resource_hydrofabric_dir,
     resource_id,
 )
+from src.python.time_windows import normalize_forcing_time_config
 
 
 class ForcingProcessor:
@@ -45,7 +46,7 @@ class ForcingProcessor:
         self.dsim             = self.config['formulation']
         self.verbosity        = self.dsim.get('verbosity', 0)
         self.dforcing         = self.config['forcings']
-        self.forcing_time     = self.dforcing["time"]
+        self.forcing_time     = normalize_forcing_time_config(self.dforcing["time"])
         self.forcing_format   = self.dforcing.get('format', '.nc')
         self.selected_gages   = resolve_step_gages(
             project_gages=self.project_gages,
@@ -95,7 +96,7 @@ class ForcingProcessor:
         os.chdir(work_dir)
 
         if not has_gpkg_file(resource):
-            return
+            return False
 
         self.current_resource = resource
         self.gpkg_file = str(find_gpkg_file(resource))
@@ -117,6 +118,12 @@ class ForcingProcessor:
         env = os.environ.copy()
         env['PATH'] = f"{venv_bin}:{env['PATH']}"
         result = subprocess.call(run_cmd, shell=True, env=env)
+        if result != 0:
+            print(
+                "Forcing generation failed before post-processing. "
+                f"Command exited with status {result}: {run_cmd}"
+            )
+            return True
 
         if self.forcing_format == ".nc":
             print("Correcting forcing data ...")
@@ -127,6 +134,8 @@ class ForcingProcessor:
                 sandbox_dir=self.sandbox_dir,
                 enabled=self.rechunk_forcing,
             )
+
+        return False
 
     def load_gage_ids(self):
         input_dir = Path(self.input_dir)

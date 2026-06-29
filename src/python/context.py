@@ -34,7 +34,10 @@ from src.python.resource_paths import (
     resource_hydrofabric_dir,
     resource_id,
 )
-from src.python.time_windows import normalize_simulation_time_config
+from src.python.time_windows import (
+    normalize_forcing_time_config,
+    normalize_simulation_time_config,
+)
 
 @dataclass
 class SandboxContext:
@@ -129,7 +132,7 @@ class SandboxContext:
         # Forcing block
         dforcing = self.sandbox_config["forcings"]
 
-        self.forcing_time = dforcing["time"]
+        self.forcing_time = normalize_forcing_time_config(dforcing["time"])
 
         self.forcing_format = dforcing.get("format", ".nc")
 

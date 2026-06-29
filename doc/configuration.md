@@ -102,8 +102,8 @@ Controls forcing time range, format, domain, and optional rechunking.
 |---|---|
 | `format` | Forcing file format. Common values: `.nc` or `.csv`. |
 | `rechunk` | Whether to write/use rechunked NetCDF forcing for faster ngen reads. |
-| `time.start_time` | First forcing timestamp to prepare. |
-| `time.end_time` | Last forcing timestamp to prepare. |
+| `time.start` | First forcing timestamp to prepare. Date-only values default to `00:00:00`. |
+| `time.end` | Last forcing timestamp to prepare. Date-only values default to `00:00:00`. |
 | `domain` | Forcing domain, such as `conus`, `HI`, `PR`, or `AK`. |
 | `gages` | Optional forcing filter. Use `all`, one gage ID, or a list of IDs from `general.gages`. |
 | `forcing_dir` | Optional explicit forcing directory. If omitted, the workflow derives the path from `general.resource_layout`. For one-gage NetCDF runs, this may point directly to a single `.nc` file. |
