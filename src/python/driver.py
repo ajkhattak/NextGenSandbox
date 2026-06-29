@@ -100,7 +100,6 @@ class Driver:
     def write_run_metadata(self, gpkg_id, num_cpus, input_dir, output_dir):
         ctx = self.ctx
         metadata = {
-            "basin_id": gpkg_id,
             "gage_id": gpkg_id,
             "num_cpus": num_cpus,
             "input_dir": str(input_dir),
