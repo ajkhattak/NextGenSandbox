@@ -115,11 +115,22 @@ simulation :
   task_type        : "<pick_option>" #------------------------------------- Supported options: calibvalid, calibration, validation, restart, control
   gages            : all #------------------------------------------------- Optional subset of general.gages. Use all, one ID, or a list of IDs.
   sim_name_suffix  :  "pet_cfe" #------------------------------------------ User specified name appended to the gage_id. For example, 01105000_pet_cfe
-  #simulation_time : {"start_time" : "2016-10-01 00:00:00", "end_time" : "2018-09-30 23:00:00"} # only needed when task_type is control
-  calibration_time : {"start_time" : "2016-10-01 00:00:00", "end_time" : "2018-09-30 23:00:00"} # Entire simulation period for calibration; including spinup period
-  calib_eval_time  : {"start_time" : "2017-10-01 00:00:00", "end_time" : "2018-09-30 23:00:00"} # Evalaution period for calibration (excluding spinup period)
-  validation_time  : {"start_time" : "2018-10-01 00:00:00", "end_time" : "2020-09-30 23:00:00"} # Entire simulation period for validation; including spinup period
-  valid_eval_time  : {"start_time" : "2019-10-01 00:00:00", "end_time" : "2020-09-30 23:00:00"} # Evalaution period for validation (excluding spinup period)
+  time:
+    #control: #------------------------------------------------------------- Use this block when task_type is control
+    #  start: "2016-10-01 00:00:00"
+    #  spinup: "0 hours"
+    #  end: "2018-09-30 23:00:00"
+    calibration:
+      start: "2016-10-01 00:00:00"
+      spinup: "12 months"
+      evaluation: "1 year" #------------------------------------------------ Model evaluation period after spinup; ignored if end is provided
+      #end: "2018-08-01 04:00:00" #---------------------------------------- Optional inclusive end override
+    validations:
+      - name: validation
+        start: "2018-10-01 00:00:00"
+        spinup: "12 months"
+        evaluation: "1 year"
+        #end: "2020-08-01 04:00:00" #-------------------------------------- Optional inclusive end override
   restart_dir      : "<path_to_restart_dir>/{*}/202410042024_ngen_qaiklwj0_worker/" #----------- Restart experiment from the best iteration
 
   outputs:

@@ -99,6 +99,269 @@ class TestSimulationTimeWindows(unittest.TestCase):
         ):
             context.load_simulation_config()
 
+    def test_normalizes_calibration_time_schema(self):
+        context = SandboxContext.__new__(SandboxContext)
+        context.formulation = ""
+        context.project_gages = ["01109403"]
+        context.sandbox_config = {
+            "simulation": {
+                "task_type": "calibration",
+                "gages": "01109403",
+                "time": {
+                    "calibration": {
+                        "start": "2015-10-01 00:00:00",
+                        "spinup": "12 months",
+                        "evaluation": "4 years",
+                    },
+                },
+            }
+        }
+
+        context.load_simulation_config()
+
+        self.assertEqual(
+            context.simulation_time,
+            {
+                "start_time": "2015-10-01 00:00:00",
+                "end_time": "2020-09-30 23:00:00",
+            },
+        )
+        self.assertEqual(
+            context.calib_eval_time,
+            {
+                "start_time": "2016-10-01 00:00:00",
+                "end_time": "2020-09-30 23:00:00",
+            },
+        )
+
+    def test_time_schema_end_overrides_evaluation(self):
+        context = SandboxContext.__new__(SandboxContext)
+        context.formulation = ""
+        context.project_gages = ["01109403"]
+        context.sandbox_config = {
+            "simulation": {
+                "task_type": "calibration",
+                "gages": "01109403",
+                "time": {
+                    "calibration": {
+                        "start": "2015-10-01 00:00:00",
+                        "spinup": "12 months",
+                        "evaluation": "4 years",
+                        "end": "2020-08-01 04:00:00",
+                    },
+                },
+            }
+        }
+
+        context.load_simulation_config()
+
+        self.assertEqual(context.simulation_time["end_time"], "2020-08-01 04:00:00")
+        self.assertEqual(context.calib_eval_time["end_time"], "2020-08-01 04:00:00")
+
+    def test_date_only_timestamps_default_to_midnight(self):
+        context = SandboxContext.__new__(SandboxContext)
+        context.formulation = ""
+        context.project_gages = ["01109403"]
+        context.sandbox_config = {
+            "simulation": {
+                "task_type": "calibration",
+                "gages": "01109403",
+                "time": {
+                    "calibration": {
+                        "start": "2015-10-01",
+                        "spinup": "12 months",
+                        "end": "2020-09-30",
+                    },
+                },
+            }
+        }
+
+        context.load_simulation_config()
+
+        self.assertEqual(context.simulation_time["start_time"], "2015-10-01 00:00:00")
+        self.assertEqual(context.simulation_time["end_time"], "2020-09-30 00:00:00")
+        self.assertEqual(context.calib_eval_time["start_time"], "2016-10-01 00:00:00")
+
+    def test_normalizes_calibvalid_time_schema(self):
+        context = SandboxContext.__new__(SandboxContext)
+        context.formulation = ""
+        context.project_gages = ["01109403"]
+        context.sandbox_config = {
+            "simulation": {
+                "task_type": "calibvalid",
+                "gages": "01109403",
+                "time": {
+                    "calibration": {
+                        "start": "2015-10-01 00:00:00",
+                        "spinup": "12 months",
+                        "evaluation": "4 years",
+                    },
+                    "validations": [
+                        {
+                            "name": "validation",
+                            "start": "2020-10-01 00:00:00",
+                            "spinup": "12 months",
+                            "evaluation": "1 year",
+                        },
+                    ],
+                },
+            }
+        }
+
+        context.load_simulation_config()
+
+        self.assertEqual(
+            context.validation_time,
+            {
+                "start_time": "2020-10-01 00:00:00",
+                "end_time": "2022-09-30 23:00:00",
+            },
+        )
+        self.assertEqual(
+            context.valid_eval_time,
+            {
+                "start_time": "2021-10-01 00:00:00",
+                "end_time": "2022-09-30 23:00:00",
+            },
+        )
+
+    def test_multiple_validations_raise_until_runner_supports_cross_validation(self):
+        context = SandboxContext.__new__(SandboxContext)
+        context.formulation = ""
+        context.project_gages = ["01109403"]
+        context.sandbox_config = {
+            "simulation": {
+                "task_type": "calibvalid",
+                "gages": "01109403",
+                "time": {
+                    "calibration": {
+                        "start": "2015-10-01 00:00:00",
+                        "spinup": "12 months",
+                        "evaluation": "4 years",
+                    },
+                    "validations": [
+                        {
+                            "name": "wet",
+                            "start": "2020-10-01 00:00:00",
+                            "spinup": "12 months",
+                            "evaluation": "1 year",
+                        },
+                        {
+                            "name": "dry",
+                            "start": "2010-10-01 00:00:00",
+                            "spinup": "12 months",
+                            "evaluation": "1 year",
+                        },
+                    ],
+                },
+            }
+        }
+
+        with self.assertRaisesRegex(NotImplementedError, "cross-validation"):
+            context.load_simulation_config()
+
+    def test_time_schema_requires_yaml_dictionary(self):
+        context = SandboxContext.__new__(SandboxContext)
+        context.formulation = ""
+        context.project_gages = ["01109403"]
+        context.sandbox_config = {
+            "simulation": {
+                "task_type": "calibration",
+                "gages": "01109403",
+                "time": "2015-10-01",
+            }
+        }
+
+        with self.assertRaisesRegex(TypeError, "YAML dictionary/object"):
+            context.load_simulation_config()
+
+    def test_time_schema_rejects_timestep_field(self):
+        context = SandboxContext.__new__(SandboxContext)
+        context.formulation = ""
+        context.project_gages = ["01109403"]
+        context.sandbox_config = {
+            "simulation": {
+                "task_type": "calibration",
+                "gages": "01109403",
+                "time": {
+                    "timestep": "1 hour",
+                    "calibration": {
+                        "start": "2015-10-01 00:00:00",
+                        "spinup": "12 months",
+                        "evaluation": "4 years",
+                    },
+                },
+            }
+        }
+
+        with self.assertRaisesRegex(ValueError, "timestep is not supported"):
+            context.load_simulation_config()
+
+    def test_rejects_invalid_duration_unit(self):
+        context = SandboxContext.__new__(SandboxContext)
+        context.formulation = ""
+        context.project_gages = ["01109403"]
+        context.sandbox_config = {
+            "simulation": {
+                "task_type": "calibration",
+                "gages": "01109403",
+                "time": {
+                    "calibration": {
+                        "start": "2015-10-01",
+                        "spinup": "12 monthsss",
+                        "evaluation": "4 years",
+                    },
+                },
+            }
+        }
+
+        with self.assertRaisesRegex(ValueError, "unsupported duration unit"):
+            context.load_simulation_config()
+
+    def test_accepts_unambiguous_duration_abbreviations(self):
+        context = SandboxContext.__new__(SandboxContext)
+        context.formulation = ""
+        context.project_gages = ["01109403"]
+        context.sandbox_config = {
+            "simulation": {
+                "task_type": "calibration",
+                "gages": "01109403",
+                "time": {
+                    "calibration": {
+                        "start": "2015-10-01",
+                        "spinup": "365 d",
+                        "evaluation": "4 y",
+                    },
+                },
+            }
+        }
+
+        context.load_simulation_config()
+
+        self.assertEqual(context.calib_eval_time["start_time"], "2016-09-30 00:00:00")
+        self.assertEqual(context.calib_eval_time["end_time"], "2020-09-29 23:00:00")
+
+    def test_rejects_month_abbreviations(self):
+        context = SandboxContext.__new__(SandboxContext)
+        context.formulation = ""
+        context.project_gages = ["01109403"]
+        context.sandbox_config = {
+            "simulation": {
+                "task_type": "calibration",
+                "gages": "01109403",
+                "time": {
+                    "calibration": {
+                        "start": "2015-10-01",
+                        "spinup": "12 mo",
+                        "evaluation": "4 years",
+                    },
+                },
+            }
+        }
+
+        with self.assertRaisesRegex(ValueError, "unsupported duration unit"):
+            context.load_simulation_config()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -34,6 +34,7 @@ from src.python.resource_paths import (
     resource_hydrofabric_dir,
     resource_id,
 )
+from src.python.time_windows import normalize_simulation_time_config
 
 @dataclass
 class SandboxContext:
@@ -334,6 +335,9 @@ class SandboxContext:
                     "simulation.outputs.metadata.index_dir must be a non-empty string "
                     "when provided"
                 )
+
+        if "time" in dsim:
+            normalize_simulation_time_config(dsim, self.task_type)
 
         if self.task_type in ["calibration", "calibvalid", "restart"]:
 

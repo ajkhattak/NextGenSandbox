@@ -52,6 +52,16 @@ forcings:
 
 simulation:
   gages: []
+  time:
+    calibration:
+      start: "2015-10-01 00:00:00"
+      spinup: "12 months"
+      evaluation: "4 years"
+    validations:
+      - name: validation
+        start: "2020-10-01 00:00:00"
+        spinup: "12 months"
+        evaluation: "1 year"
   outputs:
     metadata:
       enabled: true

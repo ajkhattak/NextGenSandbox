@@ -25,11 +25,16 @@ formulation :
 simulation :
   task_type : "calibvalid" # calibvalid, calibration, validation, restart, control
   gages     : []
-  #simulation_time : {"start_time" : "2015-10-01 00:00:00", "end_time" : "2020-09-30 23:00:00"}
-  calibration_time : {"start_time" : "2015-10-01 00:00:00", "end_time" : "2020-09-30 23:00:00"}
-  calib_eval_time  : {"start_time" : "2016-10-01 00:00:00", "end_time" : "2020-09-30 23:00:00"}
-  validation_time  : {"start_time" : "2020-10-01 00:00:00", "end_time" : "2022-09-30 23:00:00"}
-  valid_eval_time  : {"start_time" : "2021-10-01 00:00:00", "end_time" : "2022-09-30 23:00:00"}
+  time:
+    calibration:
+      start: "2015-10-01 00:00:00"
+      spinup: "12 months"
+      evaluation: "4 years"
+    validations:
+      - name: validation
+        start: "2020-10-01 00:00:00"
+        spinup: "12 months"
+        evaluation: "1 year"
 
   partitioning:
     mode: parallel

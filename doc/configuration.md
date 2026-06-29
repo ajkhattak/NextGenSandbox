@@ -155,11 +155,9 @@ Controls task type, gages, time windows, output retention, and partitioning.
 | `task_type` | Workflow task. Options: `control`, `calibration`, `validation`, `calibvalid`, `restart`. |
 | `gages` | Optional simulation filter. Use `all`, one gage ID, or a list of IDs from `general.gages`. |
 | `sim_name_suffix` | Suffix appended to the gage ID to name the run directory. |
-| `simulation_time` | Time window for `control` runs. |
-| `calibration_time` | Full calibration period, including spinup. |
-| `calib_eval_time` | Evaluation period within `calibration_time`. |
-| `validation_time` | Full validation period, including spinup. |
-| `valid_eval_time` | Evaluation period within `validation_time`. |
+| `time.control` | Period definition for `control` runs. |
+| `time.calibration` | Calibration period definition. |
+| `time.validations` | List of validation period definitions. Currently one validation entry is supported by the runner; the list shape prepares for cross-validation. |
 | `restart_dir` | Restart source directory for `restart` runs. Supports `{*}` placeholders. |
 | `outputs.divide_variables` | BMI variables written to `cat-<divide_id>.csv` files, with required units. |
 | `outputs.calibration.retention` | Calibration output retention. Options: `best` or `all`. |
@@ -170,15 +168,49 @@ Controls task type, gages, time windows, output retention, and partitioning.
 | `partitioning.max_nexus_per_proc` | Maximum nexus count per processor in parallel mode. |
 | `partitioning.max_procs` | Maximum number of processors to use. |
 
+Each period uses:
+
+| Field | Meaning |
+|---|---|
+| `name` | Optional name, mainly useful for validation periods. |
+| `start` | Simulation start timestamp. Date-only values default to `00:00:00`. |
+| `spinup` | Spinup duration before the model evaluation period, such as `12 months`, `30 days`, `30 d`, or `0 h`. Months must be written as `month` or `months`. |
+| `evaluation` | Model evaluation period after spinup. Ignored when `end` is provided. |
+| `end` | Optional inclusive end timestamp. Date-only values default to `00:00:00`; include `HH:MM:SS` for odd/manual stop times. |
+
+Example:
+
+```yaml
+simulation:
+  task_type: calibvalid
+  time:
+    calibration:
+      start: "2015-10-01 00:00:00"
+      spinup: "12 months"
+      evaluation: "4 years"
+    validations:
+      - name: validation
+        start: "2020-10-01 00:00:00"
+        spinup: "12 months"
+        evaluation: "1 year"
+        # end: "2022-08-01 04:00:00"
+```
+
+Sandbox derives the internal ngen-cal-style windows from this block. For
+example, `start: 2015-10-01`, `spinup: 12 months`, and `evaluation: 4 years`
+becomes a full simulation window ending `2020-09-30 23:00:00` and a model
+evaluation window starting `2016-10-01 00:00:00`. Sandbox assumes hourly ngen
+model timesteps when deriving inclusive end times from duration fields.
+
 Required time fields depend on `task_type`.
 
 | `task_type` | Required time/config fields |
 |---|---|
-| `control` | `simulation_time` |
-| `calibration` | `calibration_time`, `calib_eval_time` |
-| `validation` | `validation_time`, `valid_eval_time` |
-| `calibvalid` | `calibration_time`, `calib_eval_time`, `validation_time`, `valid_eval_time` |
-| `restart` | `calibration_time`, `calib_eval_time`, `restart_dir` |
+| `control` | `time.control` |
+| `calibration` | `time.calibration` |
+| `validation` | one entry in `time.validations` |
+| `calibvalid` | `time.calibration` and one entry in `time.validations` |
+| `restart` | `time.calibration`, `restart_dir` |
 
 ## `calib_config.yaml`
 

@@ -36,6 +36,7 @@ class TestDriverMetadata(unittest.TestCase):
             metadata = yaml.safe_load(metadata_file.read_text())
             self.assertEqual(metadata["gage_id"], "01109403")
             self.assertEqual(metadata["num_cpus"], 2)
+            self.assertNotIn("basin_id", metadata)
 
     def test_run_metadata_writes_index_when_index_dir_is_configured(self):
         with tempfile.TemporaryDirectory() as tmp:
