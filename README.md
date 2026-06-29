@@ -22,12 +22,12 @@ Detailed guides are also available for [model configuration](https://github.com/
 
 After installation, use the [project workflow guide](https://github.com/ajkhattak/NextGenSandbox/blob/main/doc/workflow.md) to set up a custom single-basin project, run `sandbox --subset`, `sandbox --forc`, `sandbox --conf`, and `sandbox --run`, and then scale larger experiments with the [Sandbox Launcher](https://github.com/ajkhattak/NextGenSandbox/tree/main/tools/launcher).
 
-## Supported Formulations
+## Models And Formulations
 
-For the most up-to-date list of supported formulations, run:
+To see the current model formulations supported by NextGenSandbox, run:
 
 ```bash
 sandbox --formulations
 ```
 
-A complete list is also available in the [formulations guide](https://github.com/ajkhattak/NextGenSandbox/blob/main/doc/formulations.md).
+See the [formulations guide](https://github.com/ajkhattak/NextGenSandbox/blob/main/doc/formulations.md) for model combinations, variants, and setup notes.
