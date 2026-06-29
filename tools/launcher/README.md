@@ -36,7 +36,7 @@ The launcher supports:
 5. On SLURM systems, edit account, partition, time, memory, and module loads in
    `submit_launcher.sh` and `submit_gage.slurm`.
 
-The base Sandbox config must use the current major-release schema:
+The base Sandbox config should use the current Sandbox configuration schema:
 
 ```yaml
 general:
