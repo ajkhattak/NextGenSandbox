@@ -128,9 +128,19 @@ tools/batch/run_sandbox_resources_parallel.sh \
   --jobs 2
 ```
 
-For HPC, submit the same helper through Slurm and set `--jobs` to the number
-of CPUs allocated to the job, such as `--jobs "$SLURM_CPUS_PER_TASK"`. The
-helper script contains an editable Slurm header template.
+For HPC, submit the same helper through Slurm. `--jobs` controls how many
+gages run at the same time, not the total number of selected gages. The total
+selected gage count can be larger than the CPU count because the helper runs
+gages in batches. `--jobs` can be equal to `SLURM_CPUS_PER_TASK`, such as
+`--jobs "$SLURM_CPUS_PER_TASK"`, or lower if memory, filesystem I/O, or remote
+data access should be throttled. The helper rejects `--jobs` values larger
+than `SLURM_CPUS_PER_TASK` unless `--allow-oversubscribe` is set, so it will
+not run more simultaneous gages than allocated CPUs. The helper script contains
+an editable Slurm header template.
+
+The helper launches each basin with `sandbox --gage <gage_id>`. You can also
+use `sandbox --gage` directly when debugging one basin without editing the
+configuration file.
 
 For subsetting, change `--step forc` to `--step subset`. The wrapper writes
 per-gage logs plus `selected_gages.txt`, `success_gages.txt`, and
