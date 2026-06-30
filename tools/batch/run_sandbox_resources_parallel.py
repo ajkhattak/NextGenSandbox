@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import os
 import shutil
 import subprocess
 import sys
@@ -65,7 +66,35 @@ def parse_args():
         type=Path,
         help="Directory for per-gage logs and success/failure lists.",
     )
+    parser.add_argument(
+        "--allow-oversubscribe",
+        action="store_true",
+        help=(
+            "Allow --jobs to exceed SLURM_CPUS_PER_TASK when running under "
+            "Slurm."
+        ),
+    )
     return parser.parse_args()
+
+
+def validate_slurm_allocation(jobs: int, allow_oversubscribe: bool) -> None:
+    cpus_per_task = os.environ.get("SLURM_CPUS_PER_TASK")
+    if not cpus_per_task:
+        return
+
+    try:
+        allocated_cpus = int(cpus_per_task)
+    except ValueError:
+        return
+
+    if jobs <= allocated_cpus or allow_oversubscribe:
+        return
+
+    raise ValueError(
+        f"--jobs {jobs} exceeds SLURM_CPUS_PER_TASK={allocated_cpus}. "
+        "Request more CPUs with #SBATCH --cpus-per-task, lower --jobs, "
+        "or pass --allow-oversubscribe."
+    )
 
 
 def load_gages(config_path: Path, step: str) -> list[str]:
@@ -109,6 +138,11 @@ def main() -> int:
         return 2
     if args.jobs < 1:
         print("--jobs must be a positive integer", file=sys.stderr)
+        return 2
+    try:
+        validate_slurm_allocation(args.jobs, args.allow_oversubscribe)
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
         return 2
     if not shutil.which("sandbox"):
         print(
