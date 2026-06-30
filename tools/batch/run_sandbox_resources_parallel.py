@@ -39,7 +39,15 @@ def parse_args():
             "  Slurm submit script:\n"
             "    tools/batch/run_sandbox_resources_parallel.sh "
             "--step forc --config configs/sandbox_config1.yaml "
-            "--jobs \"$SLURM_CPUS_PER_TASK\""
+            "--jobs \"$SLURM_CPUS_PER_TASK\"\n"
+            "\n"
+            "Notes:\n"
+            "  --jobs may be lower than SLURM_CPUS_PER_TASK to throttle "
+            "memory, I/O, or remote-data pressure.\n"
+            "  --jobs may not exceed SLURM_CPUS_PER_TASK unless "
+            "--allow-oversubscribe is set.\n"
+            "  Each worker calls sandbox --gage internally; use sandbox "
+            "--gage directly to debug one basin."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -71,7 +79,7 @@ def parse_args():
         action="store_true",
         help=(
             "Allow --jobs to exceed SLURM_CPUS_PER_TASK when running under "
-            "Slurm."
+            "Slurm. Use only when oversubscription is intentional."
         ),
     )
     return parser.parse_args()
@@ -91,7 +99,8 @@ def validate_slurm_allocation(jobs: int, allow_oversubscribe: bool) -> None:
         return
 
     raise ValueError(
-        f"--jobs {jobs} exceeds SLURM_CPUS_PER_TASK={allocated_cpus}. "
+        f"--jobs {jobs} would run more simultaneous gages than the "
+        f"allocated SLURM_CPUS_PER_TASK={allocated_cpus}. "
         "Request more CPUs with #SBATCH --cpus-per-task, lower --jobs, "
         "or pass --allow-oversubscribe."
     )
@@ -180,7 +189,7 @@ def main() -> int:
     jobs = min(args.jobs, total)
 
     print(
-        f"Running sandbox --{args.step} for {total} gage(s) "
+        f"Running sandbox --{args.step} for {total} selected gage(s) "
         f"with {jobs} parallel job(s)."
     )
     print(f"Config : {config}")

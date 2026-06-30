@@ -34,10 +34,17 @@ if [[ -n "${SANDBOX_ENV:-}" && -f "${SANDBOX_ENV}/bin/activate" ]]; then
 fi
 
 if [[ $# -eq 0 ]]; then
+  if [[ -z "${SLURM_CPUS_PER_TASK:-}" ]]; then
+    echo "No arguments provided and SLURM_CPUS_PER_TASK is not set." >&2
+    echo "Run locally with --jobs, for example:" >&2
+    echo "  tools/batch/run_sandbox_resources_parallel.sh --step forc --config configs/sandbox_config1.yaml --jobs 2" >&2
+    exit 2
+  fi
+
   set -- \
     --step forc \
     --config configs/sandbox_config1.yaml \
-    --jobs "${SLURM_CPUS_PER_TASK:-3}"
+    --jobs "${SLURM_CPUS_PER_TASK}"
 fi
 
 exec python "${SCRIPT_DIR}/run_sandbox_resources_parallel.py" "$@"
