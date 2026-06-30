@@ -262,13 +262,11 @@ prepare_subset_run <- function(config) {
   setwd(config$input_dir)
   wbt_wd(getwd())
 
-  failed_dir <- file.path(config$input_dir, "basins_failed")
+  failed_dir <- subsetting_failure_dir(config$input_dir)
 
   if (dir.exists(failed_dir)) {
     unlink(failed_dir, recursive = TRUE, force = TRUE)
   }
-
-  dir.create(failed_dir, recursive = TRUE)
 }
 
 load_gage_ids_from_file <- function(config) {
@@ -338,7 +336,7 @@ run_subset_workflow <- function(config) {
   time_taken <- as.numeric(end_time - start_time, units = "secs")
   print(paste0("Total Time Taken = ", time_taken))
 
-  report_failed_basins(config$input_dir)
+  report_failed_gages(config$input_dir)
 }
 
 main <- function(args = commandArgs(trailingOnly = TRUE)) {

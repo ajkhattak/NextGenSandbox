@@ -25,6 +25,10 @@ subset_gpkg_path <- function(id, config, gpkg_name = glue("gage_{id}.gpkg")) {
 }
 
 clean_subset_work_dir <- function(id, cat_dir, config) {
+  if (!config$hydrofabric$compute_divide_attributes) {
+    return()
+  }
+
   if (identical(config$resource_layout, "gage")) {
     clean_move_dem_dir(
       id = id,
@@ -65,7 +69,7 @@ write_subset_failure <- function(id, cat_dir, error) {
   error_file <- file.path(cat_dir, "subsetting_error.txt")
 
   details <- c(
-    glue("Basin: {id}"),
+    glue("Gage/resource: {id}"),
     glue("Working directory: {cat_dir}"),
     glue("Error: {error_message}")
   )
@@ -79,7 +83,7 @@ write_subset_failure <- function(id, cat_dir, error) {
 
   writeLines(details, error_file)
 
-  cat(glue("[ERROR] Basin {id} failed during subsetting.\n"))
+  cat(glue("[ERROR] Gage/resource {id} failed during subsetting.\n"))
   cat(glue("[ERROR] {error_message}\n"))
   cat(glue("[ERROR] Details written to: {error_file}\n"))
 }
@@ -114,8 +118,10 @@ ProcessCatchmentID <- function(id, config) {
   setwd(cat_dir)
   wbt_wd(getwd())
 
-  # DEM and related files (such as projected/corrected DEMs, and specific contributing area rasters are stored here)
-  dir.create("dem", recursive = TRUE, showWarnings = FALSE)
+  # DEM and related files are only needed when derived divide attributes are computed.
+  if (config$hydrofabric$compute_divide_attributes) {
+    dir.create("dem", recursive = TRUE, showWarnings = FALSE)
+  }
   dir.create(HYDROFABRIC_DIR, recursive = TRUE, showWarnings = FALSE)
 
   failed <- TRUE
@@ -138,21 +144,23 @@ ProcessCatchmentID <- function(id, config) {
   clean_subset_work_dir(id, cat_dir, config)
 
   if (failed) {
-    cat ("Basin failed:", id, "\n")
+    cat ("Gage/resource failed:", id, "\n")
     if (identical(config$resource_layout, "resource") && file.exists(gpkg_file)) {
       unlink(gpkg_file, force = TRUE)
     }
-    cat_failed_dir = glue("{config$input_dir}/basins_failed/{id}")
+    failed_dir <- subsetting_failure_dir(config$input_dir)
+    cat_failed_dir = file.path(failed_dir, id)
 
     if (file.exists(cat_failed_dir) ) {
       unlink(cat_failed_dir, recursive = TRUE)
     }
 
+    dir.create(failed_dir, recursive = TRUE, showWarnings = FALSE)
     file.rename(cat_dir, cat_failed_dir)
 
   }
   else {
-    cat ("Basin Passed:", id, "\n")
+    cat ("Gage/resource passed:", id, "\n")
     if (identical(config$resource_layout, "resource") && dir.exists(cat_dir)) {
       unlink(cat_dir, recursive = TRUE, force = TRUE)
     }
@@ -188,16 +196,17 @@ ProcessGPKG <- function(gfile, config) {
      id <- 11111111
   }
 
+  gpkg_file = subset_gpkg_path(id, config, basename(gfile))
   cat_dir = subsetting_work_dir(id, config)
   dir.create(cat_dir, recursive = TRUE, showWarnings = FALSE)
 
   setwd(cat_dir)
   wbt_wd(getwd())
 
-  # DEM and related files (such as projected/corrected DEMs, and specific contributing 
-  # area rasters are stored here)
-  
-  dir.create("dem", recursive = TRUE, showWarnings = FALSE)
+  # DEM and related files are only needed when derived divide attributes are computed.
+  if (config$hydrofabric$compute_divide_attributes) {
+    dir.create("dem", recursive = TRUE, showWarnings = FALSE)
+  }
   dir.create(HYDROFABRIC_DIR, recursive = TRUE, showWarnings = FALSE)
 
   failed <- TRUE
@@ -205,9 +214,6 @@ ProcessGPKG <- function(gfile, config) {
   tryCatch({
     cat ("Processing catchment: ", id, "\n")
 
-    gpkg_name = basename(gfile)
-
-    gpkg_file = subset_gpkg_path(id, config, gpkg_name)
     dir.create(dirname(gpkg_file), recursive = TRUE, showWarnings = FALSE)
     file.copy(gfile, gpkg_file, overwrite = TRUE)
 
@@ -226,21 +232,23 @@ ProcessGPKG <- function(gfile, config) {
   clean_subset_work_dir(id, cat_dir, config)
 
   if (failed) {
-    cat ("Basin failed:", id, "\n")
+    cat ("Gage/resource failed:", id, "\n")
     if (identical(config$resource_layout, "resource") && file.exists(gpkg_file)) {
       unlink(gpkg_file, force = TRUE)
     }
-    cat_failed_dir = glue("{config$input_dir}/basins_failed/{id}")
+    failed_dir <- subsetting_failure_dir(config$input_dir)
+    cat_failed_dir = file.path(failed_dir, id)
 
     if (file.exists(cat_failed_dir) ) {
       unlink(cat_failed_dir, recursive = TRUE)
     }
 
+    dir.create(failed_dir, recursive = TRUE, showWarnings = FALSE)
     file.rename(cat_dir, cat_failed_dir)
 
   }
   else {
-    cat ("Basin Passed:", id, "\n")
+    cat ("Gage/resource passed:", id, "\n")
     if (identical(config$resource_layout, "resource") && dir.exists(cat_dir)) {
       unlink(cat_dir, recursive = TRUE, force = TRUE)
     }
