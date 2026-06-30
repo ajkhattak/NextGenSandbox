@@ -129,10 +129,10 @@ def Sandbox(args, sandbox_config, calib_config, rscript, dryrun=False):
                 )
             if exc.returncode == 3:
                 sys.exit(
-                    "Subsetting failed for one or more basins. "
+                    "Subsetting failed for one or more gages/resources. "
                     "See the R error output above and "
-                    "<input_dir>/basins_failed/<gage_id>/subsetting_error.txt "
-                    "for basin-specific details."
+                    "<input_dir>/failed_gages/<gage_id>/subsetting_error.txt "
+                    "for gage/resource-specific details."
                 )
             sys.exit(
                 "Failed during geopackage generation/subsetting step. "
