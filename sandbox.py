@@ -106,6 +106,26 @@ def check_sandbox_venv(sandbox_build_dir):
         sys.exit(1)
 
 
+def selected_workflow_steps(args):
+    return [
+        name
+        for name in ["subset", "forc", "conf", "run"]
+        if getattr(args, name)
+    ]
+
+
+def normalize_dryrun_args(args):
+    if not args.dryrun:
+        return
+
+    steps = selected_workflow_steps(args)
+    if not steps:
+        args.run = True
+        return
+
+    raise ValueError("--dryrun is a standalone workflow mode. Do not combine it with --run, --conf, --subset, or --forc.")
+
+
 def Sandbox(args, sandbox_config, calib_config, rscript, dryrun=False):
     
     if (args.subset):
@@ -247,10 +267,22 @@ def main():
     parser.add_argument("-j",       dest="calib_infile",    type=str, required=False, metavar="FILE", help="caliberation config file")
     parser.add_argument("--gage",   dest="gage_id",         type=str, required=False, help="Run selected workflow step for one gage ID")
 
-    parser.add_argument("--dryrun", action="store_true",         help="caliberation config file")
+    parser.add_argument(
+        "--dryrun",
+        action="store_true",
+        help=(
+            "Prepare and print run commands without executing ngen/ngen-cal. "
+            "Use as a standalone workflow mode."
+        ),
+    )
     parser.add_argument("--formulations", action="store_true", help="List supported formulations and exit")
     
     args = parser.parse_args()
+
+    try:
+        normalize_dryrun_args(args)
+    except ValueError as exc:
+        parser.error(str(exc))
 
     if args.formulations:
         print("Formulations supported:\n")

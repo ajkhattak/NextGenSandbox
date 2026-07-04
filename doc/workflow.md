@@ -109,6 +109,16 @@ The step-by-step order makes failures easier to diagnose:
 - `sandbox --conf` generates model configuration and realization files.
 - `sandbox --run` executes ngen or ngen-cal for the configured task.
 
+To check the generated run command without executing ngen or ngen-cal, use:
+
+```bash
+sandbox --dryrun -i configs/my_sandbox_config.yaml -j configs/calib_config.yaml
+```
+
+`sandbox --dryrun` validates the run setup and prints the command that would be
+executed. It is a standalone workflow mode, so do not combine it with
+`--run`, `--conf`, `--subset`, or `--forc`.
+
 ### Parallel Subset Or Forcing Batches
 
 For subsetting and forcing preparation, you can run several independent serial
