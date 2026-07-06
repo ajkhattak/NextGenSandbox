@@ -93,13 +93,13 @@ class Runner:
             self.file_par = os.path.join(o_dir, file_par) if file_par else None
             self.num_procs = int(num_cpus)
 
-            if self.mpirun_exists:
-                # mpirun exists so run with MPI
+            if self.mpirun_exists and self.num_procs > 1:
+                # Use MPI only when the partitioning request needs multiple processes.
 
                 run_cmd = (
                     f"mpirun -np {self.num_procs} "
                     f"{ngen_exe} {gpkg_file} all {gpkg_file} all {realization}"
-                    f"{f' {self.file_par}' if self.num_procs > 1 else ''}"
+                    f" {self.file_par}"
                 )
 
             if self.os_name == "Darwin":
@@ -108,9 +108,14 @@ class Runner:
             if not self.ctx.dryrun:
                 print(f"Running basin {id} on cores {self.num_procs} ********", flush=True)
                 print(f"Run command: {run_cmd}", flush=True)
-                result = subprocess.call(run_cmd, shell=True)
+                result = subprocess.run(run_cmd, shell=True)
+                if result.returncode != 0:
+                    raise RuntimeError(
+                        f"NextGen run failed for gage {id} with exit code "
+                        f"{result.returncode}."
+                    )
             else:
-                print("Dry run: no simulation executed.")
+                print(f"Dry run command: {run_cmd}")
 
 
     def run_ngen_with_calibration(self, dirs):

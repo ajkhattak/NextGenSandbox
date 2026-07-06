@@ -109,6 +109,15 @@ The step-by-step order makes failures easier to diagnose:
 - `sandbox --conf` generates model configuration and realization files.
 - `sandbox --run` executes ngen or ngen-cal for the configured task.
 
+Expected outputs:
+
+| Step | Success Indicator |
+| --- | --- |
+| `sandbox --subset` | `NextGenSandbox subset step completed successfully.` and `gage_<gage_id>.gpkg` files under the configured resource layout. |
+| `sandbox --forc` | `NextGenSandbox forcing step completed successfully.` and forcing NetCDF files under the configured forcing resource directory. |
+| `sandbox --conf` | `NextGenSandbox configuration step completed successfully.` and generated files under `<output_dir>/<gage_id>*/configs/`. |
+| `sandbox --run` | `NextGenSandbox run step completed successfully.` plus ngen/ngen-cal output files in the run directory. |
+
 To check the generated run command without executing ngen or ngen-cal, use:
 
 ```bash
@@ -118,6 +127,9 @@ sandbox --dryrun -i configs/my_sandbox_config.yaml -j configs/calib_config.yaml
 `sandbox --dryrun` validates the run setup and prints the command that would be
 executed. It is a standalone workflow mode, so do not combine it with
 `--run`, `--conf`, `--subset`, or `--forc`.
+
+If a step fails, see [diagnostics.md](./diagnostics.md) for common setup and
+workflow issues.
 
 ### Parallel Subset Or Forcing Batches
 

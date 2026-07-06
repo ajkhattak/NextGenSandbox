@@ -4,7 +4,7 @@ NextGenSandbox is a workflow tool for setting up, running, calibrating, and eval
 
 ## Start Here
 
-For a new machine or first-time setup, follow the [install guide](https://github.com/ajkhattak/NextGenSandbox/blob/main/doc/install.md). The guide includes a Quick Path, detailed installation steps, and a smoke test to verify the core workflow.
+For a new machine or first-time setup, follow the [install guide](https://github.com/ajkhattak/NextGenSandbox/blob/main/doc/install.md). The guide includes a Quick Path, detailed installation steps, and a smoke test to verify the core workflow. For common setup issues, see the [diagnostics guide](https://github.com/ajkhattak/NextGenSandbox/blob/main/doc/diagnostics.md).
 
 ## Configuration
 
