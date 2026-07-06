@@ -82,7 +82,9 @@ class Generate:
                 )
 
             # creates an instance using class context MODELS_REGISTRY["NOM"] => NOMConfigurationGenerator
-            generators.append(models_registry[key](ctx, static_data, output_dir))
+            generator = models_registry[key](ctx, static_data, output_dir)
+            generator.forcing_file = self.forcing_dir
+            generators.append(generator)
 
         if len(generators) == 1:
             return generators[0]

@@ -4,6 +4,7 @@ import yaml
 import subprocess
 import pandas as pd
 import json
+from pathlib import Path
 
 from src.python.models_registry import register_model
 from src.python.configuration import ConfigurationGenerator
@@ -46,8 +47,35 @@ class NOMConfigurationGenerator(ConfigurationGenerator):
         self.ctx = ctx
         self.static_data = static_data
         self.output_dir = output_dir
+        self.forcing_file = None
 
         self.instances = self.ctx.model_registry.get("NOM")
+
+    def _resolved_forcing_path(self):
+        forcing_path = Path(self.forcing_file or "")
+
+        if self.ctx.forcing_format == ".nc":
+            if not forcing_path.is_file():
+                raise FileNotFoundError(
+                    "NoahOWP forcing_filename must be a resolved NetCDF file, "
+                    f"but the configured path does not exist: {forcing_path}"
+                )
+            if forcing_path.suffix != ".nc":
+                raise ValueError(
+                    "NoahOWP forcing_filename must point to a .nc file, "
+                    f"provided: {forcing_path}"
+                )
+
+            return str(forcing_path)
+
+        if not forcing_path.is_dir():
+            raise FileNotFoundError(
+                "NoahOWP forcing_filename must be a forcing directory for "
+                f"{self.ctx.forcing_format} forcing, but the configured path "
+                f"does not exist: {forcing_path}"
+            )
+
+        return str(forcing_path)
         
     def _write_input_files(self, member_id, tag):
         for variant_cfg in self.instances:
@@ -91,6 +119,7 @@ class NOMConfigurationGenerator(ConfigurationGenerator):
 
         start_time = pd.Timestamp(self.ctx.simulation_time['start_time']).strftime("%Y%m%d%H%M")
         end_time   = pd.Timestamp(self.ctx.simulation_time['end_time']).strftime("%Y%m%d%H%M")
+        forcing_path = self._resolved_forcing_path()
 
         terrain_multiplier, lines = self._extract_flat_domain(lines)
 
@@ -131,7 +160,7 @@ class NOMConfigurationGenerator(ConfigurationGenerator):
                     elif line.strip().startswith('enddate'):
                         file.write(f'  enddate      = \"{end_time}\"  \n')
                     elif line.strip().startswith('forcing_filename'):
-                        file.write(f'  forcing_filename   = \"{self.ctx.forcing_dir}\"  \n')
+                        file.write(f'  forcing_filename   = \"{forcing_path}\"  \n')
                     elif line.strip().startswith('output_filename'):
                         file.write(f'  output_filename   = \"output-{cat_name}.csv\"  \n')
                     elif line.strip().startswith('parameter_dir'):
