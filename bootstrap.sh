@@ -13,9 +13,37 @@ BUILD_MODELS=OFF
 BUILD_TROUTE=OFF
 BUILD_CLEAN=false
 
+usage() {
+    cat <<'EOF'
+Usage:
+  ./bootstrap.sh [OPTIONS]
+
+Common first-time sequence:
+  ./bootstrap.sh --env --verbose
+  ./bootstrap.sh --check
+  ./bootstrap.sh --sandbox
+  ./bootstrap.sh --subset
+  ./bootstrap.sh --ngen --models --troute
+  ./bootstrap.sh --check
+
+Options:
+  --check     Read-only diagnostic check
+  --env       Configure Sandbox environment variables
+  --sandbox   Build Sandbox Python and forcing environments
+  --subset    Build/install R subsetting dependencies
+  --ngen      Build ngen
+  --models    Build model libraries
+  --troute    Build/install t-route
+  --clean     Clean build artifacts where supported
+  --verbose   Print verbose environment setup output
+  -h, --help  Show this help message
+EOF
+}
+
 # Parse args
 for arg in "$@"; do
     case $arg in
+      -h|--help) usage; exit 0 ;;
       --check)   RUN_CHECK=ON ;;
       --env)     SETUP_ENV=ON ;;
       --sandbox) BUILD_SANDBOX=ON ;;

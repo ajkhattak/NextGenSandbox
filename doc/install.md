@@ -6,7 +6,8 @@ short setup sequence and smoke test. Use the
 [Detailed Installation Steps](#detailed-installation-steps) when you want the
 expanded explanation for each installation stage. After the smoke test passes,
 continue with the [configuration guide](./configuration.md) and the
-[project workflow guide](./workflow.md).
+[project workflow guide](./workflow.md). If a check or build step fails, see
+[diagnostics.md](./diagnostics.md).
 
 ## Quick Path
 
@@ -17,15 +18,24 @@ For a typical first-time setup, build the workflow and run the smoke test:
 2. `./bootstrap.sh --env --verbose`
 3. Reload your shell or open a new terminal
 4. `./bootstrap.sh --check`
+   - Expected: `SANDBOX_DIR`, `SANDBOX_BUILD_DIR`, and shell setup are reported.
+     Missing build artifacts are normal before later steps.
 5. `./bootstrap.sh --sandbox`
 6. `./bootstrap.sh --check`
+   - Expected: Sandbox Python, forcing Python, and the `sandbox` command are
+     found.
 7. Activate the sandbox Python environment
 8. `./bootstrap.sh --subset`
 9. `./bootstrap.sh --check`
+   - Expected: subset `Rscript` exists and required R packages are available.
 10. `./bootstrap.sh --ngen --models --troute`
 11. `./bootstrap.sh --check`
+   - Expected: `ngen` executable exists, key Python imports pass, and submodules
+     are initialized.
 12. Download a CONUS geopackage from [lynker-spatial](https://www.lynker-spatial.com/data?path=hydrofabric%2Fv2.2%2F)
 13. `python test/sandbox_test.py --all --gpkg <path/to/conus_nextgen.gpkg>`
+   - Expected: `SUCCESS: NextGenSandbox smoke test completed. Installation and
+     the core workflow are ready.`
 
 After the smoke test passes, review [configuration.md](./configuration.md) to
 understand the configuration files, then use [workflow.md](./workflow.md) to set
@@ -55,11 +65,12 @@ up a single-basin project and scale larger runs with the Sandbox Launcher.
 
      ./bootstrap.sh --check
 
-  This command is read-only. It reports configured paths, available system tools,
-  Sandbox/forcing/subset environments, key Python and R packages, ngen/t-route
-  availability, and git submodule status.
+This command is read-only. It reports configured paths, available system tools,
+Sandbox/forcing/subset environments, key Python and R packages, ngen/t-route
+availability, and git submodule status.
   Run it after each major setup step, or whenever a Sandbox command fails and
-  the cause is not obvious.
+  the cause is not obvious. For common warnings and failures, see
+  [diagnostics.md](./diagnostics.md).
 
   1.4 Build the Sandbox workflow:
      
@@ -96,11 +107,14 @@ see [workflow.md](./workflow.md#subset-hydrofabric) for the project-level
   already available. It does not install or compile missing R packages during a
   subsetting run.
 
-  If this step succeeds, the subset environment is ready. You can confirm with:
+If this step succeeds, the subset environment is ready. You can confirm with:
 
-  ```bash
-  ./bootstrap.sh --check
-  ```
+```bash
+./bootstrap.sh --check
+```
+
+Expected: `Subset Rscript` is found and the subset R packages `sf`, `terra`,
+`hfsubsetR`, and `zonal` are reported as available.
 
 ### <ins> Step 3. Activate Sandbox Environment
 The sandbox setup step configures the required environment variables: `SANDBOX_DIR, SANDBOX_BUILD_DIR, SANDBOX_DATA_DIR, SANDBOX_ENV`, enabling easy navigation and environment activation. By default, build artifacts live under `$SANDBOX_DIR/build` and persistent model data live under `$SANDBOX_DATA_DIR`.
@@ -146,6 +160,9 @@ Before moving on to configuration, confirm that the environment bootstrap succee
 - Validate Step 1.3 with [utils/venv/validation.md](../utils/venv/validation.md#step-13-validation)
 - Validate Step 1.4 with [utils/venv/validation.md](../utils/venv/validation.md#step-14-validation)
 
+If any item is missing or unclear, check [diagnostics.md](./diagnostics.md)
+before continuing.
+
 ### <ins> Step 6. Run Workflow Smoke Test
 
 After the installation steps finish, run the smoke test to confirm that
@@ -156,6 +173,19 @@ first.
 
 ```bash
 python test/sandbox_test.py --all --gpkg <path/to/conus_nextgen.gpkg>
+```
+
+Run this from the active Sandbox Python environment. You can confirm with:
+
+```bash
+which sandbox
+python -c "import sandbox; print(sandbox.__file__)"
+```
+
+Expected final message:
+
+```text
+SUCCESS: NextGenSandbox smoke test completed. Installation and the core workflow are ready.
 ```
 
 When the smoke test completes successfully, continue with:
