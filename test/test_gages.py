@@ -54,6 +54,50 @@ class TestGageSelection(unittest.TestCase):
 
         self.assertEqual(load_general_gages(config), ["01308000", "03366500"])
 
+    def test_general_gages_from_resource_layout_gpkg_default_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            hydrofabric = Path(tmp) / "hydrofabric"
+            hydrofabric.mkdir()
+            (hydrofabric / "gage_01308000.gpkg").touch()
+            (hydrofabric / "gage_03366500.gpkg").touch()
+
+            config = {
+                "general": {
+                    "input_dir": tmp,
+                    "resource_layout": "resource",
+                    "gages": {
+                        "option": "gpkg",
+                        "gpkg": {
+                            "pattern": "gage_",
+                        },
+                    },
+                }
+            }
+
+            self.assertEqual(load_general_gages(config), ["01308000", "03366500"])
+
+    def test_general_gages_from_gage_layout_gpkg_default_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for gage_id in ["01308000", "03366500"]:
+                hydrofabric = Path(tmp) / gage_id / "hydrofabric"
+                hydrofabric.mkdir(parents=True)
+                (hydrofabric / f"gage_{gage_id}.gpkg").touch()
+
+            config = {
+                "general": {
+                    "input_dir": tmp,
+                    "resource_layout": "gage",
+                    "gages": {
+                        "option": "gpkg",
+                        "gpkg": {
+                            "pattern": "gage_",
+                        },
+                    },
+                }
+            }
+
+            self.assertEqual(load_general_gages(config), ["01308000", "03366500"])
+
     def test_step_gages_default_to_project_gages(self):
         self.assertEqual(
             resolve_step_gages(

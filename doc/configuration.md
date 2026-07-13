@@ -60,7 +60,7 @@ Defines the project resource and output locations.
 | `gages.ids` | Full project gage list when `gages.option: ids`. |
 | `gages.file.path` | CSV path when `gages.option: file`. |
 | `gages.file.column` | CSV column containing gage IDs when `gages.option: file`. |
-| `gages.gpkg.dir` | Directory or file path for existing geopackages when `gages.option: gpkg`. |
+| `gages.gpkg.dir` | Optional directory or file path for existing geopackages when `gages.option: gpkg`. If omitted, the workflow discovers geopackages from `general.input_dir` using `general.resource_layout`. |
 | `gages.gpkg.pattern` | Filename pattern used when discovering geopackages. |
 | `gages.gpkg.select` | Optional selected geopackages from `gages.gpkg.dir`. |
 

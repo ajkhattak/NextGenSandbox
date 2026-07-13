@@ -4,9 +4,16 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.python.resource_paths import (
+    HYDROFABRIC_DIR,
+    find_gpkg_file,
+    has_gpkg_file,
+)
+
 
 def load_general_gages(config: dict) -> list[str]:
-    general_gages = (config.get("general") or {}).get("gages")
+    general = config.get("general") or {}
+    general_gages = general.get("gages")
     if general_gages is None:
         raise ValueError("general.gages must be configured")
     if not isinstance(general_gages, dict):
@@ -27,9 +34,11 @@ def load_general_gages(config: dict) -> list[str]:
         selected = gpkg_config.get("select")
         if selected is not None:
             return _normalize_gage_list(selected, "general.gages.gpkg.select")
-        return _gage_ids_from_gpkg_dir(
+        return _gage_ids_from_gpkg_resources(
             gpkg_config.get("dir"),
             gpkg_config.get("pattern", "gage_"),
+            input_dir=general.get("input_dir"),
+            resource_layout=general.get("resource_layout", "gage"),
         )
 
     raise ValueError("general.gages.option must be one of: ids, file, gpkg")
@@ -94,16 +103,34 @@ def _load_gages_from_file(path, column: str, field_name: str) -> list[str]:
     return [str(value) for value in df[column].dropna().tolist()]
 
 
-def _gage_ids_from_gpkg_dir(directory, pattern: str) -> list[str]:
-    if not directory:
-        raise ValueError("general.gages.gpkg.dir must be provided")
-    directory = Path(directory)
+def _gage_ids_from_gpkg_resources(
+    directory,
+    pattern: str,
+    *,
+    input_dir,
+    resource_layout: str,
+) -> list[str]:
+    if directory:
+        directory = Path(directory)
+    else:
+        if not input_dir:
+            raise ValueError(
+                "general.input_dir must be provided when general.gages.gpkg.dir "
+                "is omitted"
+            )
+        input_dir = Path(input_dir)
+        directory = (
+            input_dir / HYDROFABRIC_DIR
+            if resource_layout == "resource"
+            else input_dir
+        )
+
     if directory.is_file():
         files = [directory]
     elif directory.is_dir():
-        files = sorted(directory.glob(f"*{pattern}*.gpkg"))
+        files = _discover_gpkg_files(directory, pattern, resource_layout)
         if not files:
-            files = sorted(directory.glob("*.gpkg"))
+            files = _discover_gpkg_files(directory, "", resource_layout)
     else:
         raise FileNotFoundError(f"general.gages.gpkg.dir not found: {directory}")
 
@@ -116,6 +143,21 @@ def _gage_ids_from_gpkg_dir(directory, pattern: str) -> list[str]:
     if not ids:
         raise ValueError(f"No gage IDs could be inferred from {directory}")
     return ids
+
+
+def _discover_gpkg_files(directory: Path, pattern: str, resource_layout: str) -> list[Path]:
+    direct_files = sorted(directory.glob(f"*{pattern}*.gpkg"))
+    if direct_files:
+        return direct_files
+
+    if resource_layout == "gage":
+        return [
+            find_gpkg_file(child)
+            for child in sorted(directory.iterdir())
+            if child.is_dir() and has_gpkg_file(child)
+        ]
+
+    return []
 
 
 def _is_all(value) -> bool:
