@@ -2,8 +2,8 @@
 # Author : Ahmad Jan Khattak [ahmad.jan.khattak@noaa.gov | September 10, 2024]
 # Contributor : Sifan A. Koriche [sakoriche@ua.edu | December 18, 2024]
 
-# Clone NextGenSandboxHub repository
-# git clone https://github.com/ajkhattak/NextGenSandboxHub && cd NextGenSandboxHub
+# Clone NextGenSandbox repository
+# git clone https://github.com/ajkhattak/NextGenSandbox && cd NextGenSandbox
 # Run: BUILD=ON ./utils/build_sandbox.sh
 # install mamba if not already there: conda install -n base -c conda-forge mamba
 
@@ -139,7 +139,7 @@ build_sandbox()
     git submodule update --remote extern/lstm
     git submodule update --remote extern/dhbv2
 
-    pip install 'extern/ngen-cal/python/ngen_cal[netcdf]'
+    pip install 'extern/ngen-cal/python/ngen_cal[netcdf,pso]'
     pip install extern/ngen-cal/python/ngen_conf
     pip install -e ./plugins/ngen_cal_plugins
     pip install -e ./extern/lstm

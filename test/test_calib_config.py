@@ -156,6 +156,49 @@ class TestCalibrationConfig(unittest.TestCase):
             },
         )
 
+    def test_log10_parameter_values_are_loaded_in_physical_units(self):
+        param = ConfigurationCalib.normalize_calibration_parameter(
+            "cfes_params",
+            {
+                "name": "Cgw",
+                "min": 1.0e-5,
+                "max": 1.0e-2,
+                "init": 1.0e-3,
+                "scale": "log10",
+            },
+        )
+
+        self.assertEqual(param["scale"], "log10")
+        self.assertAlmostEqual(param["min"], -5.0)
+        self.assertAlmostEqual(param["max"], -2.0)
+        self.assertAlmostEqual(param["init"], -3.0)
+
+    def test_log10_parameter_values_must_be_positive(self):
+        with self.assertRaisesRegex(ValueError, "positive physical value"):
+            ConfigurationCalib.normalize_calibration_parameter(
+                "cfes_params",
+                {
+                    "name": "Cgw",
+                    "min": 0.0,
+                    "max": 1.0e-2,
+                    "init": 1.0e-3,
+                    "scale": "log10",
+                },
+            )
+
+    def test_log10_parameter_init_must_be_within_bounds(self):
+        with self.assertRaisesRegex(ValueError, "init outside min/max"):
+            ConfigurationCalib.normalize_calibration_parameter(
+                "cfes_params",
+                {
+                    "name": "Cgw",
+                    "min": 1.0e-5,
+                    "max": 1.0e-2,
+                    "init": 1.0e-1,
+                    "scale": "log10",
+                },
+            )
+
     def test_loads_parameter_blocks_from_calibration_directory(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
