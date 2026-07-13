@@ -6,7 +6,9 @@ from src.python.resource_paths import (
     find_gpkg_file,
     forcing_dir_for_resource,
     forcing_dir_for_gpkg,
+    has_gage_placeholder,
     has_gpkg_file,
+    render_gage_path,
 )
 
 
@@ -54,6 +56,32 @@ class TestResourcePaths(unittest.TestCase):
                 resource_layout="resource",
             ),
             Path("/tmp/inputs/forcing/12345678/2016_to_2021"),
+        )
+
+    def test_resource_layout_forcing_directory_placeholder(self):
+        self.assertEqual(
+            forcing_dir_for_resource(
+                "/tmp/inputs",
+                "<gage_id>",
+                2016,
+                2021,
+                resource_layout="resource",
+            ),
+            Path("/tmp/inputs/forcing/<gage_id>/2016_to_2021"),
+        )
+
+    def test_render_gage_path_supports_preferred_placeholder(self):
+        self.assertTrue(has_gage_placeholder("/tmp/forcing/<gage_id>.nc"))
+        self.assertEqual(
+            render_gage_path("/tmp/forcing/<gage_id>.nc", "12345678"),
+            Path("/tmp/forcing/12345678.nc"),
+        )
+
+    def test_render_gage_path_supports_format_placeholder(self):
+        self.assertTrue(has_gage_placeholder("/tmp/forcing/{gage_id}.nc"))
+        self.assertEqual(
+            render_gage_path("/tmp/forcing/{gage_id}.nc", "12345678"),
+            Path("/tmp/forcing/12345678.nc"),
         )
 
 

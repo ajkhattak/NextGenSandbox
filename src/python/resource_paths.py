@@ -6,6 +6,7 @@ from pathlib import Path
 HYDROFABRIC_DIR = "hydrofabric"
 FORCING_DIR = "forcing"
 LEGACY_DATA_DIR = "data"
+GAGE_ID_PLACEHOLDER = "<gage_id>"
 
 
 def find_gpkg_file(basin_dir: str | Path) -> Path:
@@ -66,10 +67,20 @@ def forcing_dir_for_resource(
     """Return the default forcing directory for the configured resource layout."""
     input_dir = Path(input_dir)
     resource = Path(resource)
-    if str(resource) == "{*}":
+    if str(resource) == GAGE_ID_PLACEHOLDER:
         if resource_layout == "resource":
-            return input_dir / FORCING_DIR / "{*}" / f"{start_year}_to_{end_year}"
-        return input_dir / "{*}" / FORCING_DIR / f"{start_year}_to_{end_year}"
+            return (
+                input_dir
+                / FORCING_DIR
+                / GAGE_ID_PLACEHOLDER
+                / f"{start_year}_to_{end_year}"
+            )
+        return (
+            input_dir
+            / GAGE_ID_PLACEHOLDER
+            / FORCING_DIR
+            / f"{start_year}_to_{end_year}"
+        )
 
     if resource_layout == "resource":
         return input_dir / FORCING_DIR / resource_id(resource) / f"{start_year}_to_{end_year}"
@@ -104,3 +115,22 @@ def resource_id(resource: str | Path) -> str:
             return name.removeprefix("Gage_")
         return name
     return resource.name
+
+
+def has_gage_placeholder(path_template: str | Path) -> bool:
+    template = str(path_template)
+    return any(
+        placeholder in template
+        for placeholder in (GAGE_ID_PLACEHOLDER, "{gage_id}", "{*}")
+    )
+
+
+def render_gage_path(path_template: str | Path, gage_id: str) -> Path:
+    """Render a path template with the selected gage/resource identifier."""
+    rendered = (
+        str(path_template)
+        .replace(GAGE_ID_PLACEHOLDER, gage_id)
+        .replace("{gage_id}", gage_id)
+        .replace("{*}", gage_id)
+    )
+    return Path(rendered)

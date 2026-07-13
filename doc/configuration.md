@@ -106,7 +106,7 @@ Controls forcing time range, format, domain, and optional rechunking.
 | `time.end` | Last forcing timestamp to prepare. Date-only values default to `00:00:00`. |
 | `domain` | Forcing domain, such as `conus`, `HI`, `PR`, or `AK`. |
 | `gages` | Optional forcing filter. Use `all`, one gage ID, or a list of IDs from `general.gages`. |
-| `forcing_dir` | Optional explicit forcing directory. If omitted, the workflow derives the path from `general.resource_layout`. For one-gage NetCDF runs, this may point directly to a single `.nc` file. |
+| `forcing_dir` | Optional explicit forcing directory or NetCDF file. If omitted, the workflow derives the path from `general.resource_layout`. For one-gage NetCDF runs, this may point directly to a single `.nc` file. For multi-gage external forcing, use `<gage_id>` as the gage placeholder, such as `/path/to/forcing/<gage_id>` or `/path/to/forcing/<gage_id>.nc`. |
 
 Simulation time windows must fall within the forcing time range. See
 [forcing.md](./forcing.md) for forcing-specific notes.
@@ -120,7 +120,7 @@ functions.
 |---|---|
 | `objective` | Optional objective shortcut or import path. Supported bundled shortcuts: `kge`, `nse`, `nnse`. |
 | `<variable>.layout` | Observation layout. Options: `point` or `distributed`. |
-| `<variable>.path` | CSV or Parquet observation path. Supports `{gage_id}` and `{variable}` placeholders. |
+| `<variable>.path` | CSV or Parquet observation path. Supports `<gage_id>` and `<variable>` placeholders. |
 | `<variable>.time_column` | Timestamp column name. |
 | `<variable>.value_column` | Value column name for point or long-format distributed data. |
 | `<variable>.id_column` | Sub-basin ID column for long-format distributed data. |
@@ -158,7 +158,7 @@ Controls task type, gages, time windows, output retention, and partitioning.
 | `time.control` | Period definition for `control` runs. |
 | `time.calibration` | Calibration period definition. |
 | `time.validations` | List of validation period definitions. Currently one validation entry is supported by the runner; the list shape prepares for cross-validation. |
-| `restart_dir` | Restart source directory for `restart` runs. Supports `{*}` placeholders. |
+| `restart_dir` | Restart source directory for `restart` runs. Supports `<gage_id>` placeholders. |
 | `outputs.divide_variables` | BMI variables written to `cat-<divide_id>.csv` files, with required units. |
 | `outputs.calibration.retention` | Calibration output retention. Options: `best` or `all`. |
 | `outputs.metadata.enabled` | Write a metadata file inside each gage output directory. |

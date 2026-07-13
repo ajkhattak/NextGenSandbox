@@ -19,21 +19,21 @@ observations:
 
   streamflow:
     layout: point
-    path: "/path/to/observations/gage_{gage_id}_streamflow.parquet"
+    path: "/path/to/observations/gage_<gage_id>_streamflow.parquet"
     time_column: value_time
     value_column: value
     units: "m3/sec"
 
   ET:
     layout: distributed
-    path: "/path/to/observations/gage_{gage_id}_ET.parquet"
+    path: "/path/to/observations/gage_<gage_id>_ET.parquet"
     time_column: value_time
     units: "m/d"
     simulated: ACTUAL_ET
 ```
 
 Multiple observation types, such as streamflow and ET, may be loaded together.
-`path` supports `{gage_id}` and `{variable}` placeholders.
+`path` supports `<gage_id>` and `<variable>` placeholders.
 
 ## Layouts
 

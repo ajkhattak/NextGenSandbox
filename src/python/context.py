@@ -30,7 +30,9 @@ from src.python.observations import ObservationLoader
 from src.python.resource_paths import (
     find_gpkg_file,
     forcing_dir_for_resource,
+    has_gage_placeholder,
     has_gpkg_file,
+    render_gage_path,
     resource_hydrofabric_dir,
     resource_id,
 )
@@ -144,7 +146,7 @@ class SandboxContext:
         forcing_dir = str(
             forcing_dir_for_resource(
                 self.input_dir,
-                "{*}",
+                "<gage_id>",
                 forcing_start_yr,
                 forcing_end_yr,
                 self.resource_layout,
@@ -602,33 +604,24 @@ class SandboxContext:
 
         if self.forcing_format == ".nc":
 
-            if "{*}" in self.forcing_dir:
+            if has_gage_placeholder(self.forcing_dir):
                 for g in self.gpkg_dirs:
                     forcing_dir_local = self.forcing_dir
-                    fdir = Path(forcing_dir_local.replace("{*}", resource_id(g)))
-                    fdir = self._resolve_forcing_dir(g, fdir)
-
-                    if not fdir.exists() or not fdir.is_dir():
-                        raise ValueError(f"Forcing directory '{fdir}' does not exist.")
-                    forcing_file = select_netcdf_forcing_file(
-                        fdir,
-                        prefer_corrected=self.is_corrected_forcing,
+                    forcing_path = render_gage_path(
+                        forcing_dir_local,
+                        resource_id(g),
                     )
-                    forcing_file = prepare_rechunked_forcing_file(
-                        forcing_file,
-                        sandbox_dir=self.sandbox_dir,
-                        enabled=self.rechunk_forcing,
-                    )
+                    forcing_file = self._resolve_netcdf_forcing_file(g, forcing_path)
 
                     self.forcing_files.append(str(forcing_file))
             else:
                 forcing_file = self._resolve_single_netcdf_forcing_file()
                 self.forcing_files.append(str(forcing_file))
         else:
-            if "{*}" in self.forcing_dir:
+            if has_gage_placeholder(self.forcing_dir):
                 for g in self.gpkg_dirs:
                     forcing_dir_local = self.forcing_dir
-                    fdir = Path(forcing_dir_local.replace("{*}", resource_id(g)))
+                    fdir = render_gage_path(forcing_dir_local, resource_id(g))
                     fdir = self._resolve_forcing_dir(g, fdir)
 
                     if not fdir.exists():
@@ -648,6 +641,33 @@ class SandboxContext:
             return legacy_dir
         return forcing_dir
 
+    def _resolve_netcdf_forcing_file(self, resource, forcing_path):
+        forcing_path = self._resolve_forcing_dir(resource, forcing_path)
+
+        if not forcing_path.exists():
+            raise ValueError(
+                f"Forcing directory or file '{forcing_path}' does not exist."
+            )
+
+        if forcing_path.is_dir():
+            forcing_file = select_netcdf_forcing_file(
+                forcing_path,
+                prefer_corrected=self.is_corrected_forcing,
+            )
+        else:
+            if forcing_path.suffix != ".nc":
+                raise ValueError(
+                    "forcings.forcing_dir resolved to a file, but NetCDF forcing "
+                    f"requires a .nc file: {forcing_path}"
+                )
+            forcing_file = forcing_path
+
+        return prepare_rechunked_forcing_file(
+            forcing_file,
+            sandbox_dir=self.sandbox_dir,
+            enabled=self.rechunk_forcing,
+        )
+
     def _resolve_single_netcdf_forcing_file(self):
         forcing_path = Path(self.forcing_dir)
 
@@ -666,7 +686,7 @@ class SandboxContext:
                     f"but {len(self.gpkg_dirs)} gages are configured. "
                     "A single forcing file is only supported for one-gage runs. "
                     "For multiple gages, use a forcing directory pattern with "
-                    "{*} or the default layout-derived forcing directories."
+                    "<gage_id> or the default layout-derived forcing directories."
                 )
             if forcing_path.suffix != ".nc":
                 raise ValueError(
