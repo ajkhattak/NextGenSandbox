@@ -68,6 +68,19 @@ Step-level gage filters under `subsetting`, `forcings`, and `simulation` may be
 `all`, one gage ID, or a list of IDs. CSV and geopackage selection should be
 configured under `general.gages`.
 
+If geopackages already exist in the input resources, set:
+
+```yaml
+general:
+  gages:
+    option: gpkg
+    gpkg:
+      pattern: "gage_"
+```
+
+When `general.gages.gpkg.dir` is omitted, the workflow discovers geopackages
+from `general.input_dir` using `general.resource_layout`.
+
 Run:
 
 ```bash

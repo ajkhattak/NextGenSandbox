@@ -70,13 +70,19 @@ load_subset_config <- function(runtime) {
 
   general_gages <- get_param(inputs, "general$gages", NULL)
   subsetting_gages <- get_param(inputs, "subsetting$gages", NULL)
-  subset_gages <- resolve_subset_gages(general_gages, subsetting_gages)
+  resource_layout <- get_param(inputs, "general$resource_layout", "gage")
+  subset_gages <- resolve_subset_gages(
+    general_gages,
+    subsetting_gages,
+    input_dir = inputs$general$input_dir,
+    resource_layout = resource_layout
+  )
 
   list(
     sandbox_dir = runtime$sandbox_dir,
     infile_config = runtime$infile_config,
     input_dir = inputs$general$input_dir,
-    resource_layout = get_param(inputs, "general$resource_layout", "gage"),
+    resource_layout = resource_layout,
     hydrofabric = list(
       version = inputs$subsetting$hydrofabric$version,
       gpkg_path = inputs$subsetting$hydrofabric$gpkg_path,
@@ -112,7 +118,7 @@ load_subset_config <- function(runtime) {
   )
 }
 
-resolve_subset_gages <- function(general_gages, subset_gages) {
+resolve_subset_gages <- function(general_gages, subset_gages, input_dir, resource_layout) {
   if (is.null(general_gages)) {
     stop("general$gages must be defined. Use subsetting$gages only as an optional filter: all, one ID, or a list of IDs.")
   }
@@ -130,7 +136,11 @@ resolve_subset_gages <- function(general_gages, subset_gages) {
       column = ifelse(is.null(general_gages$file$column), "gage_id", general_gages$file$column)
     ),
     gpkg = list(
-      dir = general_gages$gpkg$dir,
+      dir = resolve_general_gpkg_dir(
+        general_gages$gpkg$dir,
+        input_dir,
+        resource_layout
+      ),
       pattern = ifelse(is.null(general_gages$gpkg$pattern), "gage_", general_gages$gpkg$pattern),
       select = general_gages$gpkg$select
     )
@@ -186,6 +196,22 @@ resolve_subset_gages <- function(general_gages, subset_gages) {
   }
 
   stop(sprintf("Invalid option '%s'. general$gages$option must be one of: ids, file, gpkg", option))
+}
+
+resolve_general_gpkg_dir <- function(gpkg_dir, input_dir, resource_layout) {
+  if (!is.null(gpkg_dir) && trimws(gpkg_dir) != "") {
+    return(gpkg_dir)
+  }
+
+  if (is.null(input_dir) || trimws(input_dir) == "") {
+    stop("general$input_dir must be defined when general$gages$gpkg$dir is omitted.")
+  }
+
+  if (identical(resource_layout, "resource")) {
+    return(file.path(input_dir, "hydrofabric"))
+  }
+
+  input_dir
 }
 
 validate_subset_config <- function(config) {
@@ -283,6 +309,17 @@ load_gpkg_files <- function(config) {
 
   if (dir.exists(gpkg_dir)) {
     gage_files <- list.files(gpkg_dir, full.names = TRUE, pattern = pattern)
+    if (length(gage_files) == 0 && identical(config$resource_layout, "gage")) {
+      candidate_dirs <- list.dirs(gpkg_dir, recursive = FALSE, full.names = TRUE)
+      gage_files <- unlist(lapply(candidate_dirs, function(candidate_dir) {
+        candidate_files <- c(
+          list.files(file.path(candidate_dir, "hydrofabric"), full.names = TRUE, pattern = pattern),
+          list.files(file.path(candidate_dir, "data"), full.names = TRUE, pattern = pattern),
+          list.files(candidate_dir, full.names = TRUE, pattern = pattern)
+        )
+        candidate_files[grepl("\\.gpkg$", candidate_files)]
+      }))
+    }
   } else if (file.exists(gpkg_dir)) {
     gage_files <- gpkg_dir
   } else {

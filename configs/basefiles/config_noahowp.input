@@ -1,4 +1,4 @@
-flat_domain = true ! Sandbox only: true sets slope/aspect to zero; false uses divide-attribute values
+flat_domain = false ! Sandbox only: true sets slope/aspect to zero; false uses divide-attribute values
 ! and adjusts incoming shortwave radiation to slope and aspect.
 
 &timing                                   ! and input/output paths
