@@ -7,6 +7,7 @@ cfes_params:
   min: 0.0
   max: 0.00726
   init: 0.000338
+  scale: log10
 - name: satpsi
   min: 0.0
   max: 0.995
@@ -23,6 +24,7 @@ cfes_params:
   min: 1.8e-06
   max: 0.0018
   init: 0.00018
+  scale: log10
 - name: expon
   min: 1.0
   max: 8.0
@@ -51,3 +53,4 @@ cfes_params:
   min: 0.15
   max: 0.33
   init: 0.2
+

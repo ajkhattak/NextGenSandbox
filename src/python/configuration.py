@@ -192,6 +192,78 @@ class ConfigurationCalib:
 
         return strategy
 
+    @classmethod
+    def normalize_calibration_parameter_blocks(cls, param_blocks):
+        return {
+            block_name: cls.normalize_calibration_parameters(
+                block_name,
+                params,
+            )
+            for block_name, params in param_blocks.items()
+        }
+
+    @classmethod
+    def normalize_calibration_parameters(cls, block_name, params):
+        if not isinstance(params, list):
+            return params
+
+        return [
+            cls.normalize_calibration_parameter(block_name, param)
+            for param in params
+        ]
+
+    @staticmethod
+    def normalize_calibration_parameter(block_name, param):
+        if not isinstance(param, dict):
+            return param
+
+        scale = str(param.get("scale", "linear")).lower()
+        if scale not in {"linear", "log10"}:
+            raise ValueError(
+                f"Calibration parameter '{param.get('name', '<unknown>')}' "
+                f"in block '{block_name}' has unsupported scale '{scale}'. "
+                "Supported values are: linear, log10."
+            )
+
+        normalized = dict(param)
+        if "scale" in normalized:
+            normalized["scale"] = scale
+
+        if scale != "log10":
+            return normalized
+
+        normalized["scale"] = scale
+
+        for field in ("min", "max", "init"):
+            if field not in normalized:
+                raise ValueError(
+                    f"Calibration parameter '{param.get('name', '<unknown>')}' "
+                    f"in block '{block_name}' is missing required field '{field}'."
+                )
+            value = float(normalized[field])
+            if value <= 0.0:
+                raise ValueError(
+                    f"Calibration parameter '{param.get('name', '<unknown>')}' "
+                    f"in block '{block_name}' uses scale: log10, so '{field}' "
+                    f"must be a positive physical value. Provided: {value}"
+                )
+            normalized[field] = math.log10(value)
+
+        if normalized["min"] > normalized["max"]:
+            raise ValueError(
+                f"Calibration parameter '{param.get('name', '<unknown>')}' "
+                f"in block '{block_name}' has min greater than max after "
+                "log10 conversion."
+            )
+        if not normalized["min"] <= normalized["init"] <= normalized["max"]:
+            raise ValueError(
+                f"Calibration parameter '{param.get('name', '<unknown>')}' "
+                f"in block '{block_name}' has init outside min/max after "
+                "log10 conversion."
+            )
+
+        return normalized
+
     def load_calib_config(self):
         with open(self.ctx.calib_config_path, "r") as file:
             base_file = yaml.safe_load(file) or {}
@@ -261,6 +333,7 @@ class ConfigurationCalib:
                     "model files under configs/calibration/."
                 )
 
+        param_blocks = self.normalize_calibration_parameter_blocks(param_blocks)
         base_file.update(param_blocks)
         return base_file
 

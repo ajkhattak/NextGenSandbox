@@ -175,19 +175,24 @@ cfex_params:
     init: 4.05
 ```
 
-Parameters use a linear calibration scale by default. To search in base-10
-logarithmic space, set `scale: log10` and provide `min`, `max`, and `init` as
-base-10 logarithms. The value is converted back to physical space before it is
-written to the ngen realization:
+Parameters use a linear calibration scale by default. Keep `min`, `max`, and
+`init` in the physical/model units expected by the model. To search a parameter
+in base-10 logarithmic space, set `scale: log10`; Sandbox converts those
+physical values to log10 space before writing the generated ngen-cal config.
+ngen-cal then converts sampled values back to physical space before writing the
+ngen realization:
 
 ```yaml
 cfes_params:
   - name: Cgw
     scale: log10
-    min: -5.744727
-    max: -2.744727
-    init: -3.744727
+    min: 1.8e-06
+    max: 0.0018
+    init: 0.00018
 ```
+
+For `scale: log10`, `min`, `max`, and `init` must be positive, and `init` must
+fall within the physical min/max range.
 
 If a model has no calibratable parameters for a workflow, leave
 `calib_params_block` empty in its model instance.

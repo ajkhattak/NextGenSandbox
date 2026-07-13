@@ -237,6 +237,10 @@ run-local `ngen-cal_calib_config.yaml`.
 |---|---|
 | `params_dir` | Directory under `configs/` containing model calibration parameter files. Default: `calibration`. |
 
+Model parameter files may set `scale: log10` on individual parameters. Keep
+`min`, `max`, and `init` in physical/model units; Sandbox converts them to
+log10 space for ngen-cal.
+
 ### `model`
 
 | Field | Meaning |
