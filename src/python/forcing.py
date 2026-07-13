@@ -15,8 +15,9 @@ from src.python.forcing_files import (
 from src.python.gages import load_general_gages, resolve_step_gages
 from src.python.resource_paths import (
     find_gpkg_file,
-    forcing_dir_for_resource,
+    has_gage_placeholder,
     has_gpkg_file,
+    render_gage_path,
     resource_hydrofabric_dir,
     resource_id,
 )
@@ -64,13 +65,13 @@ class ForcingProcessor:
             forcing_dir = os.path.join(
                 self.input_dir,
                 "forcing",
-                "{*}",
+                "<gage_id>",
                 f"{start_yr}_to_{end_yr}",
             )
         else:
             forcing_dir = os.path.join(
                 self.input_dir,
-                "{*}",
+                "<gage_id>",
                 f"forcing/{start_yr}_to_{end_yr}",
             )
         self.forcing_dir = self.dforcing.get("forcing_dir", forcing_dir)
@@ -102,8 +103,8 @@ class ForcingProcessor:
         self.gpkg_file = str(find_gpkg_file(resource))
 
         fdir = self.forcing_dir
-        if "{*}" in self.forcing_dir:
-            fdir = Path(self.forcing_dir.replace("{*}", resource_id(resource)))
+        if has_gage_placeholder(self.forcing_dir):
+            fdir = render_gage_path(self.forcing_dir, resource_id(resource))
 
         forcing_config = self.write_forcing_input_files(forcing_dir=fdir)
 
@@ -200,15 +201,7 @@ class ForcingProcessor:
 
         d['gpkg'] = self.gpkg_file
         d["years"] = [start_yr, end_yr]
-        d["out_dir"] = str(
-            forcing_dir_for_resource(
-                self.input_dir,
-                self.current_resource,
-                start_yr,
-                end_yr,
-                self.resource_layout,
-            ).parent
-        )
+        d["out_dir"] = str(Path(forcing_dir).parent)
 
         out_dir = Path(d['out_dir']) / f'{start_yr}_to_{end_yr}'
         are_identical = out_dir.resolve() == Path(forcing_dir).resolve()

@@ -126,14 +126,14 @@ class TestObservationLoader(unittest.TestCase):
             observations = {
                 "streamflow": {
                     "layout": "point",
-                    "path": str(root / "gage_{gage_id}_streamflow.parquet"),
+                    "path": str(root / "gage_<gage_id>_streamflow.parquet"),
                     "time_column": "value_time",
                     "value_column": "value",
                     "units": "m3/sec",
                 },
                 "ET": {
                     "layout": "distributed",
-                    "path": str(root / "gage_{gage_id}_{variable}.parquet"),
+                    "path": str(root / "gage_<gage_id>_<variable>.parquet"),
                     "time_column": "value_time",
                     "units": "mm/h",
                 },

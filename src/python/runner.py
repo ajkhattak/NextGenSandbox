@@ -18,7 +18,7 @@ from pathlib import Path
 import shutil
 from src.python import configuration
 from src.python import helper
-from src.python.resource_paths import find_gpkg_file
+from src.python.resource_paths import find_gpkg_file, render_gage_path
 
 class Runner:
     def __init__(self, ctx):
@@ -171,7 +171,7 @@ class Runner:
             sim_time = self.ctx.simulation_time
             eval_time = self.ctx.calib_eval_time
             start_time = pd.Timestamp(sim_time['start_time']).strftime("%Y%m%d%H%M")
-            restart_dir = self.ctx.restart_dir.replace("{*}", id)
+            restart_dir = str(render_gage_path(self.ctx.restart_dir, id))
             ngen_cal_type = mode
 
         elif mode == 'validation':

@@ -194,8 +194,13 @@ class ObservationLoader:
 
     def resolve_path(self, name, path_template, gage_id):
         """Resolve a configured path template to an absolute observation file."""
+        template = (
+            str(path_template)
+            .replace("<gage_id>", "{gage_id}")
+            .replace("<variable>", "{variable}")
+        )
         try:
-            rendered = str(path_template).format(
+            rendered = template.format(
                 gage_id=gage_id,
                 variable=name,
             )

@@ -168,17 +168,24 @@ or, for multiple gages:
 ```yaml
 forcings:
   format: ".nc"
-  forcing_dir: "/path/to/resources/{*}/forcing/2016_to_2021"
+  forcing_dir: "/path/to/resources/<gage_id>/forcing/2016_to_2021"
 ```
 
-The `{*}` placeholder is replaced by each selected gage/resource ID.
+The `<gage_id>` placeholder is replaced by each selected gage/resource ID. It
+can also point directly to one NetCDF file per gage:
+
+```yaml
+forcings:
+  format: ".nc"
+  forcing_dir: "/path/to/forcing_custom/<gage_id>.nc"
+```
 
 Observation paths can use placeholders:
 
 ```yaml
 observations:
   streamflow:
-    path: "/path/to/streamflow/gage_{gage_id}_hourly_{variable}.csv"
+    path: "/path/to/streamflow/gage_<gage_id>_hourly_<variable>.csv"
 ```
 
 ## Common Alternatives
