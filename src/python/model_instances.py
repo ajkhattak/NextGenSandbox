@@ -104,7 +104,7 @@ DEFAULT_MODEL_INSTANCES = {
         )
 
     ],
-    
+
     "SNOW17": [
 
         ModelInstance(
@@ -115,7 +115,7 @@ DEFAULT_MODEL_INSTANCES = {
             calib_params_block="snow17_params",
             calib_params_file="snow17.yaml",
             ngen_cal_model_name="Snow17"
-            
+
         )
 
     ],
@@ -148,7 +148,7 @@ DEFAULT_MODEL_INSTANCES = {
         )
 
     ],
-    
+
     "LSTM": [
 
         ModelInstance(
@@ -374,7 +374,7 @@ def build_model_instances(formulation, model_instances=None):
                 instances.append(instance)
 
             registry[model] = instances
-        
+
         # Default instances
         elif model in DEFAULT_MODEL_INSTANCES:
 

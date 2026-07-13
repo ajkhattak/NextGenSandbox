@@ -49,7 +49,7 @@ class SandboxContext:
     calib_config_path: str
 
     mode: str = "conf"
-    
+
     # Optional runtime inputs
     dryrun: bool = False
 
@@ -108,26 +108,26 @@ class SandboxContext:
         self.load_simulation_config()
 
         self.load_observations_config()
-        
+
 
     def load_formulation_config(self):
         # Formulation block
         dformul = self.sandbox_config["formulation"]
-        
+
         self.ngen_dir = Path(os.environ.get("NGEN_DIR"))
-        
+
         self.formulation = (
             dformul["models"]
             .upper()
             .replace(" ", "")
         )
-        
+
         self.model_instances = dformul.get("model_instances", {})
-        
+
         self.clean = self.process_clean_input_param(dformul.get("clean", "none"))
 
         self.verbosity = dformul.get("verbosity", 0)
-        
+
         self.schema_type = dformul.get("schema_type", "noaa-owp")
 
     def load_forcing_config(self):
@@ -372,7 +372,7 @@ class SandboxContext:
 
                 self.validation_time = dsim["validation_time"]
                 self.valid_eval_time = dsim["valid_eval_time"]
-            
+
         elif self.task_type == "validation":
 
             if "valid_eval_time" not in dsim or not isinstance(dsim["valid_eval_time"], dict):
@@ -390,19 +390,19 @@ class SandboxContext:
             self.valid_eval_time = dsim["valid_eval_time"]
 
         elif self.task_type == "control":
-            
+
             self.validate_time_window(
                 "task_type CONTROL: simulation_time",
                 dsim.get("simulation_time"),
             )
-            
+
             self.simulation_time = dsim["simulation_time"]
 
         else:
             raise ValueError("Invalid task_type provided: valid options are [control, calibration, validation, calibvalid, restart]")
 
 
-        
+
         self.restart_dir = "./"
         if self.task_type == 'restart':
             self.restart_dir = dsim.get('restart_dir')
@@ -410,7 +410,7 @@ class SandboxContext:
                 raise ValueError("task_type is restart, however, restart_dir is None. It must be set to a valid directory.")
             if not self.restart_dir:
                 raise FileNotFoundError(f"restart_dir does not exist, provided {self.restart_dir}.")
-            
+
         # Ensemble block
         densemble = dsim.get("ensemble") or None
 
@@ -418,7 +418,7 @@ class SandboxContext:
             self.ensemble_enabled = bool(densemble.get('enabled'))
 
             if self.ensemble_enabled:
-                
+
                 self.ensemble_models = (
                     self.formulation
                     .replace("T-ROUTE", "")
@@ -486,11 +486,11 @@ class SandboxContext:
     def get_model_instances(self, model_name):
         """
         Return all configured instances for a model.
-        
+
         Example:
         get_model_instances("CFE")
         """
-        
+
         return self.model_registry.get(model_name.upper(), [])
 
     def get_model_instance_names(self, model_name):
@@ -498,7 +498,7 @@ class SandboxContext:
             instance.name
             for instance in self.get_model_instances(model_name)
         ]
-    
+
     def prepare_model_instances(self):
 
         ML_MODELS = ["LSTM", "DHBV"]
@@ -524,7 +524,7 @@ class SandboxContext:
                     library_root = Path(instance.library_file)
                 else:
                     library_root = Path(self.ngen_dir) / "extern" / instance.repo_name / instance.repo_name
-                
+
                 if model_name in ["SLOTH", "TOPMODEL"]:
                      library_root = Path(self.ngen_dir) / "extern" / instance.repo_name
 
@@ -560,7 +560,7 @@ class SandboxContext:
                             matches = preferred
 
                 instance.library_file = str(matches[0])
-                
+
 
     def load_gpkg_dirs(self):
         if self.resource_layout == "resource":

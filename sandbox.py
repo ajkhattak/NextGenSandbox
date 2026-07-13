@@ -81,7 +81,7 @@ def configure_runtime_environment():
 
 def check_sandbox_venv(sandbox_build_dir):
     SANDBOX_ENV = Path(os.environ.get("SANDBOX_ENV"))
-    
+
     # Check if the virtual environment exists
     if not SANDBOX_ENV.exists():
         print(f"Error: NextGen virtual environment {SANDBOX_ENV} not found under directory: {sandbox_build_dir}/venv")
@@ -127,7 +127,7 @@ def normalize_dryrun_args(args):
 
 
 def Sandbox(args, sandbox_config, calib_config, rscript, dryrun=False):
-    
+
     if (args.subset):
         print ("Generating geopackages...", flush=True)
 
@@ -186,7 +186,7 @@ def Sandbox(args, sandbox_config, calib_config, rscript, dryrun=False):
     )
 
     ctx.initialize()
-    
+
     if (args.conf):
         print ("Generating config files...")
         status = driver.Driver(ctx).run()
@@ -195,7 +195,7 @@ def Sandbox(args, sandbox_config, calib_config, rscript, dryrun=False):
             sys.exit("Failed during generating config files step...")
         else:
             print("NextGenSandbox configuration step completed successfully.")
-    
+
     if (args.run):
         print ("Running NextGen simulations...")
 
@@ -206,9 +206,9 @@ def Sandbox(args, sandbox_config, calib_config, rscript, dryrun=False):
             sys.exit("Failed during ngen-cal execution...")
         else:
             print("NextGenSandbox run step completed successfully.")
-    
+
     print ("**********************************")
-    
+
 
 def write_gage_override_config(
     sandbox_config,
@@ -276,7 +276,7 @@ def main():
         ),
     )
     parser.add_argument("--formulations", action="store_true", help="List supported formulations and exit")
-    
+
     args = parser.parse_args()
 
     try:

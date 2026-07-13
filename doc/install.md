@@ -45,9 +45,9 @@ up a single-basin project and scale larger runs with the Sandbox Launcher.
 
 ### <ins> Step 1. Build Sandbox Workflow
   1.1 Clone the repository (if not already done):
-     
+
      git clone https://github.com/ajkhattak/NextGenSandbox && cd NextGenSandbox
-     
+
   1.2 Ensure conda or Python (>=3.11) is available: \
      - Local machine: check Python version. \
      - HPC system: load conda or a compatible Python module, e.g., Python ≥ 3.11.
@@ -55,7 +55,7 @@ up a single-basin project and scale larger runs with the Sandbox Launcher.
   1.3 Set up sandbox environment variables
 
      ./bootstrap.sh --env --verbose
-    
+
 
   Validate this step [here](https://github.com/ajkhattak/NextGenSandbox/blob/main/utils/venv/validation.md#step-13-validation).
 
@@ -73,9 +73,9 @@ availability, and git submodule status.
   [diagnostics.md](./diagnostics.md).
 
   1.4 Build the Sandbox workflow:
-     
+
      ./bootstrap.sh --sandbox
-     
+
   Validate this step [here](https://github.com/ajkhattak/NextGenSandbox/blob/main/utils/venv/validation.md#step-14-validation).
 
 ### <ins> Step 2. Install Subsetting Dependencies
