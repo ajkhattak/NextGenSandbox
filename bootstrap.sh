@@ -215,6 +215,7 @@ run_check() {
     local sandbox_env
     local forcing_env
     local subset_env
+    local os_name
     local target_file=""
     local source_line=""
 
@@ -227,6 +228,7 @@ run_check() {
     sandbox_env="${SANDBOX_ENV:-$sandbox_build_dir/venv/sandbox}"
     forcing_env="${FORCING_ENV:-$sandbox_build_dir/venv/forcing}"
     subset_env="$sandbox_build_dir/rvenv/venv_subset"
+    os_name="$(uname -s)"
 
     echo ""
     echo "Bootstrap Check"
@@ -324,9 +326,24 @@ run_check() {
     fi
     if [ -x "$subset_env/bin/Rscript" ]; then
         status_ok "Subset Rscript: $subset_env/bin/Rscript"
+    elif command -v Rscript >/dev/null 2>&1; then
+        status_warn "Subset conda R env not found: $subset_env"
+        echo "           System Rscript is available and will be checked below."
+        if [ "$os_name" = "Darwin" ]; then
+            echo "           On macOS, prefer installing subset R packages with:"
+            echo "             Rscript \$SANDBOX_DIR/src/R/install_load_libs.R --install"
+        else
+            echo "           On HPC/Linux, run ./bootstrap.sh --subset if you want the managed subset R env."
+            echo "           A loaded R module is OK only if the same module is loaded for sandbox --subset."
+        fi
     else
         status_warn "Subset R env not found: $subset_env"
-        echo "           Run: ./bootstrap.sh --subset"
+        if [ "$os_name" = "Darwin" ]; then
+            echo "           Install R, then run:"
+            echo "             Rscript \$SANDBOX_DIR/src/R/install_load_libs.R --install"
+        else
+            echo "           Run: ./bootstrap.sh --subset"
+        fi
     fi
     echo ""
 
