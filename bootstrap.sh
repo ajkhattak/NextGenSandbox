@@ -333,6 +333,7 @@ run_check() {
     echo "Python Packages"
     check_python_import "$sandbox_env/bin/python" "ngen.cal" "ngen.cal import"
     check_python_import "$sandbox_env/bin/python" "ngen.config" "ngen.config import"
+    check_python_import "$sandbox_env/bin/python" "ngen_cal_plugins" "ngen_cal_plugins import"
     check_python_import "$sandbox_env/bin/python" "nwm_routing" "nwm_routing import (t-route)"
     echo ""
 
