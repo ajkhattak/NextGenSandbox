@@ -13,7 +13,7 @@ import os, sys
 
 def get_gage_ids(input_pattern):
     gage_ids = []
-    
+
     for gpkg_path in glob.glob(input_pattern):
         gpkg_file = Path(gpkg_path)
         match = re.match(r"gage_(\w+)\.gpkg", gpkg_file.name)
@@ -67,22 +67,44 @@ def fetch_and_save_hourly_usgs_data(service,
         observations_data['value_time'] = pd.to_datetime(observations_data['value_time'])
         observations_data['value'] = observations_data['value'] * cf_per_hr_to_m3_per_hr
 
-        # no aggregation
-        # Filter to hourly values
         if (aggregate):
             # Set datetime as index for resampling
             observations_data = observations_data.set_index('value_time')
 
             # Aggregate to hourly averages, label by end of hour (averaging period)
-            hourly_df = (
+            hourly = (
                 observations_data['value']
                 .resample('1h', label='right', closed='left')
                 .mean()
-                .reset_index()
             )
 
-            # Drop any rows with NaN after resampling
-            hourly_df = hourly_df.dropna(subset=['value'])
+            # Keep a complete hourly time axis so missing observation hours
+            # remain explicit as NaN instead of being silently dropped. The
+            # calibration/scoring plugin can then ignore paired sim/obs rows
+            # where obs is NaN, while we still know how many observation hours
+            # were unavailable.
+            start_hour = pd.Timestamp(start).ceil('h')
+            end_hour = pd.Timestamp(end).floor('h')
+            full_hours = pd.date_range(start=start_hour, end=end_hour, freq='1h')
+
+            hourly = hourly.reindex(full_hours)
+            hourly.index.name = 'value_time'
+
+            missing_count = int(hourly.isna().sum())
+            total_count = int(hourly.shape[0])
+            print(
+                f"[INFO] Gage {gage_id}: hourly obs rows={total_count}, "
+                f"missing={missing_count}"
+            )
+
+            if missing_count > 0:
+                missing_times = hourly[hourly.isna()].index
+                print(
+                    f"[WARNING] Gage {gage_id}: missing hourly observations "
+                    f"from {missing_times.min()} to {missing_times.max()}"
+                )
+
+            hourly_df = hourly.rename('value').reset_index()
         else:
             hourly_only = observations_data[
                 (observations_data['value_time'].dt.minute == 0) &
@@ -91,8 +113,8 @@ def fetch_and_save_hourly_usgs_data(service,
 
             # Select only value_time and value
             hourly_df = hourly_only[['value_time', 'value']].copy()
-            
-        
+
+
         # Save to file
         output_path = f"{output_dir}/gage_{gage_id}_hourly_streamflow.csv"
         hourly_df.to_csv(output_path, index=False)
@@ -152,9 +174,10 @@ if __name__ == "__main__":
     output_dir    = "/Users/ahmadjankhattak/Core/projects/nwm_bm_sims/usgs_obs_streamflow_agg"
     start = "2015-10-01 00:00:00"
     end   = "2022-09-30 23:00:00"
+
     aggregate = True
     gages_lst = []     # e.g. ['10011500', '08070500']
-    
+
     get_usgs_data_driver(
         input_pattern=input_pattern,
         output_dir=output_dir,

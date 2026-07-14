@@ -12,6 +12,8 @@ general:
       path: "<path_to_basin_ids_file>/basin_ids_file.csv" #------------ Path to CSV file with project gage IDs.
       column: "gage_id" #---------------------------------------------- Column name containing gage IDs.
     gpkg:
+      # dir may be omitted to discover geopackages from general.input_dir
+      # using general.resource_layout.
       dir: "<path_to_gpkgs_dir>" #------------------------------------- Path to existing geopackages directory or a .gpkg file.
       pattern: "gage_" #----------------------------------------------- Filename pattern used when discovering geopackages.
       select: ["01308000"] #------------------------------------------- Selected gages/gpkgs from the gpkg directory.
@@ -52,22 +54,22 @@ forcings :
 
 ########################################################################
 # Optional local CSV or Parquet observation datasets. Multiple observation types can
-# be loaded together. Use {gage_id} and {variable} in paths when each basin has
+# be loaded together. Use <gage_id> and <variable> in paths when each basin has
 # its own file.
 observations: {}
   #objective: kge # options: kge, nse, nnse
   #streamflow:
   #  layout: point
-  #  path: "<path_to_observations>/{gage_id}_streamflow.parquet"
-  #  path: "<path_to_observations>/{gage_id}/{variable}.parquet"
+  #  path: "<path_to_observations>/<gage_id>_streamflow.parquet"
+  #  path: "<path_to_observations>/<gage_id>/<variable>.parquet"
   #  time_column: value_time
   #  value_column: value
   #  units: "m3/sec"
   #
   #ET:
   #  layout: distributed
-  #  path: "<path_to_observations>/{gage_id}_ET.parquet"
-  #  path: "<path_to_observations>/{gage_id}_{variable}.parquet"
+  #  path: "<path_to_observations>/<gage_id>_ET.parquet"
+  #  path: "<path_to_observations>/<gage_id>_<variable>.parquet"
   #  time_column: value_time
   #  units: "mm/d"
   #  simulated: ACTUAL_ET
@@ -131,7 +133,7 @@ simulation :
         spinup: "12 months"
         evaluation: "1 year"
         #end: "2020-08-01 04:00:00" #-------------------------------------- Optional inclusive end override
-  restart_dir      : "<path_to_restart_dir>/{*}/202410042024_ngen_qaiklwj0_worker/" #----------- Restart experiment from the best iteration
+  restart_dir      : "<path_to_restart_dir>/<gage_id>/202410042024_ngen_qaiklwj0_worker/" #------- Restart experiment from the best iteration
 
   outputs:
     divide_variables: {} #-------------------------------------------------- BMI variables written to each cat-<divide_id>.csv file
