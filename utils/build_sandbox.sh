@@ -66,7 +66,7 @@ print_build_status()
     printf "  [%s] %s\n" "$status" "$message"
 }
 
-verify_sandbox_build()
+summarize_sandbox_build()
 {
     local sandbox_python="$SANDBOX_ENV/bin/python"
     local sandbox_command="$SANDBOX_ENV/bin/sandbox"
@@ -74,8 +74,8 @@ verify_sandbox_build()
     local failed=0
 
     echo ""
-    echo "Sandbox build verification"
-    echo "=========================="
+    echo "Sandbox build summary"
+    echo "====================="
 
     if [ -x "$sandbox_python" ]; then
         print_build_status "OK" "Sandbox Python: $sandbox_python"
@@ -98,31 +98,10 @@ verify_sandbox_build()
         failed=1
     fi
 
-    if [ -x "$sandbox_python" ] && "$sandbox_python" -c "import ngen.cal" >/dev/null 2>&1; then
-        print_build_status "OK" "ngen.cal import"
-    else
-        print_build_status "MISSING" "ngen.cal import"
-        failed=1
-    fi
-
-    if [ -x "$sandbox_python" ] && "$sandbox_python" -c "import ngen.config" >/dev/null 2>&1; then
-        print_build_status "OK" "ngen.config import"
-    else
-        print_build_status "MISSING" "ngen.config import"
-        failed=1
-    fi
-
-    if [ -x "$sandbox_python" ] && "$sandbox_python" -c "import importlib.util; raise SystemExit(0 if importlib.util.find_spec('ngen_cal_plugins') else 1)" >/dev/null 2>&1; then
-        print_build_status "OK" "ngen_cal_plugins package"
-    else
-        print_build_status "MISSING" "ngen_cal_plugins package"
-        failed=1
-    fi
-
     echo ""
 
     if [ "$failed" -ne 0 ]; then
-        echo "Sandbox build finished, but one or more verification checks failed."
+        echo "Sandbox build finished, but one or more expected environments were not found."
         echo "Run ./bootstrap.sh --check for a fuller diagnostic report."
         return 1
     fi
@@ -132,12 +111,6 @@ verify_sandbox_build()
     echo "Created environments:"
     echo "  Sandbox CLI : $SANDBOX_ENV"
     echo "  Forcing     : $FORCING_ENV"
-    echo ""
-    echo "Next step:"
-    echo "  ./bootstrap.sh --check"
-    echo ""
-    echo "If this is a new shell, reload the Sandbox environment first:"
-    echo "  source utils/sandbox_env.sh"
 }
 
 #####################################################
@@ -274,7 +247,7 @@ build_sandbox()
 	deactivate
     fi
 
-    verify_sandbox_build
+    summarize_sandbox_build
 }
 
 
