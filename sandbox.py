@@ -52,7 +52,7 @@ def check_required_env_vars():
         print("")
         print("Please source the sandbox environment before running:")
         print("")
-        print("  source utils/sandbox_env.sh or ./boostrap.sh --env")
+        print("  source utils/sandbox_env.sh or ./bootstrap.sh --env")
         print("")
 
         sys.exit(1)
