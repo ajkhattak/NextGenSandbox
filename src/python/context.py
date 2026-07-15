@@ -28,6 +28,7 @@ from src.python.gages import load_general_gages, resolve_step_gages
 from src.python.model_instances import build_model_instances
 from src.python.observations import ObservationLoader
 from src.python.resource_paths import (
+    HYDROFABRIC_DIR,
     find_gpkg_file,
     forcing_dir_for_resource,
     has_gage_placeholder,
@@ -596,7 +597,48 @@ class SandboxContext:
             ]
 
         if not self.gpkg_dirs:
-            raise FileNotFoundError(f"Geopackage file(s) missing for gage(s) {gage_ids} in directory {self.input_dir}")
+            raise FileNotFoundError(self._missing_gpkg_message(gage_ids))
+
+    def _missing_gpkg_message(self, gage_ids):
+        input_dir = Path(self.input_dir)
+        gage_text = ", ".join(gage_ids) if gage_ids else "all configured gages"
+
+        if self.resource_layout == "resource":
+            expected = input_dir / HYDROFABRIC_DIR
+            message = (
+                f"Geopackage file(s) missing for gage(s) {gage_text}. "
+                f"With general.resource_layout: resource, expected files under "
+                f"{expected}/, for example {expected / 'gage_<gage_id>.gpkg'}."
+            )
+            alternate = [
+                input_dir / gid / HYDROFABRIC_DIR / f"gage_{gid}.gpkg"
+                for gid in gage_ids
+            ]
+            if any(path.exists() for path in alternate):
+                message += (
+                    " Matching geopackages were found in the gage-layout "
+                    "location. Set general.resource_layout: gage or move the "
+                    "geopackages to the resource-layout hydrofabric directory."
+                )
+            return message
+
+        examples = [
+            input_dir / "<gage_id>" / HYDROFABRIC_DIR / "gage_<gage_id>.gpkg",
+            input_dir / "<gage_id>" / "data" / "gage_<gage_id>.gpkg",
+        ]
+        message = (
+            f"Geopackage file(s) missing for gage(s) {gage_text}. "
+            f"With general.resource_layout: gage, expected files under "
+            f"{examples[0]} or {examples[1]}."
+        )
+        resource_dir = resource_hydrofabric_dir(input_dir)
+        if any((resource_dir / f"gage_{gid}.gpkg").exists() for gid in gage_ids):
+            message += (
+                " Matching geopackages were found in the resource-layout "
+                "location. Set general.resource_layout: resource or move the "
+                "geopackages under per-gage directories."
+            )
+        return message
 
 
     def prepare_forcing_files(self):
