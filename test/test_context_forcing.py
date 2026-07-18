@@ -88,6 +88,44 @@ class TestContextForcing(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "requires a .nc file"):
                 ctx.prepare_forcing_files()
 
+    def test_gage_layout_selection_uses_directory_name_not_gpkg_substring(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for dirname in ("10234500", "x10234500-orig"):
+                hydrofabric = Path(tmp) / dirname / "hydrofabric"
+                hydrofabric.mkdir(parents=True)
+                (hydrofabric / "gage_10234500.gpkg").touch()
+
+            ctx = object.__new__(SandboxContext)
+            ctx.input_dir = tmp
+            ctx.resource_layout = "gage"
+            ctx.gage_ids = ["10234500"]
+
+            ctx.load_gpkg_dirs()
+
+            self.assertEqual(ctx.gpkg_dirs, [Path(tmp) / "10234500"])
+
+    def test_gage_layout_selection_preserves_requested_gage_order(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for gage_id in ("03366500", "02299950"):
+                hydrofabric = Path(tmp) / gage_id / "hydrofabric"
+                hydrofabric.mkdir(parents=True)
+                (hydrofabric / f"gage_{gage_id}.gpkg").touch()
+
+            ctx = object.__new__(SandboxContext)
+            ctx.input_dir = tmp
+            ctx.resource_layout = "gage"
+            ctx.gage_ids = ["02299950", "03366500"]
+
+            ctx.load_gpkg_dirs()
+
+            self.assertEqual(
+                ctx.gpkg_dirs,
+                [
+                    Path(tmp) / "02299950",
+                    Path(tmp) / "03366500",
+                ],
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

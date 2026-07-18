@@ -272,67 +272,81 @@ class ConfigurationCalib:
             raise ValueError(
                 f"Calibration config must be a YAML mapping: {self.ctx.calib_config_path}"
             )
-
-        param_blocks = {
+        extra_top_level_keys = {
             key: value
             for key, value in base_file.items()
             if key not in self.CALIB_CONFIG_RESERVED_KEYS
         }
+        if extra_top_level_keys:
+            keys = ", ".join(sorted(extra_top_level_keys))
+            raise ValueError(
+                "Calibration parameter blocks must be defined in files under "
+                "calibration.params_dir, not directly in calib_config.yaml. "
+                f"Move top-level block(s) to configs/calibration/*.yaml: {keys}"
+            )
 
+        param_blocks = {}
         calibration = base_file.get("calibration", {}) or {}
         if not isinstance(calibration, dict):
             raise ValueError("calibration block in calib_config.yaml must be a mapping")
 
         params_dir = calibration.get("params_dir")
-        if params_dir:
-            required_blocks = self._required_calib_params_blocks()
-            params_dir = Path(params_dir)
-            if not params_dir.is_absolute():
-                params_dir = Path(self.ctx.calib_config_path).resolve().parent / params_dir
+        if not params_dir:
+            raise ValueError(
+                "calibration.params_dir must be provided in calib_config.yaml. "
+                "Each model's calibration parameters must live in a YAML file "
+                "under that directory."
+            )
 
-            if not params_dir.is_dir():
-                raise FileNotFoundError(
-                    f"Calibration parameter directory does not exist: {params_dir}"
-                )
+        required_blocks = self._required_calib_params_blocks()
 
-            for params_file in self._candidate_calib_param_files(
-                params_dir,
-                required_blocks,
-            ):
-                with open(params_file, "r") as file:
-                    file_blocks = yaml.safe_load(file) or {}
+        params_dir = Path(params_dir)
+        if not params_dir.is_absolute():
+            params_dir = Path(self.ctx.calib_config_path).resolve().parent / params_dir
 
-                if not isinstance(file_blocks, dict):
-                    raise ValueError(
-                        f"Calibration parameter file must be a YAML mapping: {params_file}"
-                    )
+        if not params_dir.is_dir():
+            raise FileNotFoundError(
+                f"Calibration parameter directory does not exist: {params_dir}"
+            )
 
-                for key, value in file_blocks.items():
-                    if key in self.CALIB_CONFIG_RESERVED_KEYS:
-                        raise ValueError(
-                            f"Reserved key '{key}' is not allowed in calibration "
-                            f"parameter file: {params_file}"
-                        )
-                    if key in param_blocks:
-                        raise ValueError(
-                            f"Duplicate calibration parameter block '{key}' found "
-                            f"in {params_file}"
-                        )
-                    param_blocks[key] = value
+        for params_file in self._candidate_calib_param_files(
+            params_dir,
+            required_blocks,
+        ):
+            with open(params_file, "r") as file:
+                file_blocks = yaml.safe_load(file) or {}
 
-            missing_blocks = [
-                block for block in required_blocks
-                if block not in param_blocks
-            ]
-            if missing_blocks:
+            if not isinstance(file_blocks, dict):
                 raise ValueError(
-                    "Calibration parameter block(s) were not found for the "
-                    "active formulation: "
-                    f"{', '.join(missing_blocks)}. Check "
-                    "configs/calib_config.yaml calibration.params_dir and the "
-                    "model files under configs/calibration/."
+                    f"Calibration parameter file must be a YAML mapping: {params_file}"
                 )
 
+            for key, value in file_blocks.items():
+                if key in self.CALIB_CONFIG_RESERVED_KEYS:
+                    raise ValueError(
+                        f"Reserved key '{key}' is not allowed in calibration "
+                        f"parameter file: {params_file}"
+                    )
+                if key in param_blocks:
+                    raise ValueError(
+                        f"Duplicate calibration parameter block '{key}' found "
+                        f"in {params_file}"
+                    )
+                param_blocks[key] = value
+
+        missing_blocks = [
+            block for block in required_blocks
+            if block not in param_blocks
+        ]
+        if missing_blocks:
+            raise ValueError(
+                "Calibration parameter block(s) were not found for the "
+                "active formulation: "
+                f"{', '.join(missing_blocks)}. Check "
+                "configs/calib_config.yaml calibration.params_dir and the "
+                "model files under configs/calibration/."
+            )
+        
         param_blocks = self.normalize_calibration_parameter_blocks(param_blocks)
         base_file.update(param_blocks)
         return base_file

@@ -199,6 +199,7 @@ build_sandbox()
     pip install -e ./plugins/ngen_cal_plugins
     pip install -e ./extern/lstm
     pip install -e ./extern/dhbv2
+    pip install 'aiohttp<3.14'
  
     echo "Sandbox Python Environment Created ($SANDBOX_ENV)"
     
