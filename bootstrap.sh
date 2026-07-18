@@ -189,6 +189,45 @@ check_python_import() {
     fi
 }
 
+check_aiohttp_version() {
+    local python_bin="$1"
+    local result
+    local status
+
+    if [ ! -x "$python_bin" ]; then
+        status_fail "aiohttp version: sandbox Python not found"
+        return
+    fi
+
+    set +e
+    result=$("$python_bin" - <<'PY'
+import importlib.metadata as md
+import sys
+
+try:
+    version = md.version("aiohttp")
+except md.PackageNotFoundError:
+    print("MISSING aiohttp not installed")
+    sys.exit(1)
+
+major, minor, *_ = version.split(".")
+if (int(major), int(minor)) >= (3, 14):
+    print(f"WARN aiohttp {version}; expected <3.14 for hydrotools NWIS cache compatibility")
+    sys.exit(2)
+
+print(f"OK aiohttp {version}")
+PY
+)
+    status="$?"
+    set -e
+
+    case "$status" in
+        0) status_ok "${result#OK }" ;;
+        2) status_warn "${result#WARN }" ;;
+        *) status_fail "${result#MISSING }" ;;
+    esac
+}
+
 check_r_package() {
     local rscript_bin="$1"
     local package="$2"
@@ -352,6 +391,7 @@ run_check() {
     check_python_import "$sandbox_env/bin/python" "ngen.config" "ngen.config import"
     check_python_import "$sandbox_env/bin/python" "ngen_cal_plugins" "ngen_cal_plugins import"
     check_python_import "$sandbox_env/bin/python" "nwm_routing" "nwm_routing import (t-route)"
+    check_aiohttp_version "$sandbox_env/bin/python"
     echo ""
 
     echo "R Packages"

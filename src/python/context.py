@@ -29,7 +29,6 @@ from src.python.model_instances import build_model_instances
 from src.python.observations import ObservationLoader
 from src.python.resource_paths import (
     HYDROFABRIC_DIR,
-    find_gpkg_file,
     forcing_dir_for_resource,
     has_gage_placeholder,
     has_gpkg_file,
@@ -585,19 +584,41 @@ class SandboxContext:
             raise TypeError(f"gage_ids must be a string, list, or None, but got {type(self.gage_ids).__name__}")
 
 
-        # If gage_id is provided, further filter based on gage_id presence in .gpkg filenames
-
         if gage_ids:
-            self.gpkg_dirs = [
-                g for g in self.gpkg_dirs
-                if any(
-                    gid in find_gpkg_file(g).stem
-                    for gid in gage_ids
+            resources_by_gage = {}
+            duplicate_gages = set()
+            expected_gages = set(gage_ids)
+
+            for resource in self.gpkg_dirs:
+                gage_id = self._resource_gage_id(resource)
+                if gage_id not in expected_gages:
+                    continue
+                if gage_id in resources_by_gage:
+                    duplicate_gages.add(gage_id)
+                resources_by_gage[gage_id] = resource
+
+            if duplicate_gages:
+                raise ValueError(
+                    "Multiple geopackage resources found for gage(s): "
+                    f"{', '.join(sorted(duplicate_gages))}"
                 )
+
+            missing_gages = [
+                gage_id for gage_id in gage_ids
+                if gage_id not in resources_by_gage
             ]
+            if missing_gages:
+                raise FileNotFoundError(self._missing_gpkg_message(missing_gages))
+
+            self.gpkg_dirs = [resources_by_gage[gage_id] for gage_id in gage_ids]
 
         if not self.gpkg_dirs:
             raise FileNotFoundError(self._missing_gpkg_message(gage_ids))
+
+    def _resource_gage_id(self, resource):
+        if self.resource_layout == "resource":
+            return resource_id(resource)
+        return resource_id(Path(resource))
 
     def _missing_gpkg_message(self, gage_ids):
         input_dir = Path(self.input_dir)

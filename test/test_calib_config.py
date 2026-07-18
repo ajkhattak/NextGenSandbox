@@ -348,7 +348,7 @@ class TestCalibrationConfig(unittest.TestCase):
 
             self.assertEqual(loaded["cfex_params"], [])
 
-    def test_rejects_duplicate_parameter_blocks(self):
+    def test_rejects_top_level_parameter_blocks_in_calib_config(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             params_dir = root / "calibration"
@@ -385,7 +385,47 @@ class TestCalibrationConfig(unittest.TestCase):
                 },
             )
 
-            with self.assertRaisesRegex(ValueError, "Duplicate"):
+            with self.assertRaisesRegex(
+                ValueError,
+                "must be defined in files under calibration.params_dir",
+            ):
+                config.load_calib_config()
+
+    def test_requires_calibration_params_dir(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            calib_config = root / "calib_config.yaml"
+            calib_config.write_text(
+                yaml.safe_dump(
+                    {
+                        "general": {
+                            "strategy": {
+                                "type": "estimation",
+                                "algorithm": "dds",
+                            }
+                        },
+                        "calibration": {},
+                    },
+                    sort_keys=False,
+                )
+            )
+
+            config = ConfigurationCalib.__new__(ConfigurationCalib)
+            config.ctx = make_context(
+                calib_config,
+                {
+                    "CFE": [
+                        SimpleNamespace(
+                            model="CFE",
+                            name="cfe-s",
+                            calib_params_block="cfes_params",
+                            calibration_model_name="CFE",
+                        )
+                    ]
+                },
+            )
+
+            with self.assertRaisesRegex(ValueError, "calibration.params_dir"):
                 config.load_calib_config()
 
 
