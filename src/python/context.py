@@ -342,7 +342,14 @@ class SandboxContext:
                 )
 
         if "time" in dsim:
-            normalize_simulation_time_config(dsim, self.task_type)
+            config_dir = None
+            if getattr(self, "sandbox_config_path", None):
+                config_dir = Path(self.sandbox_config_path).resolve().parent
+            normalize_simulation_time_config(
+                dsim,
+                self.task_type,
+                config_dir=config_dir,
+            )
 
         if self.task_type in ["calibration", "calibvalid", "restart"]:
 
@@ -360,34 +367,11 @@ class SandboxContext:
             self.calib_eval_time  = dsim["calib_eval_time"]
 
             if self.task_type == "calibvalid":
-                if "valid_eval_time" not in dsim or not isinstance(dsim["valid_eval_time"], dict):
-                    raise ValueError("valid_eval_time missing or invalid.")
-
-                self.validate_time_subset(
-                    "validation_time",
-                    dsim.get("validation_time"),
-                    "valid_eval_time",
-                    dsim["valid_eval_time"],
-                )
-
-                self.validation_time = dsim["validation_time"]
-                self.valid_eval_time = dsim["valid_eval_time"]
+                self.load_validation_periods(dsim)
 
         elif self.task_type == "validation":
-
-            if "valid_eval_time" not in dsim or not isinstance(dsim["valid_eval_time"], dict):
-                raise ValueError("valid_eval_time missing or invalid.")
-
-            self.validate_time_subset(
-                "validation_time",
-                dsim.get("validation_time"),
-                "valid_eval_time",
-                dsim["valid_eval_time"],
-            )
-
-            self.simulation_time = dsim["validation_time"]
-            self.validation_time = dsim["validation_time"]
-            self.valid_eval_time = dsim["valid_eval_time"]
+            self.load_validation_periods(dsim)
+            self.simulation_time = self.validation_time
 
         elif self.task_type == "control":
 
@@ -440,6 +424,48 @@ class SandboxContext:
             self.ensemble_models = []
 
         self.ensemble_size    = len([m.strip() for m in self.ensemble_models.split(",")]) if self.ensemble_enabled else 1
+
+    def load_validation_periods(self, dsim):
+        validation_periods = dsim.get("validation_periods")
+        if validation_periods is None:
+            if "valid_eval_time" not in dsim or not isinstance(dsim["valid_eval_time"], dict):
+                raise ValueError("valid_eval_time missing or invalid.")
+            self.validate_time_subset(
+                "validation_time",
+                dsim.get("validation_time"),
+                "valid_eval_time",
+                dsim["valid_eval_time"],
+            )
+            validation_periods = [
+                {
+                    "name": "validation",
+                    "simulation_time": dsim.get("validation_time"),
+                    "evaluation_time": dsim["valid_eval_time"],
+                }
+            ]
+
+        if not isinstance(validation_periods, list) or not validation_periods:
+            raise ValueError("validation_periods must be a non-empty list")
+
+        for index, period in enumerate(validation_periods):
+            if not isinstance(period, dict):
+                raise ValueError(f"validation_periods[{index}] must be a mapping")
+            if "simulation_time" not in period or "evaluation_time" not in period:
+                raise ValueError(
+                    f"validation_periods[{index}] must include simulation_time "
+                    "and evaluation_time"
+                )
+            self.validate_time_subset(
+                f"validation_periods[{index}].simulation_time",
+                period["simulation_time"],
+                f"validation_periods[{index}].evaluation_time",
+                period["evaluation_time"],
+            )
+
+        self.validation_periods = validation_periods
+        first_validation = validation_periods[0]
+        self.validation_time = first_validation["simulation_time"]
+        self.valid_eval_time = first_validation["evaluation_time"]
 
     @staticmethod
     def parse_formulation_models(formulation):

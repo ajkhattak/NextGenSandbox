@@ -16,6 +16,8 @@ import platform
 import json
 from pathlib import Path
 import shutil
+import re
+from datetime import datetime, timezone
 from src.python import configuration
 from src.python import helper
 from src.python.resource_paths import find_gpkg_file, render_gage_path
@@ -159,10 +161,26 @@ class Runner:
                 return
 
         if self.ctx.task_type in ['validation', 'calibvalid']:
-            self.run_ngen_experiment('validation', gpkg_file, o_dir, self.file_par, id)
+            for validation_period in self.validation_periods():
+                self.run_ngen_experiment(
+                    'validation',
+                    gpkg_file,
+                    o_dir,
+                    self.file_par,
+                    id,
+                    validation_period=validation_period,
+                )
 
 
-    def run_ngen_experiment(self, mode, gpkg_file, o_dir, file_par, id):
+    def run_ngen_experiment(
+        self,
+        mode,
+        gpkg_file,
+        o_dir,
+        file_par,
+        id,
+        validation_period=None,
+    ):
         """
         ngen_cal_type (mode): 'calibration', 'restart', or 'validation'
         """
@@ -175,8 +193,9 @@ class Runner:
             ngen_cal_type = mode
 
         elif mode == 'validation':
-            sim_time = self.ctx.validation_time
-            eval_time = self.ctx.valid_eval_time
+            validation_period = validation_period or self.validation_periods()[0]
+            sim_time = validation_period["simulation_time"]
+            eval_time = validation_period["evaluation_time"]
             start_time = pd.Timestamp(sim_time['start_time']).strftime("%Y%m%d%H%M")
             restart_dir = self.ctx.restart_dir
             ngen_cal_type = 'validation'
@@ -201,26 +220,138 @@ class Runner:
 
         ConfigGen.write_calib_input_files()
 
+        validation_name = None
+        if mode == "validation":
+            validation_name = validation_period.get("name", "validation")
+            config_file = self.copy_named_validation_config(validation_name)
+        elif mode in ["calibration", "restart"]:
+            config_file = Path("configs/ngen-cal_calib_config.yaml")
+        else:
+            raise ValueError(f"Unsupported mode (ngen_cal_type): {mode}")
 
         # Run command
         if mode in ['calibration', 'restart']:
-            run_command = f"{sys.executable} -m ngen.cal configs/ngen-cal_calib_config.yaml"
+            run_command = f"{sys.executable} -m ngen.cal {config_file}"
 
         elif mode == 'validation':
             run_command = (
                 f"{sys.executable} {self.ctx.sandbox_dir}/src/python/validation.py "
-                f"-config configs/ngen-cal_valid_config.yaml"
+                f"-config {config_file}"
             )
 
             if self.ctx.ensemble_enabled:
                 run_command += " -routing configs/troute_config.yaml"
 
+        before_workers = self.worker_dirs(o_dir)
         if not self.ctx.dryrun:
             result = subprocess.run(run_command, shell=True)
+            after_workers = self.worker_dirs(o_dir)
+            self.write_run_index(
+                output_dir=o_dir,
+                gage_id=id,
+                mode=mode,
+                name=validation_name or mode,
+                config_file=config_file,
+                command=run_command,
+                simulation_time=sim_time,
+                evaluation_time=eval_time,
+                worker_dirs=after_workers - before_workers,
+                returncode=result.returncode,
+                status="completed" if result.returncode == 0 else "failed",
+            )
             if result.returncode != 0:
                 raise RuntimeError(f"{mode.capitalize()} step failed...")
         else:
             print(f"Dry run command: {run_command}")
+            self.write_run_index(
+                output_dir=o_dir,
+                gage_id=id,
+                mode=mode,
+                name=validation_name or mode,
+                config_file=config_file,
+                command=run_command,
+                simulation_time=sim_time,
+                evaluation_time=eval_time,
+                worker_dirs=[],
+                returncode=None,
+                status="dryrun",
+            )
+
+    def validation_periods(self):
+        periods = getattr(self.ctx, "validation_periods", None)
+        if periods:
+            return periods
+        return [
+            {
+                "name": "validation",
+                "simulation_time": self.ctx.validation_time,
+                "evaluation_time": self.ctx.valid_eval_time,
+            }
+        ]
+
+    def copy_named_validation_config(self, validation_name):
+        config_dir = Path("configs")
+        source = config_dir / "ngen-cal_valid_config.yaml"
+        safe_name = self.safe_filename(validation_name)
+        target = config_dir / f"ngen-cal_valid_config_{safe_name}.yaml"
+        shutil.copy2(source, target)
+        return target
+
+    @staticmethod
+    def safe_filename(value):
+        safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value).strip())
+        return safe.strip("._") or "validation"
+
+    @staticmethod
+    def worker_dirs(output_dir):
+        return {
+            path.resolve()
+            for path in Path(output_dir).glob("*_worker")
+            if path.is_dir()
+        }
+
+    def write_run_index(
+        self,
+        output_dir,
+        gage_id,
+        mode,
+        name,
+        config_file,
+        command,
+        simulation_time,
+        evaluation_time,
+        worker_dirs,
+        returncode,
+        status,
+    ):
+        index_file = Path(output_dir) / "run_index.yml"
+        if index_file.exists():
+            index = yaml.safe_load(index_file.read_text()) or {}
+        else:
+            index = {}
+
+        runs = index.setdefault("runs", [])
+        runs.append(
+            {
+                "gage_id": str(gage_id),
+                "task_type": mode,
+                "name": str(name),
+                "status": status,
+                "returncode": returncode,
+                "created_at_utc": datetime.now(timezone.utc).isoformat(),
+                "config_file": str(config_file),
+                "worker_dirs": [
+                    str(path)
+                    for path in sorted(worker_dirs)
+                ],
+                "simulation_time": simulation_time,
+                "evaluation_time": evaluation_time,
+                "command": command,
+            }
+        )
+
+        with index_file.open("w") as file:
+            yaml.safe_dump(index, file, default_flow_style=False, sort_keys=False)
 
     def validate_configs(self, output_dir):
             

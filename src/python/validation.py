@@ -142,8 +142,10 @@ def main(general: General, model_conf: Mapping[str, Any], troute_config: Mapping
             realization.routing.config = troute_config_path_validation
 
         for calibration_object in adjustables:
-            best_df: pd.DataFrame = calibration_object.df[[str(agent.best_params), 'param', 'model']]
-            
+            best_df: pd.DataFrame = calibration_object.parameters_for_iteration(
+                agent.best_params
+            )
+
             agent.update_config(agent.best_params, best_df, calibration_object.id)
             
             # NOTE: importing here so its easier to refactor in the future

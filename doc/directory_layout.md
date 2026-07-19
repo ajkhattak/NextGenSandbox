@@ -30,10 +30,13 @@ The default `gage` layout organizes resources by gage first:
 
 <output_dir>/
   <gage_id>_<run_name>/
+    run_metadata.yml  # optional; written when simulation.outputs.metadata.enabled is true
+    run_index.yml  # written by sandbox --run for calibration/validation tasks
     configs/
       realization_*.json
       ngen-cal_calib_config.yaml
       ngen-cal_valid_config.yaml
+      ngen-cal_valid_config_<validation_name>.yaml
       troute_config.yaml
       <model_instance_name>/
         <model_config_files>

@@ -7,6 +7,8 @@ from hydrotools.metrics.metrics import (
     nash_sutcliffe_efficiency,
 )
 
+NONFINITE_METRIC_LOSS = 1000.0
+
 
 def kge_multi_variable(
     observed: pd.Series,
@@ -94,8 +96,18 @@ def _multi_variable_loss(observed, simulated, metric, metric_name):
 
         score = float(metric(pairs["observed"], pairs["simulated"]))
         if not np.isfinite(score):
-            raise ValueError(f"{metric_name} is not finite for {variable}")
-        squared_losses.append((1.0 - score) ** 2)
+            print(
+                f"WARNING: {metric_name} is not finite for {variable}; "
+                f"using loss penalty {NONFINITE_METRIC_LOSS}. "
+                f"pairs={len(pairs)}, "
+                f"observed_std={pairs['observed'].std()}, "
+                f"simulated_std={pairs['simulated'].std()}, "
+                f"observed_nan={pairs['observed'].isna().sum()}, "
+                f"simulated_nan={pairs['simulated'].isna().sum()}"
+            )
+            squared_losses.append(NONFINITE_METRIC_LOSS ** 2)
+        else:
+            squared_losses.append((1.0 - score) ** 2)
 
     return float(np.sqrt(sum(squared_losses)))
 
@@ -104,7 +116,7 @@ def _split_variables(series: pd.Series, label: str) -> dict[str, pd.Series]:
     if not isinstance(series, pd.Series):
         raise TypeError(f"{label} values must be a pandas Series")
     if not isinstance(series.index, pd.MultiIndex):
-        return {"observation": series}
+        return {"streamflow": series}
     if "variable" not in series.index.names:
         raise ValueError(
             f"{label} values must use a MultiIndex with a 'variable' level"

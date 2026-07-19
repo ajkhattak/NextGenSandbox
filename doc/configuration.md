@@ -157,11 +157,11 @@ Controls task type, gages, time windows, output retention, and partitioning.
 | `sim_name_suffix` | Suffix appended to the gage ID to name the run directory. |
 | `time.control` | Period definition for `control` runs. |
 | `time.calibration` | Calibration period definition. |
-| `time.validations` | List of validation period definitions. Currently one validation entry is supported by the runner; the list shape prepares for cross-validation. |
+| `time.validations` | List of validation period definitions. Multiple entries are run sequentially for validation or `calibvalid` tasks. |
 | `restart_dir` | Restart source directory for `restart` runs. Supports `<gage_id>` placeholders. |
 | `outputs.divide_variables` | BMI variables written to `cat-<divide_id>.csv` files, with required units. |
 | `outputs.calibration.retention` | Calibration output retention. Options: `best` or `all`. |
-| `outputs.metadata.enabled` | Write a metadata file inside each gage output directory. |
+| `outputs.metadata.enabled` | Write a metadata file inside each gage output directory during `sandbox --conf`. |
 | `outputs.metadata.run_file` | Metadata file written inside each gage output directory, usually `run_metadata.yml`. |
 | `outputs.metadata.index_dir` | Optional directory under each experiment output where indexed `run_<gage_id>.yml` metadata files are written. Required by Sandbox Launcher. |
 | `partitioning.mode` | Execution mode. Options: `serial` or `parallel`. |
@@ -178,7 +178,7 @@ Each period uses:
 | `evaluation` | Model evaluation period after spinup. Ignored when `end` is provided. |
 | `end` | Optional inclusive end timestamp. Date-only values default to `00:00:00`; include `HH:MM:SS` for odd/manual stop times. |
 
-Example:
+Manual validation example:
 
 ```yaml
 simulation:
@@ -196,6 +196,43 @@ simulation:
         # end: "2022-08-01 04:00:00"
 ```
 
+CSV-derived validation example:
+
+```yaml
+simulation:
+  task_type: calibvalid
+  time:
+    calibration:
+      start: "2015-10-01"
+      spinup: "12 months"
+      evaluation: "4 years"
+    validations:
+      - name: water_year_split
+        source: file
+        file: "/path/to/year_tasks.csv"
+        year_type: water_year
+        task_column: task_type
+        year_column: year
+        select: valid
+        spinup: "12 months"
+        evaluation: "1 year"
+```
+
+The CSV must include one row per year and at least the configured year and task
+columns, for example:
+
+```csv
+year,task_type
+2011,valid
+2012,calib
+2013,valid
+```
+
+With `year_type: water_year`, year `2011` starts on `2010-10-01 00:00:00`.
+With `spinup: 12 months` and `evaluation: 1 year`, Sandbox evaluates
+`2011-10-01 00:00:00` through `2012-09-30 23:00:00`. `calendar_year` starts on
+January 1 of the listed year.
+
 Sandbox derives the internal ngen-cal-style windows from this block. For
 example, `start: 2015-10-01`, `spinup: 12 months`, and `evaluation: 4 years`
 becomes a full simulation window ending `2020-09-30 23:00:00` and a model
@@ -208,9 +245,14 @@ Required time fields depend on `task_type`.
 |---|---|
 | `control` | `time.control` |
 | `calibration` | `time.calibration` |
-| `validation` | one entry in `time.validations` |
-| `calibvalid` | `time.calibration` and one entry in `time.validations` |
+| `validation` | one or more entries in `time.validations` |
+| `calibvalid` | `time.calibration` and one or more entries in `time.validations` |
 | `restart` | `time.calibration`, `restart_dir` |
+
+During `sandbox --run`, Sandbox writes `run_index.yml` inside each gage output
+directory. This file maps each calibration or validation name to the generated
+ngen-cal worker directory or directories, which is useful because ngen-cal
+worker directory names are intentionally timestamp/randomized.
 
 ## `calib_config.yaml`
 

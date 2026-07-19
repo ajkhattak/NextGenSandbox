@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pandas as pd
 
 
@@ -37,7 +39,7 @@ def normalize_forcing_time_config(time_config):
     return normalized
 
 
-def normalize_simulation_time_config(dsim, task_type):
+def normalize_simulation_time_config(dsim, task_type, config_dir=None):
     time_config = dsim["time"]
     if not isinstance(time_config, dict):
         raise TypeError("simulation.time must be a YAML dictionary/object")
@@ -71,46 +73,138 @@ def normalize_simulation_time_config(dsim, task_type):
         dsim["calib_eval_time"] = calibration["evaluation_time"]
 
         if task_type == "calibvalid":
-            validations = resolve_validation_periods(time_config)
-            if len(validations) > 1:
-                raise NotImplementedError(
-                    "Multiple simulation.time.validations entries are parsed but "
-                    "the runner currently supports one validation window. Keep one "
-                    "validation entry until cross-validation runner support is added."
-                )
+            validations = resolve_validation_periods(time_config, config_dir=config_dir)
             validation = validations[0]
+            dsim["validation_periods"] = validations
             dsim["validation_time"] = validation["simulation_time"]
             dsim["valid_eval_time"] = validation["evaluation_time"]
 
         return
 
     if task_type == "validation":
-        validations = resolve_validation_periods(time_config)
-        if len(validations) > 1:
-            raise NotImplementedError(
-                "Multiple simulation.time.validations entries are parsed but "
-                "the runner currently supports one validation window. Keep one "
-                "validation entry until cross-validation runner support is added."
-            )
+        validations = resolve_validation_periods(time_config, config_dir=config_dir)
         validation = validations[0]
+        dsim["validation_periods"] = validations
         dsim["validation_time"] = validation["simulation_time"]
         dsim["valid_eval_time"] = validation["evaluation_time"]
 
 
-def resolve_validation_periods(time_config):
+def resolve_validation_periods(time_config, config_dir=None):
     validations = time_config.get("validations")
     if validations is None:
         raise ValueError("simulation.time.validations is required")
     if not isinstance(validations, list) or not validations:
         raise ValueError("simulation.time.validations must be a non-empty list")
 
-    return [
-        resolve_time_period(
-            period,
-            f"simulation.time.validations[{index}]",
+    periods = []
+    for index, period in enumerate(validations):
+        periods.extend(
+            resolve_validation_period(
+                period,
+                f"simulation.time.validations[{index}]",
+                config_dir=config_dir,
+            )
         )
-        for index, period in enumerate(validations)
+    return periods
+
+
+def resolve_validation_period(period, name, config_dir=None):
+    if not isinstance(period, dict):
+        raise TypeError(f"{name} must be a YAML dictionary/object")
+
+    source = str(period.get("source", "manual")).lower()
+    if source == "manual":
+        return [resolve_time_period(period, name)]
+    if source == "file":
+        return resolve_validation_file_periods(period, name, config_dir=config_dir)
+
+    raise ValueError(f"{name}.source must be one of: manual, file")
+
+
+def resolve_validation_file_periods(period, name, config_dir=None):
+    if "start" in period:
+        raise ValueError(f"{name}.start is not used when source: file")
+    if "end" in period:
+        raise ValueError(f"{name}.end is not used when source: file")
+    if "evaluation" not in period:
+        raise ValueError(f"{name}.evaluation is required when source: file")
+    if "spinup" not in period:
+        raise ValueError(f"{name}.spinup is required when source: file")
+
+    file_value = period.get("file")
+    if not isinstance(file_value, str) or not file_value.strip():
+        raise ValueError(f"{name}.file must be a non-empty path")
+
+    csv_file = Path(file_value).expanduser()
+    if not csv_file.is_absolute() and config_dir is not None:
+        csv_file = Path(config_dir) / csv_file
+    if not csv_file.exists():
+        raise FileNotFoundError(f"{name}.file does not exist: {csv_file}")
+
+    year_column = period.get("year_column", "year")
+    task_column = period.get("task_column", "task_type")
+    select_value = str(period.get("select", "valid")).strip()
+    year_type = str(period.get("year_type", "calendar_year")).lower()
+
+    if year_type not in {"calendar_year", "water_year"}:
+        raise ValueError(f"{name}.year_type must be one of: calendar_year, water_year")
+
+    table = pd.read_csv(csv_file, dtype={year_column: str, task_column: str})
+    missing_columns = [
+        column for column in (year_column, task_column)
+        if column not in table.columns
     ]
+    if missing_columns:
+        raise ValueError(
+            f"{name}.file missing required column(s): "
+            f"{', '.join(missing_columns)}"
+        )
+
+    selected = table[
+        table[task_column].astype(str).str.strip().str.lower()
+        == select_value.lower()
+    ]
+    if selected.empty:
+        raise ValueError(
+            f"{name}.file has no rows where {task_column} == {select_value!r}"
+        )
+
+    periods = []
+    base_name = period.get("name", name.rsplit(".", 1)[-1])
+    for row_index, row in selected.iterrows():
+        year_text = str(row[year_column]).strip()
+        try:
+            year = int(year_text)
+        except ValueError as exc:
+            raise ValueError(
+                f"{name}.file row {row_index} has invalid year: {year_text!r}"
+            ) from exc
+
+        start = start_for_year(year, year_type)
+        generated = {
+            "name": f"{base_name}_{year_label(year, year_type)}",
+            "start": start,
+            "spinup": period["spinup"],
+            "evaluation": period["evaluation"],
+        }
+        resolved = resolve_time_period(generated, f"{name}[{year_label(year, year_type)}]")
+        resolved["source"] = "file"
+        resolved["year"] = year
+        resolved["year_type"] = year_type
+        periods.append(resolved)
+
+    return periods
+
+
+def start_for_year(year, year_type):
+    if year_type == "water_year":
+        return pd.Timestamp(year=year - 1, month=10, day=1)
+    return pd.Timestamp(year=year, month=1, day=1)
+
+
+def year_label(year, year_type):
+    prefix = "wy" if year_type == "water_year" else "cy"
+    return f"{prefix}{year}"
 
 
 def resolve_time_period(period, name):
