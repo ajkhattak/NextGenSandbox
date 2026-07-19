@@ -1,4 +1,6 @@
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from src.python.context import SandboxContext
 from src.python.time_windows import normalize_forcing_time_config
@@ -251,10 +253,11 @@ class TestSimulationTimeWindows(unittest.TestCase):
             },
         )
 
-    def test_multiple_validations_raise_until_runner_supports_cross_validation(self):
+    def test_normalizes_multiple_validation_windows(self):
         context = SandboxContext.__new__(SandboxContext)
         context.formulation = ""
         context.project_gages = ["01109403"]
+        context.sandbox_config_path = __file__
         context.sandbox_config = {
             "simulation": {
                 "task_type": "calibvalid",
@@ -283,8 +286,72 @@ class TestSimulationTimeWindows(unittest.TestCase):
             }
         }
 
-        with self.assertRaisesRegex(NotImplementedError, "cross-validation"):
+        context.load_simulation_config()
+
+        self.assertEqual(len(context.validation_periods), 2)
+        self.assertEqual(context.validation_periods[0]["name"], "wet")
+        self.assertEqual(context.validation_periods[1]["name"], "dry")
+        self.assertEqual(
+            context.validation_periods[0]["evaluation_time"]["start_time"],
+            "2021-10-01 00:00:00",
+        )
+
+    def test_builds_validation_windows_from_water_year_file(self):
+        with TemporaryDirectory() as tmp:
+            csv_file = Path(tmp) / "year_tasks.csv"
+            csv_file.write_text(
+                "year,task_type\n"
+                "2011,valid\n"
+                "2012,calib\n"
+                "2013,valid\n"
+            )
+
+            context = SandboxContext.__new__(SandboxContext)
+            context.formulation = ""
+            context.project_gages = ["01109403"]
+            context.sandbox_config_path = str(Path(tmp) / "sandbox_config.yaml")
+            context.sandbox_config = {
+                "simulation": {
+                    "task_type": "validation",
+                    "gages": "01109403",
+                    "time": {
+                        "validations": [
+                            {
+                                "name": "water_year_split",
+                                "source": "file",
+                                "file": "year_tasks.csv",
+                                "year_type": "water_year",
+                                "task_column": "task_type",
+                                "year_column": "year",
+                                "select": "valid",
+                                "spinup": "12 months",
+                                "evaluation": "1 year",
+                            },
+                        ],
+                    },
+                }
+            }
+
             context.load_simulation_config()
+
+            self.assertEqual(
+                [period["name"] for period in context.validation_periods],
+                ["water_year_split_wy2011", "water_year_split_wy2013"],
+            )
+            self.assertEqual(
+                context.validation_periods[0]["simulation_time"],
+                {
+                    "start_time": "2010-10-01 00:00:00",
+                    "end_time": "2012-09-30 23:00:00",
+                },
+            )
+            self.assertEqual(
+                context.validation_periods[0]["evaluation_time"],
+                {
+                    "start_time": "2011-10-01 00:00:00",
+                    "end_time": "2012-09-30 23:00:00",
+                },
+            )
 
     def test_time_schema_requires_yaml_dictionary(self):
         context = SandboxContext.__new__(SandboxContext)
