@@ -1,18 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-require_command() {
-  local cmd="$1"
-  local hint="$2"
-
-  if ! command -v "$cmd" >/dev/null 2>&1; then
-    cat >&2 <<EOF
-ERROR: '$cmd' was not found in PATH.
-
-$hint
-EOF
-    exit 127
+find_conda_exe() {
+  if command -v conda >/dev/null 2>&1; then
+    command -v conda
+    return
   fi
+
+  if [ -n "${CONDA_EXE:-}" ] && [ -x "$CONDA_EXE" ]; then
+    printf "%s\n" "$CONDA_EXE"
+    return
+  fi
+
+  cat >&2 <<'EOF'
+ERROR: conda was not found in PATH, and CONDA_EXE is not set.
+
+Load the conda module first, for example:
+  module load conda
+
+If a conda environment is already active, make sure CONDA_EXE is set:
+  echo "$CONDA_EXE"
+EOF
+  exit 127
 }
 
 on_error() {
@@ -40,7 +49,7 @@ EOF
 
 trap on_error ERR
 
-require_command conda "Load the conda module first, for example: module load conda"
+CONDA_EXE_PATH="$(find_conda_exe)"
 
 if [ -z "${SANDBOX_BUILD_DIR:-}" ] || [ -z "${SANDBOX_DIR:-}" ]; then
   cat >&2 <<'EOF'
@@ -69,7 +78,7 @@ export CONDA_ENVS_PATH="${SANDBOX_BUILD_DIR}/rvenv/conda_envs"
 export CONDA_PKGS_DIRS="${SANDBOX_BUILD_DIR}/rvenv/conda_pkgs"
 export MAMBA_ROOT_PREFIX="${SANDBOX_BUILD_DIR}/rvenv/mamba_root"
 
-eval "$(conda shell.bash hook)"
+eval "$("$CONDA_EXE_PATH" shell.bash hook)"
 
 conda config --file "$CONDARC" --remove-key channels >/dev/null 2>&1 || true
 conda config --file "$CONDARC" --remove-key envs_dirs >/dev/null 2>&1 || true
@@ -93,23 +102,54 @@ fi
 eval "$("${SANDBOX_BUILD_DIR}/rvenv/mamba/bin/mamba" shell hook --shell bash)"
 set +u; mamba activate "${SANDBOX_BUILD_DIR}/rvenv/mamba"; set -u
 
-if [ ! -d "${SANDBOX_BUILD_DIR}/rvenv/venv_subset" ]; then
+SUBSET_ENV="${SANDBOX_BUILD_DIR}/rvenv/venv_subset"
+SUBSET_RSCRIPT="${SUBSET_ENV}/bin/Rscript"
+CONDA_SUBDIR="$(conda info | awk -F: '/platform/{gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}')"
+LOCKFILE="${SANDBOX_DIR}/utils/venv/venv_subset.${CONDA_SUBDIR}.lock"
+LEGACY_LOCKFILE="${SANDBOX_DIR}/utils/venv/venv_subset.lock"
+
+lockfile_matches_platform() {
+  local lockfile="$1"
+  grep -q "^# platform: ${CONDA_SUBDIR}$" "$lockfile"
+}
+
+if [ -d "$SUBSET_ENV" ] && [ ! -x "$SUBSET_RSCRIPT" ]; then
+  cat >&2 <<EOF
+ERROR: Existing subset environment is incomplete: $SUBSET_ENV
+
+The directory exists, but Rscript was not found at:
+  $SUBSET_RSCRIPT
+
+This usually happens after a failed conda/mamba solve or a disk-quota
+interruption. Remove the incomplete subset environment and rerun:
+
+  conda env remove -p "$SUBSET_ENV"
+  ./bootstrap.sh --subset
+
+If conda cannot remove it, delete only this incomplete build artifact:
+  rm -rf "$SUBSET_ENV"
+EOF
+  exit 3
+fi
+
+if [ ! -x "$SUBSET_RSCRIPT" ]; then
   # Use lockfile if available (fast), otherwise solve from YAML (slow, first time)
-  if [ -f "${SANDBOX_DIR}/utils/venv/venv_subset.lock" ]; then
-    echo "Using lockfile — skipping solver"
-    conda create -y -p "${SANDBOX_BUILD_DIR}/rvenv/venv_subset" \
-      --file "${SANDBOX_DIR}/utils/venv/venv_subset.lock"
+  if [ -f "$LOCKFILE" ]; then
+    echo "Using lockfile for ${CONDA_SUBDIR} — skipping solver"
+    conda create -y -p "$SUBSET_ENV" --file "$LOCKFILE"
+  elif [ -f "$LEGACY_LOCKFILE" ] && lockfile_matches_platform "$LEGACY_LOCKFILE"; then
+    echo "Using legacy lockfile for ${CONDA_SUBDIR} — skipping solver"
+    conda create -y -p "$SUBSET_ENV" --file "$LEGACY_LOCKFILE"
   else
     echo "No lockfile found — solving from YAML (this will be slow once)"
-    mamba env create -y -p "${SANDBOX_BUILD_DIR}/rvenv/venv_subset" \
+    mamba env create -y -p "$SUBSET_ENV" \
       -f "${SANDBOX_DIR}/utils/venv/venv_subset.yaml"
     # Save lockfile for next time
-    conda list -p "${SANDBOX_BUILD_DIR}/rvenv/venv_subset" --explicit \
-      > "${SANDBOX_DIR}/utils/venv/venv_subset.lock"
+    conda list -p "$SUBSET_ENV" --explicit > "$LOCKFILE"
   fi
 fi
 
-set +u; mamba activate "${SANDBOX_BUILD_DIR}/rvenv/venv_subset"; set -u
+set +u; mamba activate "$SUBSET_ENV"; set -u
 
-Rscript "${SANDBOX_DIR}/src/R/install_load_libs.R" --install
+"$SUBSET_RSCRIPT" "${SANDBOX_DIR}/src/R/install_load_libs.R" --install
 echo "Environment setup complete."
