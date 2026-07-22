@@ -91,6 +91,47 @@ Then rerun:
 ./bootstrap.sh --check
 ```
 
+## Subset Build Cannot Find Conda Or Hits Home Quota
+
+Symptoms from `./bootstrap.sh --subset`:
+
+```text
+./utils/build_venv_subset.sh: line 9: conda: command not found
+```
+
+or:
+
+```text
+Disk quota exceeded
+~/.conda/pkgs
+*.conda extraction failed
+```
+
+On many HPC systems, conda is only available after loading a module. Load the
+site's conda module in the same shell before running the subset build:
+
+```bash
+module load conda
+./bootstrap.sh --subset
+```
+
+The subset build is intended to keep conda environments and package caches under
+`$SANDBOX_BUILD_DIR/rvenv`, for example:
+
+```text
+$SANDBOX_BUILD_DIR/rvenv/conda_envs
+$SANDBOX_BUILD_DIR/rvenv/conda_pkgs
+```
+
+If mamba still reports paths under `~/.conda/pkgs`, the user's home conda cache
+may contain partial downloads from an earlier failed install or may be over
+quota. Clean the home conda cache, or set `SANDBOX_BUILD_DIR` to a project or
+scratch filesystem with enough space, then rerun:
+
+```bash
+./bootstrap.sh --subset
+```
+
 ## ngen Or Model Build Missing
 
 Symptoms:

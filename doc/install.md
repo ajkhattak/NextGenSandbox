@@ -89,11 +89,28 @@ run basin subsetting for a project. After the installation smoke test passes,
 see [workflow.md](./workflow.md#subset-hydrofabric) for the project-level
 `sandbox --subset` workflow and expected geopackage output locations.
 
-  #### Option #1: HPC machines (load conda module) or macOS
+  #### Option #1: HPC/Linux machines with conda
+  Load the site's conda module first if conda is provided through modules:
+  ```
+  module load conda
+  ```
+
   Run the following command in a terminal:
   ```
   ./bootstrap.sh --subset
   ```
+
+  The subset build creates conda environments and package caches under
+  `$SANDBOX_BUILD_DIR/rvenv` instead of using the default home-directory cache.
+  On HPC systems, set `SANDBOX_BUILD_DIR` to a project or scratch filesystem
+  with enough quota before running this step.
+
+  If the error mentions `~/.conda/pkgs`, `Disk quota exceeded`, or package
+  extraction failures, the user's home conda package cache is likely full or
+  contains partial downloads from a failed install. Clean the home conda cache
+  or move `SANDBOX_BUILD_DIR` to a larger filesystem, then rerun
+  `./bootstrap.sh --subset`.
+
   #### Option #2: macOS
   Ensure R and Rtools are already installed before proceeding.
   ```
