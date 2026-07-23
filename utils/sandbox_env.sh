@@ -44,7 +44,19 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
 SCRIPT_PATH="$SCRIPT_DIR/$(basename "$SOURCE")"
 
+PREVIOUS_SANDBOX_DIR="${SANDBOX_DIR:-}"
 SANDBOX_DIR="$(dirname "$SCRIPT_DIR")"
+
+# Clear default child paths inherited from a different Sandbox clone. Explicit
+# paths outside the previous repository are preserved for HPC/scratch use.
+if [ -n "$PREVIOUS_SANDBOX_DIR" ] && [ "$PREVIOUS_SANDBOX_DIR" != "$SANDBOX_DIR" ]; then
+    for var in SANDBOX_BUILD_DIR SANDBOX_DATA_DIR SANDBOX_CONDARC; do
+        eval "value=\${$var:-}"
+        case "$value" in
+            "$PREVIOUS_SANDBOX_DIR"/*) unset "$var" ;;
+        esac
+    done
+fi
 
 SANDBOX_BUILD_DIR="${SANDBOX_BUILD_DIR:-$SANDBOX_DIR/build}"
 SANDBOX_DATA_DIR="${SANDBOX_DATA_DIR:-$SANDBOX_DIR/data}"
