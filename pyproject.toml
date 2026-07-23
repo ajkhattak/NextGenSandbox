@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "sandbox"
 version = "0.9.0"
-description = "Sandbox Hub for running NextGen models and evaluation tools."
+description = "Workflow for setting up, running, calibrating, and evaluating NextGen models."
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "Ahmad Jan Khattak", email = "ajkhattak@gmail.com" }]
@@ -34,6 +34,12 @@ test = [
     "pytest",
     "pytest-mock",
 ]
+
+[project.urls]
+Homepage = "https://github.com/ajkhattak/NextGenSandbox"
+Repository = "https://github.com/ajkhattak/NextGenSandbox"
+Documentation = "https://github.com/ajkhattak/NextGenSandbox/tree/main/doc"
+Issues = "https://github.com/ajkhattak/NextGenSandbox/issues"
 
 
 [project.scripts]

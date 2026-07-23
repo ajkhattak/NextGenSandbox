@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 ###############################################################
-# Author      : Ahmad Jan Khattak [ahmad.jan.khattak@noaa.gov | September 10, 2024]
+# Author      : Ahmad Jan Khattak [ajkhattak@gmail.com | September 10, 2024]
 # Contributor : Sifan A. Koriche [sakoriche@ua.edu | December 18, 2024]
 
 # NOTE : See utils/setup_hpc.sh to load the required modules and setup the env for building ngen and models

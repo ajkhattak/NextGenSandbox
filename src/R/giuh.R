@@ -1,5 +1,5 @@
 # @author Ahmad Jan Khattak
-# @email ahmad.jan@noaa.gov
+# @email ajkhattak@gmail.com
 # @date  February 05, 2024
 
 # NOTE: # TauDem uses Dinf:  D-infinity flow direction is defined as steepest downward slope 
@@ -129,6 +129,4 @@ ComputeGIUH <- function(div_infile, vel_channel = 1, vel_overland = .5,
 
   return(giuh_dist)
 }
-
-
 
