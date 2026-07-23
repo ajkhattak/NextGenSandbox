@@ -1,5 +1,5 @@
 # @author Ahmad Jan Khattak
-# @email ahmad.jan@noaa.gov
+# @email ajkhattak@gmail.com
 # @date  March 21, 2024
 
 # The function explicitly simulates Nash cascades runoff for parameters n and k

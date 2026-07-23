@@ -3,8 +3,11 @@ import unittest
 import pandas as pd
 
 from ngen_cal_plugins.objectives import (
+    kge_low_high_flow,
+    kge_low_flow,
     kge_multi_variable,
     nnse_multi_variable,
+    nse_low_flow,
     nse_multi_variable,
 )
 
@@ -86,6 +89,92 @@ class TestKlingGuptaMultiVariable(unittest.TestCase):
         score = kge_multi_variable(observed, observed.copy())
 
         self.assertAlmostEqual(score, 0.0)
+
+    def test_low_flow_objective_perfect_streamflow_has_zero_loss(self):
+        observed = pd.Series(
+            [0.02, 0.03, 0.05, 0.2, 1.0, 3.0],
+            index=pd.date_range("2020-01-01", periods=6, freq="h"),
+        )
+
+        score = kge_low_flow(observed, observed.copy())
+
+        self.assertAlmostEqual(score, 0.0)
+
+    def test_low_flow_objective_penalizes_collapsed_tail(self):
+        observed = pd.Series(
+            [0.02, 0.03, 0.05, 0.2, 1.0, 3.0],
+            index=pd.date_range("2020-01-01", periods=6, freq="h"),
+        )
+        simulated = pd.Series(
+            [1.0e-12, 1.0e-12, 1.0e-12, 0.2, 1.0, 3.0],
+            index=observed.index,
+        )
+
+        score = kge_low_flow(observed, simulated)
+
+        self.assertGreater(score, 0.1)
+
+    def test_nse_low_flow_objective_perfect_streamflow_has_zero_loss(self):
+        observed = pd.Series(
+            [0.02, 0.03, 0.05, 0.2, 1.0, 3.0],
+            index=pd.date_range("2020-01-01", periods=6, freq="h"),
+        )
+
+        score = nse_low_flow(observed, observed.copy())
+
+        self.assertAlmostEqual(score, 0.0)
+
+    def test_nse_low_flow_objective_penalizes_collapsed_tail(self):
+        observed = pd.Series(
+            [0.02, 0.03, 0.05, 0.2, 1.0, 3.0],
+            index=pd.date_range("2020-01-01", periods=6, freq="h"),
+        )
+        simulated = pd.Series(
+            [1.0e-12, 1.0e-12, 1.0e-12, 0.2, 1.0, 3.0],
+            index=observed.index,
+        )
+
+        score = nse_low_flow(observed, simulated)
+
+        self.assertGreater(score, 0.1)
+
+    def test_kge_low_high_flow_objective_perfect_streamflow_has_zero_loss(self):
+        observed = pd.Series(
+            [0.02, 0.03, 0.05, 0.2, 1.0, 3.0],
+            index=pd.date_range("2020-01-01", periods=6, freq="h"),
+        )
+
+        score = kge_low_high_flow(observed, observed.copy())
+
+        self.assertAlmostEqual(score, 0.0)
+
+    def test_kge_low_high_flow_objective_penalizes_collapsed_tail(self):
+        observed = pd.Series(
+            [0.02, 0.03, 0.05, 0.2, 1.0, 3.0],
+            index=pd.date_range("2020-01-01", periods=6, freq="h"),
+        )
+        simulated = pd.Series(
+            [1.0e-12, 1.0e-12, 1.0e-12, 0.2, 1.0, 3.0],
+            index=observed.index,
+        )
+
+        score = kge_low_high_flow(observed, simulated)
+
+        self.assertGreater(score, 0.1)
+
+    def test_kge_low_high_flow_objective_penalizes_flattened_peaks(self):
+        observed = pd.Series(
+            [0.02, 0.03, 0.05, 0.2, 1.0, 3.0],
+            index=pd.date_range("2020-01-01", periods=6, freq="h"),
+        )
+        simulated = pd.Series(
+            [0.02, 0.03, 0.05, 0.2, 0.6, 0.8],
+            index=observed.index,
+        )
+
+        score = kge_low_high_flow(observed, simulated)
+
+        self.assertGreater(score, 0.1)
 
 
 if __name__ == "__main__":

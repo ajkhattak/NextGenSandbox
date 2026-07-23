@@ -1,5 +1,5 @@
 ###############################################################
-# Author : Ahmad Jan Khattak [ahmad.jan.khattak@noaa.gov | September 10, 2024]
+# Author : Ahmad Jan Khattak [ajkhattak@gmail.com | September 10, 2024]
 # Contributor : Sifan A. Koriche [sakoriche@ua.edu | December 18, 2024]
 
 # Clone NextGenSandbox repository

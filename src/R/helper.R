@@ -1,5 +1,5 @@
 # @author Ahmad Jan Khattak
-# @email ahmad.jan.khattak@noaa.gov
+# @email ajkhattak@gmail.com
 # @author Lauren Bolotin
 # @email lauren.bolotin@noaa.gov
 # @date  February 05, 2024
