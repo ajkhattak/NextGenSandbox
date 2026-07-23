@@ -24,7 +24,11 @@ For a typical first-time setup, build the workflow and run the smoke test:
 6. `./bootstrap.sh --check`
    - Expected: Sandbox Python, forcing Python, and the `sandbox` command are
      found.
-7. Activate the sandbox Python environment
+7. Activate the sandbox Python environment:
+   - Conda: `conda activate "$SANDBOX_ENV"`
+   - Standard virtual environment: `source "$SANDBOX_ENV/bin/activate"`
+   - `./bootstrap.sh --check` reports the appropriate activation command when
+     the Sandbox environment is not active.
 8. `./bootstrap.sh --subset`
 9. `./bootstrap.sh --check`
    - Expected: subset `Rscript` exists and required R packages are available.
@@ -68,6 +72,9 @@ up a single-basin project and scale larger runs with the Sandbox Launcher.
 This command is read-only. It reports configured paths, available system tools,
 Sandbox/forcing/subset environments, key Python and R packages, ngen/t-route
 availability, and git submodule status.
+  Its recommended next steps include the appropriate Sandbox environment
+  activation command before any `--ngen`, `--models`, or `--troute` build
+  commands when the environment is not active.
   Run it after each major setup step, or whenever a Sandbox command fails and
   the cause is not obvious. For common warnings and failures, see
   [diagnostics.md](./diagnostics.md).

@@ -111,9 +111,26 @@ add_recommendation() {
     RECOMMENDED_NEXT_STEPS+=("$recommendation")
 }
 
+recommendation_priority() {
+    case "$1" in
+        *"Install Python >= 3.11"*) echo 5 ;;
+        *"--env"*) echo 10 ;;
+        *"--sandbox"*) echo 20 ;;
+        *"conda activate"*|*"bin/activate"*) echo 25 ;;
+        *"--subset"*|*"Install R packages"*) echo 30 ;;
+        *"--ngen"*) echo 40 ;;
+        *"--models"*) echo 50 ;;
+        *"--troute"*) echo 60 ;;
+        *"submodule"*) echo 70 ;;
+        *) echo 80 ;;
+    esac
+}
+
 print_recommended_next_steps() {
     local index=1
     local recommendation
+    local recommendation_order
+    local priority
 
     echo "Recommended Next Steps"
     echo "======================"
@@ -122,9 +139,14 @@ print_recommended_next_steps() {
         return
     fi
 
-    for recommendation in "${RECOMMENDED_NEXT_STEPS[@]}"; do
-        printf "  %d. %s\n" "$index" "$recommendation"
-        index=$((index + 1))
+    for priority in 5 10 20 25 30 40 50 60 70 80; do
+        for recommendation in "${RECOMMENDED_NEXT_STEPS[@]}"; do
+            recommendation_order="$(recommendation_priority "$recommendation")"
+            if [ "$recommendation_order" -eq "$priority" ]; then
+                printf "  %d. %s\n" "$index" "$recommendation"
+                index=$((index + 1))
+            fi
+        done
     done
 }
 
@@ -311,6 +333,9 @@ run_check() {
     local sandbox_env
     local forcing_env
     local subset_env
+    local active_env=""
+    local expected_env=""
+    local activate_command=""
     local os_name
     local target_file=""
     local source_line=""
@@ -413,6 +438,36 @@ run_check() {
     echo "Sandbox Environments"
     if [ -x "$sandbox_env/bin/python" ]; then
         status_ok "Sandbox Python: $sandbox_env/bin/python"
+
+        expected_env="$(cd "$sandbox_env" && pwd -P)"
+        if [ -n "${VIRTUAL_ENV:-}" ]; then
+            if [ -d "$VIRTUAL_ENV" ]; then
+                active_env="$(cd "$VIRTUAL_ENV" && pwd -P)"
+            else
+                active_env="$VIRTUAL_ENV"
+            fi
+        elif [ -n "${CONDA_PREFIX:-}" ]; then
+            if [ -d "$CONDA_PREFIX" ]; then
+                active_env="$(cd "$CONDA_PREFIX" && pwd -P)"
+            else
+                active_env="$CONDA_PREFIX"
+            fi
+        fi
+
+        if [ "$active_env" = "$expected_env" ]; then
+            status_ok "Sandbox environment is active"
+        else
+            status_warn "Sandbox environment is not active"
+            echo "           Expected: $expected_env"
+            echo "           Current : ${active_env:-<none>}"
+            if [ -d "$sandbox_env/conda-meta" ]; then
+                activate_command="conda activate \"$sandbox_env\""
+            else
+                activate_command="source \"$sandbox_env/bin/activate\""
+            fi
+            echo "           Run: $activate_command"
+            add_recommendation "Run: $activate_command"
+        fi
     else
         status_fail "Sandbox Python env not found: $sandbox_env"
         echo "           Run: ./bootstrap.sh --sandbox"
