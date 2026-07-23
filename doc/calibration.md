@@ -95,6 +95,11 @@ general:
         best_path: /path/to/previous/pso_global_best
         nearby_fraction: 0.5
         noise_fraction: 0.1
+      particle_reset:
+        enabled: true
+        patience: 10
+        reset_fraction: 1.0
+        preserve_global_best: true
 ```
 
 `particles` is the number of candidate parameter sets evaluated each PSO
@@ -135,6 +140,24 @@ from the calibration parameter blocks.
 fraction of each parameter range. Remaining particles are initialized randomly
 within bounds.
 
+`particle_reset` is optional and is disabled when omitted. It can reinitialize
+particles whose personal-best cost has not improved for `patience` consecutive
+generations:
+
+- `enabled`: enables or disables particle reset.
+- `patience`: number of consecutive generations without a personal-best
+  improvement before a particle becomes eligible. The default is `10`.
+- `reset_fraction`: fraction of the eligible stagnant particles to reset. The
+  default `1.0` resets all eligible particles, not the entire swarm. When less
+  than `1.0`, particles with the worst personal-best costs are reset first.
+- `preserve_global_best`: excludes the current global-best particle from reset.
+  The default is `true`.
+
+Reset particles receive a new random position within the parameter bounds,
+zero velocity, and a cleared personal-best cost. The swarm's global best is
+retained. Each reset is recorded in `pso_particle_reset_log.txt`, including the
+generation, particle index, previous personal-best cost, and new position.
+
 PSO writes several progress artifacts in the run directory:
 
 - `pso_progress.json`: current global best and the latest generation's particle
@@ -142,6 +165,8 @@ PSO writes several progress artifacts in the run directory:
 - `pso_global_best/`: copy of the particle worker that produced the best result.
 - `pso_global_best_log.txt`: best-so-far score/cost after each generation.
 - `pso_options_log.txt`: scheduled `w`, `c1`, and `c2` values by generation.
+- `pso_particle_reset_log.txt`: particles reinitialized after personal-best
+  stagnation. This file is created only when a reset occurs.
 
 ## Model Calibration Parameter Files
 
