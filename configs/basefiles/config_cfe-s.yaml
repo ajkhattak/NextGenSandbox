@@ -31,8 +31,8 @@ giuh_ordinates       : null
 N_nash_surface       : null
 K_nash_surface       : null                        # [h-1]
 nash_storage_surface : null
-#retention_depth_nash_surface : 0.0
-#Kinf_nash_surface       : 0.0
+retention_depth_nash_surface : 0.0
+Kinf_nash_surface       : 0.0
 
 sft_coupled           : false
 ice_content_threshold : 0.3
