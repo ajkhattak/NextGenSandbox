@@ -3,24 +3,30 @@ general:
     type: estimation
     algorithm: dds #pso
     parameters:
-      particles: 20
-      pool: 2
+      particles: 16
+      pool: 4
       options:
-        c1: 1.5
-        c2: 2.0
+        c1: 1.2
+        c2: 1.2
         w: 0.9
       options_schedule:
         type: linear
         end:
           c1: 0.5
-          c2: 0.5
-          w: 0.4
+          c2: 1.8
+          w: 0.3
       initialization:
-        nearby_fraction: 0.5
+        #best_path: "path/to/pso_global_best/"
+        nearby_fraction: 0.1
         noise_fraction: 0.2
+      particle_reset:
+        enabled: true
+        patience: 4
+        reset_fraction: 1.0
+        preserve_global_best: true
   log: true
   start_iteration: 0
-  iterations: 500 #50
+  iterations: 300
   random_seed: 444
   workdir: ./
 calibration:
