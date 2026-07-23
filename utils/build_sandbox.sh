@@ -186,7 +186,7 @@ build_sandbox()
 
     fi
 
-    pip install -e .
+    pip install -e '.[test]'
 
     git submodule update --init --recursive
     git submodule update --remote extern/ngen-cal

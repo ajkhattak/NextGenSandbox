@@ -20,6 +20,11 @@ which Python/R/build components are available.
 - `[MISSING]` means the item is not available and should be fixed before using
   the related workflow step.
 
+When output is written directly to an interactive terminal, these status labels
+are colored for readability. Redirected output remains plain text. Set
+`NO_COLOR=1` to disable terminal colors. The check ends with a deduplicated
+`Recommended Next Steps` list based on the issues it detected.
+
 ## Wrong Python Environment
 
 Symptom:
