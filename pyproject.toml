@@ -29,6 +29,12 @@ dependencies = [
     "pycares==4.11.0"
 ]
 
+[project.optional-dependencies]
+test = [
+    "pytest",
+    "pytest-mock",
+]
+
 
 [project.scripts]
 sandbox = "sandbox:main"

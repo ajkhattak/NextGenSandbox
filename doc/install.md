@@ -188,6 +188,17 @@ all work together. Download a CONUS geopackage from
 [lynker-spatial](https://www.lynker-spatial.com/data?path=hydrofabric%2Fv2.2%2F)
 first.
 
+Run the automated tests from the active Sandbox Python environment:
+
+```bash
+python -m pytest test
+python -m pytest plugins/ngen_cal_plugins/tests
+python -m pytest extern/ngen-cal/python/ngen_cal/tests
+```
+
+The standard Sandbox build installs the `test` dependency extra, which includes
+`pytest` and `pytest-mock`.
+
 ```bash
 python test/sandbox_test.py --all --gpkg <path/to/conus_nextgen.gpkg>
 ```

@@ -13,6 +13,21 @@ BUILD_MODELS=OFF
 BUILD_TROUTE=OFF
 BUILD_CLEAN=false
 
+COLOR_RESET=""
+COLOR_GREEN=""
+COLOR_YELLOW=""
+COLOR_RED=""
+COLOR_CYAN=""
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-}" != "dumb" ]; then
+    COLOR_RESET=$'\033[0m'
+    COLOR_GREEN=$'\033[32m'
+    COLOR_YELLOW=$'\033[33m'
+    COLOR_RED=$'\033[31m'
+    COLOR_CYAN=$'\033[36m'
+fi
+
+RECOMMENDED_NEXT_STEPS=()
+
 usage() {
     cat <<'EOF'
 Usage:
@@ -69,19 +84,48 @@ echo "  TROUTE   : $BUILD_TROUTE"
 echo "========================================="
 
 status_ok() {
-    printf "  [OK]      %s\n" "$1"
+    printf "  %b%-9s%b %s\n" "$COLOR_GREEN" "[OK]" "$COLOR_RESET" "$1"
 }
 
 status_set() {
-    printf "  [SET]     %s\n" "$1"
+    printf "  %b%-9s%b %s\n" "$COLOR_CYAN" "[SET]" "$COLOR_RESET" "$1"
 }
 
 status_warn() {
-    printf "  [WARN]    %s\n" "$1"
+    printf "  %b%-9s%b %s\n" "$COLOR_YELLOW" "[WARN]" "$COLOR_RESET" "$1"
 }
 
 status_fail() {
-    printf "  [MISSING] %s\n" "$1"
+    printf "  %b%-9s%b %s\n" "$COLOR_RED" "[MISSING]" "$COLOR_RESET" "$1"
+}
+
+add_recommendation() {
+    local recommendation="$1"
+    local existing
+
+    for existing in "${RECOMMENDED_NEXT_STEPS[@]}"; do
+        if [ "$existing" = "$recommendation" ]; then
+            return
+        fi
+    done
+    RECOMMENDED_NEXT_STEPS+=("$recommendation")
+}
+
+print_recommended_next_steps() {
+    local index=1
+    local recommendation
+
+    echo "Recommended Next Steps"
+    echo "======================"
+    if [ "${#RECOMMENDED_NEXT_STEPS[@]}" -eq 0 ]; then
+        status_ok "No action required."
+        return
+    fi
+
+    for recommendation in "${RECOMMENDED_NEXT_STEPS[@]}"; do
+        printf "  %d. %s\n" "$index" "$recommendation"
+        index=$((index + 1))
+    done
 }
 
 check_command() {
@@ -149,6 +193,7 @@ check_expected_dir() {
         status_warn "$label does not exist yet: $path"
         if [ -n "$setup_hint" ]; then
             echo "           Run: $setup_hint"
+            add_recommendation "Run: $setup_hint"
         fi
     fi
 }
@@ -169,6 +214,7 @@ check_python_version() {
         status_ok "Python >= 3.11: $($py_cmd -c 'import sys; print(sys.executable, sys.version.split()[0])')"
     else
         status_fail "Python >= 3.11 not found in PATH"
+        add_recommendation "Install Python >= 3.11, then rerun: ./bootstrap.sh --check"
     fi
 }
 
@@ -176,9 +222,11 @@ check_python_import() {
     local python_bin="$1"
     local module="$2"
     local label="$3"
+    local setup_hint="${4:-./bootstrap.sh --sandbox}"
 
     if [ ! -x "$python_bin" ]; then
         status_fail "$label: sandbox Python not found"
+        add_recommendation "Run: ./bootstrap.sh --sandbox"
         return
     fi
 
@@ -186,6 +234,7 @@ check_python_import() {
         status_ok "$label"
     else
         status_fail "$label"
+        add_recommendation "Run: $setup_hint"
     fi
 }
 
@@ -196,6 +245,7 @@ check_aiohttp_version() {
 
     if [ ! -x "$python_bin" ]; then
         status_fail "aiohttp version: sandbox Python not found"
+        add_recommendation "Run: ./bootstrap.sh --sandbox"
         return
     fi
 
@@ -223,8 +273,14 @@ PY
 
     case "$status" in
         0) status_ok "${result#OK }" ;;
-        2) status_warn "${result#WARN }" ;;
-        *) status_fail "${result#MISSING }" ;;
+        2)
+            status_warn "${result#WARN }"
+            add_recommendation "Run: ./bootstrap.sh --sandbox"
+            ;;
+        *)
+            status_fail "${result#MISSING }"
+            add_recommendation "Run: ./bootstrap.sh --sandbox"
+            ;;
     esac
 }
 
@@ -241,6 +297,7 @@ check_r_package() {
         status_ok "$label package '$package'"
     else
         status_fail "$label package '$package'"
+        R_PACKAGE_CHECK_FAILED=1
     fi
 }
 
@@ -257,6 +314,7 @@ run_check() {
     local os_name
     local target_file=""
     local source_line=""
+    local R_PACKAGE_CHECK_FAILED=0
 
     script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     sandbox_dir="${SANDBOX_DIR:-$script_dir}"
@@ -276,6 +334,11 @@ run_check() {
     echo ""
 
     echo "Configured Paths"
+    if [ "$sandbox_dir" != "$script_dir" ]; then
+        status_warn "SANDBOX_DIR points to a different repository: $sandbox_dir"
+        echo "           Current repository: $script_dir"
+        add_recommendation "Update Sandbox paths: ./bootstrap.sh --env --verbose"
+    fi
     show_path_value "SANDBOX_DIR" "$sandbox_dir"
     show_path_value "SANDBOX_BUILD_DIR" "$sandbox_build_dir"
     show_path_value "SANDBOX_DATA_DIR" "$sandbox_data_dir"
@@ -314,6 +377,7 @@ run_check() {
     else
         status_warn "Sandbox environment is not registered in the detected shell startup file"
         echo "           Run: ./bootstrap.sh --env --verbose"
+        add_recommendation "Run: ./bootstrap.sh --env --verbose"
     fi
 
     for var in SANDBOX_DIR SANDBOX_BUILD_DIR SANDBOX_DATA_DIR SANDBOX_ENV FORCING_ENV NGEN_DIR; do
@@ -321,6 +385,7 @@ run_check() {
             status_ok "$var is set: ${!var}"
         else
             status_warn "$var is not set in the current shell"
+            add_recommendation "Run: ./bootstrap.sh --env --verbose"
         fi
     done
     echo ""
@@ -351,17 +416,20 @@ run_check() {
     else
         status_fail "Sandbox Python env not found: $sandbox_env"
         echo "           Run: ./bootstrap.sh --sandbox"
+        add_recommendation "Run: ./bootstrap.sh --sandbox"
     fi
     if [ -x "$sandbox_env/bin/sandbox" ]; then
         status_ok "sandbox command: $sandbox_env/bin/sandbox"
     else
         status_fail "sandbox command not found in sandbox env"
+        add_recommendation "Run: ./bootstrap.sh --sandbox"
     fi
     if [ -x "$forcing_env/bin/python" ]; then
         status_ok "Forcing Python: $forcing_env/bin/python"
     else
         status_fail "Forcing Python env not found: $forcing_env"
         echo "           Run: ./bootstrap.sh --sandbox"
+        add_recommendation "Run: ./bootstrap.sh --sandbox"
     fi
     if [ -x "$subset_env/bin/Rscript" ]; then
         status_ok "Subset Rscript: $subset_env/bin/Rscript"
@@ -380,8 +448,10 @@ run_check() {
         if [ "$os_name" = "Darwin" ]; then
             echo "           Install R, then run:"
             echo "             Rscript \$SANDBOX_DIR/src/R/install_load_libs.R --install"
+            add_recommendation "Install R packages: Rscript \$SANDBOX_DIR/src/R/install_load_libs.R --install"
         else
             echo "           Run: ./bootstrap.sh --subset"
+            add_recommendation "Run: ./bootstrap.sh --subset"
         fi
     fi
     echo ""
@@ -390,7 +460,8 @@ run_check() {
     check_python_import "$sandbox_env/bin/python" "ngen.cal" "ngen.cal import"
     check_python_import "$sandbox_env/bin/python" "ngen.config" "ngen.config import"
     check_python_import "$sandbox_env/bin/python" "ngen_cal_plugins" "ngen_cal_plugins import"
-    check_python_import "$sandbox_env/bin/python" "nwm_routing" "nwm_routing import (t-route)"
+    check_python_import "$sandbox_env/bin/python" "nwm_routing" "nwm_routing import (t-route)" "./bootstrap.sh --troute"
+    check_python_import "$sandbox_env/bin/python" "pytest" "pytest import"
     check_aiohttp_version "$sandbox_env/bin/python"
     echo ""
 
@@ -408,6 +479,13 @@ run_check() {
     else
         status_warn "No Rscript available for package checks"
     fi
+    if [ "$R_PACKAGE_CHECK_FAILED" -ne 0 ]; then
+        if [ "$os_name" = "Darwin" ]; then
+            add_recommendation "Install R packages: Rscript \$SANDBOX_DIR/src/R/install_load_libs.R --install"
+        else
+            add_recommendation "Run: ./bootstrap.sh --subset"
+        fi
+    fi
     echo ""
 
     echo "Build Artifacts"
@@ -416,6 +494,7 @@ run_check() {
     else
         status_warn "ngen executable not found: $ngen_dir/cmake_build/ngen"
         echo "           Run: ./bootstrap.sh --ngen"
+        add_recommendation "Run: ./bootstrap.sh --ngen"
     fi
     if [ -d "$ngen_dir/extern" ]; then
         status_ok "ngen extern directory: $ngen_dir/extern"
@@ -426,22 +505,27 @@ run_check() {
 
     echo "Submodules"
     if git -C "$sandbox_dir" submodule status >/dev/null 2>&1; then
-        git -C "$sandbox_dir" submodule status | while read -r line; do
+        while read -r line; do
             case "$line" in
                 -*)
                     status_fail "Not initialized: $line"
+                    add_recommendation "Initialize submodules: git submodule update --init --recursive"
                     ;;
                 +*)
                     status_warn "Different commit than index: $line"
+                    add_recommendation "Review submodule state: git submodule status"
                     ;;
                 *)
                     status_ok "$line"
                     ;;
             esac
-        done
+        done < <(git -C "$sandbox_dir" submodule status)
     else
         status_warn "Unable to read git submodule status"
+        add_recommendation "Review repository and submodule paths: git submodule status"
     fi
+    echo ""
+    print_recommended_next_steps
     echo ""
 }
 
