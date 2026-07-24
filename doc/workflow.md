@@ -1,13 +1,9 @@
 # Run a NextGenSandbox Project
 
-This guide begins after NextGenSandbox is installed and the smoke test in
-[install.md](./install.md) has passed. It walks through one project from
+This guide assumes that the installation smoke test has passed and the project
+configuration files have been reviewed. It walks through one project from
 resource preparation to model execution, then introduces parallel resource
 preparation and Sandbox Launcher.
-
-Configuration field definitions are intentionally kept in
-[configuration.md](./configuration.md). Resource path structures are documented
-in [directory_layout.md](./directory_layout.md).
 
 ## Before Starting
 
@@ -261,18 +257,6 @@ The helper writes per-gage logs and these summary files under its log directory:
 The shell script contains an editable Slurm header. It can also be run directly
 from a local Linux or macOS terminal.
 
-## Scale with Sandbox Launcher
-
-After one project configuration succeeds normally, use Sandbox Launcher to
-apply configuration templates across many gages and formulations or to manage
-long calibration jobs.
-
-Launcher uses the same `sandbox_config.yaml` and `calib_config.yaml` concepts,
-adds experiment assignments, creates per-gage/per-model run directories, and
-runs locally or submits jobs through Slurm.
-
-See the [Sandbox Launcher guide](../tools/launcher/README.md).
-
 ## When a Step Fails
 
 Run the read-only installation check first:
@@ -284,3 +268,15 @@ Run the read-only installation check first:
 Then see [diagnostics.md](./diagnostics.md) for environment, subsetting,
 forcing, model-build, dry-run, and smoke-test issues. Failed subsetting work
 also records a gage-specific error file under the configured resource root.
+
+## Next: Scale with Sandbox Launcher
+
+After one project configuration succeeds normally, use Sandbox Launcher to
+apply configuration templates across many gages and formulations or to manage
+long calibration jobs.
+
+Launcher uses the same `sandbox_config.yaml` and `calib_config.yaml` concepts,
+adds experiment assignments, creates per-gage/per-model output directories, and
+runs locally or submits jobs through Slurm.
+
+Continue to the [Sandbox Launcher guide](../tools/launcher/README.md).

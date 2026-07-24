@@ -1,33 +1,61 @@
 # NextGenSandbox
 
-NextGenSandbox is a workflow tool for setting up, running, calibrating, and evaluating [NextGen/ngen](https://github.com/NOAA-OWP/ngen) hydrologic modeling experiments. It brings together common setup steps such as hydrofabric subsetting, forcing preparation, model configuration, calibration, validation, and large-scale job launching so users can move from basin resources to repeatable simulations with less manual wiring.
+NextGenSandbox is a workflow tool for setting up, running, calibrating, and
+evaluating [NextGen/ngen](https://github.com/NOAA-OWP/ngen) hydrologic modeling
+experiments. It brings hydrofabric subsetting, forcing preparation, model
+configuration, calibration, validation, and large-scale job launching into one
+repeatable workflow.
 
-## Start Here
+## Getting Started
 
-For a new machine or first-time setup, follow the [install guide](https://github.com/ajkhattak/NextGenSandbox/blob/main/doc/install.md). The guide includes a Quick Path, detailed installation steps, and a smoke test to verify the core workflow. For common setup issues, see the [diagnostics guide](https://github.com/ajkhattak/NextGenSandbox/blob/main/doc/diagnostics.md).
+First-time users should follow these guides in order:
 
-## Configuration
+1. **[Install and verify NextGenSandbox](doc/install.md)**
 
-NextGenSandbox configuration defines the resources, models, and run behavior
-for a project. This includes project directory layout, hydrofabric subsetting,
-forcing preparation, local observations, model formulations and variants,
-simulation or calibration task types, output retention, and calibration search
-settings.
+   Build the environments, ngen, models, and t-route, then confirm the
+   installation with the workflow smoke test.
 
-Start with the [configuration guide](https://github.com/ajkhattak/NextGenSandbox/blob/main/doc/configuration.md) for the main field reference. The [directory layout guide](https://github.com/ajkhattak/NextGenSandbox/blob/main/doc/directory_layout.md) explains how reusable resources and generated outputs are organized.
+2. **[Configure a project](doc/configuration.md)**
 
-Detailed guides are also available for [model configuration](https://github.com/ajkhattak/NextGenSandbox/blob/main/doc/model_configuration.md), [calibration settings](https://github.com/ajkhattak/NextGenSandbox/blob/main/doc/calibration.md), and [observations/objectives](https://github.com/ajkhattak/NextGenSandbox/blob/main/doc/observations.md).
+   Understand `sandbox_config.yaml`, `calib_config.yaml`, model defaults, and
+   the settings that control project resources and simulations.
 
-## Project Workflows
+3. **[Run a project](doc/workflow.md)**
 
-After installation, use the [project workflow guide](https://github.com/ajkhattak/NextGenSandbox/blob/main/doc/workflow.md) to set up a custom single-basin project, run `sandbox --subset`, `sandbox --forc`, `sandbox --conf`, and `sandbox --run`, and then scale larger experiments with the [Sandbox Launcher](https://github.com/ajkhattak/NextGenSandbox/tree/main/tools/launcher).
+   Prepare hydrofabric and forcing resources, generate model files, inspect the
+   command with dry run, and execute the simulation or calibration.
 
-## Models And Formulations
+4. **[Scale with Sandbox Launcher](tools/launcher/README.md)** *(optional)*
 
-To see the current model formulations supported by NextGenSandbox, run:
+   Apply working configuration templates across many gages and formulations,
+   run locally, or submit jobs through Slurm.
+
+Each guide ends with the next step in this sequence. Complete the smoke test
+before configuring a custom project, and validate one normal project before
+scaling it with Launcher.
+
+## Reference Guides
+
+Use these guides when the main sequence directs you to a specific topic:
+
+| Topic | Guide |
+|---|---|
+| Directory organization | [Directory layout](doc/directory_layout.md) |
+| Forcing files and rechunking | [Forcing data](doc/forcing.md) |
+| Supported model combinations | [Formulations](doc/formulations.md) |
+| Model instances and basefiles | [Model configuration](doc/model_configuration.md) |
+| Calibration, DDS, and PSO | [Calibration](doc/calibration.md) |
+| Local observations and objectives | [Observations](doc/observations.md) |
+| Common setup and workflow errors | [Diagnostics](doc/diagnostics.md) |
+| Contributor test suites | [Testing](doc/testing.md) |
+
+## Supported Formulations
+
+After installation, list the currently registered formulation components with:
 
 ```bash
 sandbox --formulations
 ```
 
-See the [formulations guide](https://github.com/ajkhattak/NextGenSandbox/blob/main/doc/formulations.md) for model combinations, variants, and setup notes.
+See the [formulations guide](doc/formulations.md) for supported combinations,
+model variants, and setup notes.

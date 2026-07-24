@@ -4,9 +4,6 @@ This guide is the reference for the configuration files read by
 NextGenSandbox. It introduces their structure, explains what each setting
 controls, and points to focused guides for advanced examples.
 
-Use [workflow.md](./workflow.md) when you are ready to prepare resources,
-generate model files, and run a project.
-
 ## Configuration Files
 
 NextGenSandbox uses two main YAML files:
@@ -131,8 +128,8 @@ and vegetation attributes.
 | `vegetation.classification_method` | Vegetation classification method: `majority` or `fraction`. |
 | `gages` | Optional filter on `general.gages`. |
 
-If geopackages already exist, configure `general.gages.option: gpkg` and skip
-the subsetting command. See [workflow.md](./workflow.md#prepare-the-hydrofabric).
+If geopackages already exist, configure `general.gages.option: gpkg`; project
+execution can then skip hydrofabric subsetting.
 
 ### `forcings`
 
@@ -393,12 +390,10 @@ values, switches, static attributes, or trained-model locations.
 
 See [model_configuration.md](./model_configuration.md#model-basefiles).
 
-## Related Guides
+## Reference Guides
 
 | Topic | Guide |
 |---|---|
-| Installation and verification | [install.md](./install.md) |
-| Running a project | [workflow.md](./workflow.md) |
 | Resource and output directory structures | [directory_layout.md](./directory_layout.md) |
 | Forcing files and rechunking | [forcing.md](./forcing.md) |
 | Supported formulations | [formulations.md](./formulations.md) |
@@ -406,3 +401,9 @@ See [model_configuration.md](./model_configuration.md#model-basefiles).
 | Observations and objective functions | [observations.md](./observations.md) |
 | Calibration, DDS, PSO, and parameter files | [calibration.md](./calibration.md) |
 | Common errors | [diagnostics.md](./diagnostics.md) |
+
+## Next: Run a Project
+
+Continue to [workflow.md](./workflow.md) to prepare reusable resources,
+generate model configuration files, inspect the execution command, and run the
+configured simulation or calibration.

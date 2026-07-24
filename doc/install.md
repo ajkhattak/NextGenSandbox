@@ -8,8 +8,8 @@ workflow runs on a new machine.
   platform-specific guidance and expected results.
 - See [diagnostics.md](./diagnostics.md) when a check or build step fails.
 
-After installation, continue with the [configuration guide](./configuration.md)
-and [project workflow guide](./workflow.md).
+After installation, the next step is to understand and customize the project
+configuration.
 
 ## Before You Begin
 
@@ -122,10 +122,6 @@ Expected final message:
 SUCCESS: NextGenSandbox smoke test completed. Installation and the core workflow are ready.
 ```
 
-After the smoke test passes, review [configuration.md](./configuration.md), then
-use [workflow.md](./workflow.md) to create a project and scale larger
-experiments with the Sandbox Launcher.
-
 ## Detailed Installation
 
 ### Step 1: Clone the repository
@@ -202,8 +198,8 @@ This step installs the R packages and WhiteboxTools binary used by
 `sandbox --subset`. These dependencies let NextGenSandbox extract
 gage-specific geopackages from a larger hydrofabric.
 
-This installation step does not subset a project. Project-level subsetting is
-described in [workflow.md](./workflow.md#prepare-the-hydrofabric).
+This installation step only prepares the subsetting dependencies. It does not
+subset hydrofabric resources for a project.
 
 #### Linux and HPC systems
 
@@ -319,13 +315,11 @@ SUCCESS: NextGenSandbox smoke test completed. Installation and the core workflow
 
 The installation is ready when both the final `--check` and smoke test pass.
 
-## Next Steps
+## Next: Configure a Project
 
-- Read [configuration.md](./configuration.md) to understand workflow and model
-  configuration.
-- Follow [workflow.md](./workflow.md) to create a single-gage project and scale
-  larger experiments.
-- Use [diagnostics.md](./diagnostics.md) when a command fails or produces an
-  unclear warning.
-- See [testing.md](./testing.md) when developing NextGenSandbox or testing code
-  changes.
+Continue to [configuration.md](./configuration.md) to understand the project
+paths, resources, models, time periods, outputs, and calibration settings before
+running a custom project.
+
+If installation failed, use [diagnostics.md](./diagnostics.md). Contributors
+can find the optional repository test suites in [testing.md](./testing.md).
