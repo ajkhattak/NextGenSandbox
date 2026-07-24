@@ -6,13 +6,29 @@ from src.python.context import SandboxContext
 
 
 class TestContextForcing(unittest.TestCase):
+    def _context_with_forcing_config(self, **forcing_options):
+        ctx = object.__new__(SandboxContext)
+        ctx.input_dir = Path("/tmp/resources")
+        ctx.resource_layout = "gage"
+        ctx.sandbox_config = {
+            "forcings": {
+                "time": {
+                    "start": "2016-10-01",
+                    "end": "2020-09-30 23:00:00",
+                },
+                **forcing_options,
+            }
+        }
+        ctx.load_forcing_config()
+        return ctx
+
     def _context_for_netcdf_file(self, forcing_file, gpkg_count):
         ctx = object.__new__(SandboxContext)
         ctx.forcing_dir = str(forcing_file)
         ctx.gpkg_dirs = [Path(f"/tmp/gage_{i}") for i in range(gpkg_count)]
         ctx.sandbox_dir = Path.cwd()
         ctx.rechunk_forcing = False
-        ctx.is_corrected_forcing = False
+        ctx.use_corrected_forcing = False
         return ctx
 
     def _context_for_pattern(self, forcing_dir):
@@ -21,7 +37,7 @@ class TestContextForcing(unittest.TestCase):
         ctx.gpkg_dirs = [Path("/tmp/gage_50147800.gpkg")]
         ctx.sandbox_dir = Path.cwd()
         ctx.rechunk_forcing = False
-        ctx.is_corrected_forcing = False
+        ctx.use_corrected_forcing = False
         ctx.forcing_format = ".nc"
         ctx.forcing_dir_is_configured = True
         ctx.forcing_year_dir = "2016_to_2021"
@@ -35,6 +51,16 @@ class TestContextForcing(unittest.TestCase):
             ctx = self._context_for_netcdf_file(forcing_file, gpkg_count=1)
 
             self.assertEqual(ctx._resolve_single_netcdf_forcing_file(), forcing_file)
+
+    def test_use_corrected_defaults_true(self):
+        ctx = self._context_with_forcing_config()
+
+        self.assertTrue(ctx.use_corrected_forcing)
+
+    def test_use_corrected_accepts_false(self):
+        ctx = self._context_with_forcing_config(use_corrected=False)
+
+        self.assertFalse(ctx.use_corrected_forcing)
 
     def test_single_netcdf_file_rejected_for_multiple_gages(self):
         with tempfile.TemporaryDirectory() as tmp:

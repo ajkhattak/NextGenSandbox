@@ -8,11 +8,11 @@ from pathlib import Path
 def select_netcdf_forcing_file(
     forcing_dir: str | Path,
     *,
-    prefer_corrected: bool = True,
+    use_corrected: bool = True,
 ) -> Path:
     forcing_dir = Path(forcing_dir)
 
-    if prefer_corrected:
+    if use_corrected:
         files = sorted(forcing_dir.glob("*_corrected.nc"))
         expected = "*_corrected.nc"
     else:

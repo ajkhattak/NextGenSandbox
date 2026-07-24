@@ -129,7 +129,7 @@ class ForcingProcessor:
         if self.forcing_format == ".nc":
             print("Correcting forcing data ...")
             self.forcing_data_correction(fdir)
-            forcing_file = select_netcdf_forcing_file(fdir, prefer_corrected=True)
+            forcing_file = select_netcdf_forcing_file(fdir, use_corrected=True)
             prepare_rechunked_forcing_file(
                 forcing_file,
                 sandbox_dir=self.sandbox_dir,

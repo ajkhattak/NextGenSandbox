@@ -142,6 +142,7 @@ optional NetCDF rechunking.
 | Field | Meaning |
 |---|---|
 | `format` | Forcing format: `.nc` or `.csv`. |
+| `use_corrected` | Use the corrected NetCDF forcing file during configuration and model runs. Default: `true`. |
 | `rechunk` | Create or reuse a rechunked NetCDF file for faster ngen reads. |
 | `time.start` | First forcing timestamp. A date without a time defaults to `00:00:00`. |
 | `time.end` | Last forcing timestamp. A date without a time defaults to `00:00:00`. |
@@ -154,9 +155,20 @@ and `resource_layout`. For one selected gage, `forcing_dir` may point directly
 to one `.nc` file. For multiple gages outside the project resource tree, use
 the `<gage_id>` placeholder in the directory or filename.
 
+For NetCDF downloaded with `sandbox --forc`, Sandbox preserves the original and
+writes a sibling file named `*_corrected.nc`. The correction fills missing
+values along the time dimension, replaces invalid radiation and air-temperature
+values through interpolation, and sets the precipitation units metadata to
+`mm/hr`. With `use_corrected: true`, later configuration and run steps
+select this corrected file. Setting it to `false` selects the original NetCDF
+file; it does not prevent the forcing step from creating the corrected copy.
+
+When both correction and rechunking are used, the file selected by ngen is
+typically named `*_corrected_rechunked.nc`.
+
 Every simulation period must fall within the configured forcing period. See
-[forcing.md](./forcing.md) for external forcing examples and rechunking
-behavior.
+[forcing.md](./forcing.md) for correction details, external forcing examples,
+and rechunking behavior.
 
 ### `observations`
 

@@ -21,6 +21,39 @@ for each selected gage. The generated forcing files are written to the
 directory implied by `general.resource_layout`, unless `forcings.forcing_dir`
 is provided.
 
+## NetCDF forcing correction
+
+After downloading NetCDF forcing, `sandbox --forc` preserves the downloaded
+file and writes a corrected sibling named:
+
+```text
+<original_name>_corrected.nc
+```
+
+The correction step:
+
+- sets the `APCP_surface` precipitation units metadata to `mm/hr`
+- fills missing values in forcing variables using nearest-neighbor
+  interpolation along time
+- treats negative `DLWRF_surface` and `DSWRF_surface` radiation as missing and
+  fills them using linear interpolation along time
+- treats `TMP_2maboveground` values below 200 K as missing and fills them using
+  linear interpolation along time
+
+The original NetCDF file is not modified.
+
+Control which file later configuration and run steps select with:
+
+```yaml
+forcings:
+  format: ".nc"
+  use_corrected: true
+```
+
+`use_corrected` defaults to `true`. Set it to `false` to use the original
+NetCDF file. This setting controls file selection; the `--forc` step still
+creates the corrected copy.
+
 ## NetCDF forcing rechunking
 
 Sandbox can rechunk NetCDF forcing files before configuration generation. This
@@ -31,10 +64,17 @@ when they are newer than the source forcing file.
 ```yaml
 forcings:
   format: ".nc"
+  use_corrected: true
   time:
     start: "2015-10-01"
     end: "2022-09-30 23:00:00"
   rechunk: true
+```
+
+With both correction and rechunking enabled, the selected file is typically:
+
+```text
+<original_name>_corrected_rechunked.nc
 ```
 
 Date-only values default to `00:00:00`.

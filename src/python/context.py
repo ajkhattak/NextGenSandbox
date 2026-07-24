@@ -158,7 +158,7 @@ class SandboxContext:
 
         self.domain = dforcing.get("domain", "conus")
 
-        self.is_corrected_forcing = dforcing.get("is_corrected_forcing", True)
+        self.use_corrected_forcing = dforcing.get("use_corrected", True)
 
         self.is_netcdf_forcing = (self.forcing_format != ".csv")
 
@@ -741,7 +741,7 @@ class SandboxContext:
         if forcing_path.is_dir():
             forcing_file = select_netcdf_forcing_file(
                 forcing_path,
-                prefer_corrected=self.is_corrected_forcing,
+                use_corrected=self.use_corrected_forcing,
             )
         else:
             if forcing_path.suffix != ".nc":
@@ -766,7 +766,7 @@ class SandboxContext:
         if forcing_path.is_dir():
             forcing_file = select_netcdf_forcing_file(
                 forcing_path,
-                prefer_corrected=self.is_corrected_forcing,
+                use_corrected=self.use_corrected_forcing,
             )
         else:
             if len(self.gpkg_dirs) != 1:

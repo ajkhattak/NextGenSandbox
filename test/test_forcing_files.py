@@ -21,11 +21,11 @@ class TestForcingFiles(unittest.TestCase):
             rechunked.touch()
 
             self.assertEqual(
-                select_netcdf_forcing_file(forcing_dir, prefer_corrected=True),
+                select_netcdf_forcing_file(forcing_dir, use_corrected=True),
                 corrected,
             )
             self.assertEqual(
-                select_netcdf_forcing_file(forcing_dir, prefer_corrected=False),
+                select_netcdf_forcing_file(forcing_dir, use_corrected=False),
                 source,
             )
             self.assertEqual(select_source_netcdf_forcing_file(forcing_dir), source)

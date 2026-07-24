@@ -46,6 +46,7 @@ subsetting :
 #forcing data default path follows general.resource_layout. gage: <input_dir>/<gage_id>/forcing; resource: <input_dir>/forcing/<gage_id>
 forcings : 
   format  : ".nc" #----------------------------------------------- Format .nc or .csv (recommended option .nc)
+  use_corrected: true #------------------------------------------- Use the corrected NetCDF file for configuration and runs (default: true)
   rechunk : true #------------------------------------------------ Rechunk NetCDF forcing files for faster ngen reads
   time    : {"start" : "2016-10-01", "end" : "2020-09-30 23:00:00"} #---------- Forcing data time range; simulation start/end times must fall within this period
 
