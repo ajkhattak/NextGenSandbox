@@ -142,7 +142,7 @@ optional NetCDF rechunking.
 | Field | Meaning |
 |---|---|
 | `format` | Forcing format: `.nc` or `.csv`. |
-| `use_corrected` | Use the corrected NetCDF forcing file during configuration and model runs. Default: `true`. |
+| `use_corrected` | Use the corrected NetCDF forcing file during configuration and model runs. Recommended; default: `true`. |
 | `rechunk` | Create or reuse a rechunked NetCDF file for faster ngen reads. |
 | `time.start` | First forcing timestamp. A date without a time defaults to `00:00:00`. |
 | `time.end` | Last forcing timestamp. A date without a time defaults to `00:00:00`. |
@@ -162,6 +162,11 @@ values through interpolation, and sets the precipitation units metadata to
 `mm/hr`. With `use_corrected: true`, later configuration and run steps
 select this corrected file. Setting it to `false` selects the original NetCDF
 file; it does not prevent the forcing step from creating the corrected copy.
+
+Using the corrected file is recommended. The downloaded raw NetCDF may not
+declare `mm/hr` as the precipitation units. Without that metadata, ngen cannot
+convert precipitation when a model expects units other than `mm/hr`. The raw
+file may therefore work only when the model already expects `mm/hr`.
 
 When both correction and rechunking are used, the file selected by ngen is
 typically named `*_corrected_rechunked.nc`.

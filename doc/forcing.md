@@ -54,6 +54,12 @@ forcings:
 NetCDF file. This setting controls file selection; the `--forc` step still
 creates the corrected copy.
 
+> **Important:** Using corrected forcing is recommended. The downloaded raw
+> NetCDF may not declare `mm/hr` as the precipitation units. Without that
+> metadata, ngen cannot convert precipitation for a model that expects
+> different units. The raw file may therefore be usable only when the model
+> already expects precipitation in `mm/hr`.
+
 ## NetCDF forcing rechunking
 
 Sandbox can rechunk NetCDF forcing files before configuration generation. This
