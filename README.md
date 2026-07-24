@@ -8,9 +8,8 @@ repeatable workflow.
 
 ## Documentation
 
-Read the complete documentation at
-**[ajkhattak.github.io/NextGenSandbox](https://ajkhattak.github.io/NextGenSandbox/)**.
-The Markdown source remains available under [`docs/`](docs/).
+Read the complete
+[NextGenSandbox documentation](https://ajkhattak.github.io/NextGenSandbox/).
 
 ## Getting Started
 
