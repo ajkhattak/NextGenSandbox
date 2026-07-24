@@ -21,7 +21,7 @@ general:
         noise_fraction: 0.2
       particle_reset:
         enabled: true
-        patience: 4
+        patience: 10
         reset_fraction: 1.0
         preserve_global_best: true
   log: true

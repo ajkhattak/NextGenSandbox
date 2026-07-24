@@ -203,7 +203,7 @@ This step installs the R packages and WhiteboxTools binary used by
 gage-specific geopackages from a larger hydrofabric.
 
 This installation step does not subset a project. Project-level subsetting is
-described in [workflow.md](./workflow.md#subset-hydrofabric).
+described in [workflow.md](./workflow.md#prepare-the-hydrofabric).
 
 #### Linux and HPC systems
 

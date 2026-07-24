@@ -1,192 +1,286 @@
-# Project Workflow Guide
+# Run a NextGenSandbox Project
 
-This guide starts after NextGenSandbox is installed and the smoke test in
-[install.md](./install.md) has passed. It explains how to move from a working
-installation to a custom project, first for one basin or a small set of basins,
-then for larger launcher-managed experiments.
+This guide begins after NextGenSandbox is installed and the smoke test in
+[install.md](./install.md) has passed. It walks through one project from
+resource preparation to model execution, then introduces parallel resource
+preparation and Sandbox Launcher.
 
-## Start With Configuration
+Configuration field definitions are intentionally kept in
+[configuration.md](./configuration.md). Resource path structures are documented
+in [directory_layout.md](./directory_layout.md).
 
-Before running a custom project, review [configuration.md](./configuration.md).
-That guide explains the main configuration files:
+## Before Starting
 
-- `configs/sandbox_config.yaml`: workflow paths, hydrofabric subsetting,
-  forcings, observations, formulation, model instances, and simulation settings.
-- `configs/calib_config.yaml`: calibration strategy, objective functions,
-  plugins, and calibration parameter files.
-- `configs/calibration/*.yaml`: model-specific calibration parameter blocks.
-
-For project directory choices, also review
-[directory_layout.md](./directory_layout.md). It explains the supported
-`general.resource_layout` values and how reusable resources differ from
-generated run artifacts.
-
-## Single-Basin Project
-
-For a first custom project, start with one basin or a small set of gages. This
-keeps debugging simple and confirms that the selected hydrofabric, forcing,
-formulation, and calibration settings work before scaling up.
-
-1. Copy or edit `configs/sandbox_config.yaml`.
-2. Set `general.input_dir`, `general.output_dir`, and `general.resource_layout`.
-3. Configure `general.gages` with the full project gage set.
-4. Configure `subsetting` with the source hydrofabric and, if needed, a
-   step-specific gage filter.
-5. Configure `forcings` for the simulation period and forcing source.
-6. Configure `formulation` and any `model_instances`.
-7. Configure `simulation` for the task type, time periods, output settings,
-   and partitioning.
-8. For calibration runs, review `configs/calib_config.yaml` and the relevant
-   files under `configs/calibration/`.
-
-### Subset Hydrofabric
-
-Before running `sandbox --subset`, download the source hydrofabric for the
-domain of interest from
-[lynker-spatial](https://www.lynker-spatial.com/data?path=hydrofabric%2Fv2.2%2F).
-For example, for CONUS workflows, configure `subsetting.hydrofabric.gpkg_path`
-to point to the downloaded `conus_nextgen.gpkg` or equivalent hydrofabric file.
-
-`general.gages` defines the full project gage set. The `subsetting.gages`
-field is an optional filter on that set, so a project can subset all configured
-gages or just a smaller list for one run.
-
-```yaml
-general:
-  gages:
-    option: ids
-    ids: ["01308000", "03366500"]
-
-subsetting:
-  hydrofabric:
-    version: "2.2"
-    gpkg_path: "/path/to/conus_nextgen.gpkg"
-  gages: ["01308000"]
-```
-
-Step-level gage filters under `subsetting`, `forcings`, and `simulation` may be
-`all`, one gage ID, or a list of IDs. CSV and geopackage selection should be
-configured under `general.gages`.
-
-If geopackages already exist in the input resources, set:
-
-```yaml
-general:
-  gages:
-    option: gpkg
-    gpkg:
-      pattern: "gage_"
-```
-
-When `general.gages.gpkg.dir` is omitted, the workflow discovers geopackages
-from `general.input_dir` using `general.resource_layout`.
-
-Run:
+From the NextGenSandbox repository, activate the Sandbox Python environment:
 
 ```bash
-sandbox --subset -i configs/my_sandbox_config.yaml
+conda activate "$SANDBOX_ENV"
 ```
 
-If subsetting succeeds, a basin geopackage is written for each selected gage.
-With the default `general.resource_layout: gage`, geopackages are written under:
+or:
+
+```bash
+source "$SANDBOX_ENV/bin/activate"
+```
+
+Confirm that the installation is ready:
+
+```bash
+./bootstrap.sh --check
+```
+
+The `sandbox` command, ngen executable, required model libraries, t-route, and
+the resource preparation environments should be available before continuing.
+
+## Workflow Overview
+
+Resource preparation commands are optional when suitable files already exist.
+Configuration generation and model execution are separate so generated files
+can be inspected before a run.
+
+| Stage | Command | When to run it |
+|---|---|---|
+| Prepare hydrofabric | `sandbox --subset` | Run when gage-specific geopackages do not already exist. |
+| Prepare forcing | `sandbox --forc` | Run when forcing must be downloaded, prepared, or rechunked by Sandbox. |
+| Generate model files | `sandbox --conf` | Run after hydrofabric and forcing resources are available. |
+| Inspect execution | `sandbox --dryrun` | Recommended after configuration generation and before a real run. |
+| Execute models | `sandbox --run` | Run after generated configurations have been reviewed. |
+
+All commands use the same project `sandbox_config.yaml`. Calibration and
+validation commands may also use a project-specific `calib_config.yaml`.
+
+## Step 1: Create Project Configuration
+
+Start from the distributed samples:
+
+```bash
+cp configs/sandbox_config.yaml configs/my_project.yaml
+cp configs/calib_config.yaml configs/my_project_calibration.yaml
+```
+
+The calibration copy is needed only when you want project-specific changes to
+the search strategy, objective, plugins, or parameter-file location.
+
+Review the following project decisions in `my_project.yaml`:
+
+1. Choose reusable resource and generated output directories.
+2. Choose one resource layout for the project.
+3. Define the complete project gage set.
+4. Configure the hydrofabric source or existing geopackages.
+5. Configure the forcing period and source.
+6. Select the formulation and any custom model instances.
+7. Select the simulation task, time periods, outputs, and partitioning.
+8. Add local observations only when the run uses them.
+
+Use [configuration.md](./configuration.md) as the field reference. For
+calibration or validation, also review [calibration.md](./calibration.md) and
+the relevant files under `configs/calibration/`.
+
+## Step 2: Prepare Reusable Resources
+
+### Prepare the hydrofabric
+
+Each selected gage needs a geopackage before configuration generation.
+
+If gage-specific geopackages do not exist, download the source hydrofabric for
+your domain. CONUS hydrofabric files are available from
+[Lynker Spatial](https://www.lynker-spatial.com/data?path=hydrofabric%2Fv2.2%2F).
+Set `subsetting.hydrofabric.gpkg_path`, then run:
+
+```bash
+sandbox --subset -i configs/my_project.yaml
+```
+
+Expected result:
 
 ```text
-<input_dir>/<gage_id>/hydrofabric/gage_<gage_id>.gpkg
+NextGenSandbox subset step completed successfully.
 ```
 
-With `general.resource_layout: resource`, geopackages are written under:
+One `gage_<gage_id>.gpkg` should be present for each selected gage under the
+configured resource layout.
+
+If the gage-specific geopackages already exist, use
+`general.gages.option: gpkg` or place the files under the configured resource
+layout. Skip `sandbox --subset`.
+
+See [configuration.md](./configuration.md#subsetting) for settings and
+[directory_layout.md](./directory_layout.md) for expected paths.
+
+### Prepare forcing
+
+If Sandbox should download or prepare forcing for the selected gages, run:
+
+```bash
+sandbox --forc -i configs/my_project.yaml
+```
+
+Expected result:
 
 ```text
-<input_dir>/hydrofabric/gage_<gage_id>.gpkg
+NextGenSandbox forcing step completed successfully.
 ```
 
-On systems where the R dependencies are managed outside the command line,
-such as RStudio workflows, you can run the subsetting R entry point directly
-after setting `infile_config` in `src/R/main.R`.
+If forcing files already exist outside the project resource directory, set
+`forcings.forcing_dir` to the file, directory, or `<gage_id>` path pattern and
+skip the download step.
 
-### Run The Workflow
+See [forcing.md](./forcing.md) for external forcing, multi-gage path patterns,
+and NetCDF rechunking.
 
-Run the workflow one step at a time:
+## Step 3: Generate Model Configuration
+
+For a control simulation:
 
 ```bash
-sandbox --subset -i configs/my_sandbox_config.yaml
-sandbox --forc   -i configs/my_sandbox_config.yaml
-sandbox --conf   -i configs/my_sandbox_config.yaml -j configs/calib_config.yaml
-sandbox --run    -i configs/my_sandbox_config.yaml -j configs/calib_config.yaml
+sandbox --conf -i configs/my_project.yaml
 ```
 
-The step-by-step order makes failures easier to diagnose:
-
-- `sandbox --subset` creates basin geopackages from a larger hydrofabric.
-- `sandbox --forc` prepares forcing data for the selected gages and period.
-- `sandbox --conf` generates model configuration and realization files.
-- `sandbox --run` executes ngen or ngen-cal for the configured task.
-
-Expected outputs:
-
-| Step | Success Indicator |
-| --- | --- |
-| `sandbox --subset` | `NextGenSandbox subset step completed successfully.` and `gage_<gage_id>.gpkg` files under the configured resource layout. |
-| `sandbox --forc` | `NextGenSandbox forcing step completed successfully.` and forcing NetCDF files under the configured forcing resource directory. |
-| `sandbox --conf` | `NextGenSandbox configuration step completed successfully.` and generated files under `<output_dir>/<gage_id>*/configs/`. |
-| `sandbox --run` | `NextGenSandbox run step completed successfully.` plus ngen/ngen-cal output files in the run directory. |
-
-To check the generated run command without executing ngen or ngen-cal, use:
+For calibration or validation with a project-specific calibration file:
 
 ```bash
-sandbox --dryrun -i configs/my_sandbox_config.yaml -j configs/calib_config.yaml
+sandbox --conf \
+  -i configs/my_project.yaml \
+  -j configs/my_project_calibration.yaml
 ```
 
-`sandbox --dryrun` validates the run setup and prints the command that would be
-executed. It is a standalone workflow mode, so do not combine it with
-`--run`, `--conf`, `--subset`, or `--forc`.
+Expected result:
 
-If a step fails, see [diagnostics.md](./diagnostics.md) for common setup and
-workflow issues.
+```text
+NextGenSandbox configuration step completed successfully.
+```
 
-### Parallel Subset Or Forcing Batches
+Generated files are written under each selected gage's output directory. The
+`configs/` directory includes the realization, routing configuration, model
+configuration files, and ngen-cal configuration when required.
 
-For subsetting and forcing preparation, you can run several independent serial
-Sandbox commands in parallel without using Python multiprocessing. The batch
-helper reads the selected gages directly from the Sandbox configuration. For
-example, if `general.gages` lists three gages and `forcings.gages: all`, all
-three forcing jobs are included. If `forcings.gages` lists only one or two of
-them, only that subset is included.
+Inspect these files before execution, especially after changing a model
+basefile, model instance, objective function, or simulation period.
 
-For a local machine or macOS terminal, run the helper directly and choose a
-small number of jobs:
+## Step 4: Inspect the Run Command
+
+Dry run initializes the run context and prints the ngen or ngen-cal command
+without executing it:
+
+```bash
+sandbox --dryrun -i configs/my_project.yaml
+```
+
+For a project-specific calibration configuration:
+
+```bash
+sandbox --dryrun \
+  -i configs/my_project.yaml \
+  -j configs/my_project_calibration.yaml
+```
+
+`--dryrun` is a standalone mode. Do not combine it with `--run`, `--conf`,
+`--subset`, or `--forc`.
+
+Use the output to verify:
+
+- selected gage and geopackage
+- forcing path
+- generated realization
+- partition file and process count
+- ngen or ngen-cal executable
+- working and output directories
+
+## Step 5: Run the Simulation
+
+For a control simulation:
+
+```bash
+sandbox --run -i configs/my_project.yaml
+```
+
+For calibration or validation with a project-specific calibration file:
+
+```bash
+sandbox --run \
+  -i configs/my_project.yaml \
+  -j configs/my_project_calibration.yaml
+```
+
+Expected result:
+
+```text
+NextGenSandbox run step completed successfully.
+```
+
+For calibration and validation tasks, `run_index.yml` maps the configured
+period names to their timestamped ngen-cal worker directories. Optional
+`run_metadata.yml` records the gage, formulation, task, input path, output path,
+and source configuration files.
+
+See [directory_layout.md](./directory_layout.md) for the generated directory
+structure and [calibration.md](./calibration.md) for calibration output
+retention.
+
+## Run One Gage
+
+Use `--gage` to run one member of the configured project gage set without
+editing the YAML file:
+
+```bash
+sandbox --conf --gage 01308000 -i configs/my_project.yaml
+sandbox --run  --gage 01308000 -i configs/my_project.yaml
+```
+
+This is useful for diagnosing one failed gage before rerunning a larger
+experiment. The supplied ID must belong to `general.gages`.
+
+## Parallel Hydrofabric or Forcing Preparation
+
+Subsetting and forcing preparation consist of independent serial commands per
+gage. The batch helper runs several of those commands concurrently without
+using Python multiprocessing inside Sandbox:
 
 ```bash
 tools/batch/run_sandbox_resources_parallel.sh \
   --step forc \
-  --config configs/sandbox_config1.yaml \
+  --config configs/my_project.yaml \
   --jobs 2
 ```
 
-For HPC, submit the same helper through Slurm. `--jobs` controls how many
-gages run at the same time, not the total number of selected gages. The total
-selected gage count can be larger than the CPU count because the helper runs
-gages in batches. `--jobs` can be equal to `SLURM_CPUS_PER_TASK`, such as
-`--jobs "$SLURM_CPUS_PER_TASK"`, or lower if memory, filesystem I/O, or remote
-data access should be throttled. The helper rejects `--jobs` values larger
-than `SLURM_CPUS_PER_TASK` unless `--allow-oversubscribe` is set, so it will
-not run more simultaneous gages than allocated CPUs. The helper script contains
-an editable Slurm header template.
+Use `--step subset` for hydrofabric preparation. The helper reads the project
+gage set and the corresponding step filter directly from the YAML file.
 
-The helper launches each basin with `sandbox --gage <gage_id>`. You can also
-use `sandbox --gage` directly when debugging one basin without editing the
-configuration file.
+On Slurm, `--jobs` controls concurrent gages and must not exceed
+`SLURM_CPUS_PER_TASK` unless `--allow-oversubscribe` is explicitly supplied.
+It may be set lower than the allocated CPUs to reduce memory, filesystem I/O,
+or remote-data pressure. When more gages are selected than concurrent jobs,
+the remaining gages wait and run in later batches.
 
-For subsetting, change `--step forc` to `--step subset`. The wrapper writes
-per-gage logs plus `selected_gages.txt`, `success_gages.txt`, and
-`failed_gages.txt` under the log directory.
+The helper writes per-gage logs and these summary files under its log directory:
 
-## Scale With Sandbox Launcher
+- `selected_gages.txt`
+- `success_gages.txt`
+- `failed_gages.txt`
 
-After one normal Sandbox configuration works, use the Sandbox Launcher to scale
-the same workflow across many gages, formulations, or long calibration jobs.
-The launcher builds on the same `sandbox_config.yaml` and `calib_config.yaml`
-concepts, then creates per-gage/per-model run directories and submits jobs
-through SLURM or local execution.
+The shell script contains an editable Slurm header. It can also be run directly
+from a local Linux or macOS terminal.
+
+## Scale with Sandbox Launcher
+
+After one project configuration succeeds normally, use Sandbox Launcher to
+apply configuration templates across many gages and formulations or to manage
+long calibration jobs.
+
+Launcher uses the same `sandbox_config.yaml` and `calib_config.yaml` concepts,
+adds experiment assignments, creates per-gage/per-model run directories, and
+runs locally or submits jobs through Slurm.
 
 See the [Sandbox Launcher guide](../tools/launcher/README.md).
+
+## When a Step Fails
+
+Run the read-only installation check first:
+
+```bash
+./bootstrap.sh --check
+```
+
+Then see [diagnostics.md](./diagnostics.md) for environment, subsetting,
+forcing, model-build, dry-run, and smoke-test issues. Failed subsetting work
+also records a gage-specific error file under the configured resource root.
