@@ -58,9 +58,7 @@ class Runner:
 
         for id in self.ctx.gage_ids:
 
-            o_dir = self.ctx.output_dir / id
-            if self.ctx.sim_name_suffix:
-                o_dir = self.ctx.output_dir / f"{id}_{self.ctx.sim_name_suffix}"
+            o_dir = self.ctx.output_dir / self.ctx.output_dir_name(id)
 
             i_dir = Path(self.ctx.input_dir) / id
 

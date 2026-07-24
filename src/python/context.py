@@ -79,8 +79,8 @@ class SandboxContext:
 
     def output_dir_name(self, gpkg_dir):
         name = resource_id(gpkg_dir)
-        if self.sim_name_suffix:
-            return f"{name}_{self.sim_name_suffix}"
+        if self.simulation_label:
+            return f"{name}_{self.simulation_label}"
         return name
 
     def load_config(self):
@@ -280,7 +280,7 @@ class SandboxContext:
             field_name="simulation.gages",
         )
 
-        self.sim_name_suffix = dsim.get("sim_name_suffix") or None
+        self.simulation_label = dsim.get("label") or None
 
         outputs = dsim.get("outputs", {}) or {}
         if not isinstance(outputs, dict):

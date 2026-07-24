@@ -45,7 +45,7 @@ formulation :
 simulation :
   task_type        : "control" 
   gages            : all
-  sim_name_suffix  :  "pet_cfe" 
+  label            : "pet_cfe"
   simulation_time : {"start_time" : "2016-10-01 00:00:00", "end_time" : "2016-10-02 23:00:00"} # only needed when task_type is control
   calibration_time : {"start_time" : "2016-10-01 00:00:00", "end_time" : "2021-09-30 23:00:00"} # Entire simulation period for calibration; including spinup period
   calib_eval_time  : {"start_time" : "2017-10-01 00:00:00", "end_time" : "2021-09-30 23:00:00"} # Evalaution period for calibration (excluding spinup period)

@@ -117,7 +117,7 @@ formulation :
 simulation :
   task_type        : "<pick_option>" #------------------------------------- Supported options: calibvalid, calibration, validation, restart, control
   gages            : all #------------------------------------------------- Optional subset of general.gages. Use all, one ID, or a list of IDs.
-  sim_name_suffix  :  "pet_cfe" #------------------------------------------ User specified name appended to the gage_id. For example, 01105000_pet_cfe
+  label            : "pet_cfe" #------------------------------------------- Label appended to the gage ID. For example, 01105000_pet_cfe
   time:
     #control: #------------------------------------------------------------- Use this block when task_type is control
     #  start: "2016-10-01 00:00:00"

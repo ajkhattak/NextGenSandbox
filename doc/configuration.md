@@ -233,7 +233,7 @@ partitioning, and output behavior.
 |---|---|
 | `task_type` | Workflow task: `control`, `calibration`, `validation`, `calibvalid`, or `restart`. |
 | `gages` | Optional filter on `general.gages`. |
-| `sim_name_suffix` | Suffix appended to each gage ID when naming its run directory. |
+| `label` | Label appended to each gage ID when naming its simulation output directory. For example, `pet_cfe` produces `<gage_id>_pet_cfe`. |
 | `time.control` | Time period for a control run. |
 | `time.calibration` | Time period used for calibration. |
 | `time.validations` | One or more validation period definitions. |
