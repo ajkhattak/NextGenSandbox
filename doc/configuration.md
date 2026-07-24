@@ -1,8 +1,8 @@
 # Configure NextGenSandbox
 
 This guide is the reference for the configuration files read by
-NextGenSandbox. It explains what each block controls and points to focused
-guides for advanced settings and examples.
+NextGenSandbox. It introduces their structure, explains what each setting
+controls, and points to focused guides for advanced examples.
 
 Use [workflow.md](./workflow.md) when you are ready to prepare resources,
 generate model files, and run a project.
@@ -30,31 +30,50 @@ conditions, model switches, static attributes, or trained-model paths.
 For a custom project, make a project-specific copy of the relevant top-level
 configuration file rather than repeatedly changing the distributed sample.
 
-## Focused Guides
+## First Look at `sandbox_config.yaml`
 
-| Topic | Guide |
-|---|---|
-| Installation and verification | [install.md](./install.md) |
-| Running a project | [workflow.md](./workflow.md) |
-| Resource and output directory structures | [directory_layout.md](./directory_layout.md) |
-| Forcing files and rechunking | [forcing.md](./forcing.md) |
-| Supported formulations | [formulations.md](./formulations.md) |
-| Model instances and basefiles | [model_configuration.md](./model_configuration.md) |
-| Observations and objective functions | [observations.md](./observations.md) |
-| Calibration, DDS, PSO, and parameter files | [calibration.md](./calibration.md) |
-| Common errors | [diagnostics.md](./diagnostics.md) |
+Open [configs/sandbox_config.yaml](../configs/sandbox_config.yaml) while reading
+this guide. It is a YAML file organized into six named top-level sections:
 
-## Command-to-Configuration Map
+```yaml
+general:
+  # Project directories, resource layout, and complete gage list
 
-Each command reads only the configuration needed for its workflow stage.
+subsetting:
+  # Hydrofabric and optional DEM/vegetation preparation
 
-| Command | Main blocks used |
-|---|---|
-| `sandbox --subset` | `general`, `subsetting` |
-| `sandbox --forc` | `general`, `forcings` |
-| `sandbox --conf` | `general`, `forcings`, `observations`, `formulation`, `simulation` |
-| `sandbox --dryrun` | `general`, `forcings`, `observations`, `formulation`, `simulation` |
-| `sandbox --run` | `general`, `forcings`, `observations`, `formulation`, `simulation` |
+forcings:
+  # Forcing source, period, format, and selected gages
+
+observations:
+  # Optional local streamflow, ET, SWE, or other observations
+
+formulation:
+  # Models and model-instance customization
+
+simulation:
+  # Task, time periods, outputs, and processor settings
+```
+
+This guide calls each top-level section a **block**. For example, `general` is
+a block. A setting inside a block is a **field**. For example, `input_dir` is a
+field in the `general` block and may be referred to as `general.input_dir`.
+
+YAML indentation defines which fields belong to a block. Use spaces rather than
+tabs and preserve the indentation shown in the distributed sample.
+
+## Which Settings Each Command Uses
+
+NextGenSandbox runs in stages. Each command reads the sections relevant to that
+stage; it does not use every setting in the file.
+
+| Command | Purpose | Sections read from `sandbox_config.yaml` |
+|---|---|---|
+| `sandbox --subset` | Create gage-specific hydrofabric files. | `general`, `subsetting` |
+| `sandbox --forc` | Download or prepare forcing data. | `general`, `forcings` |
+| `sandbox --conf` | Generate model and realization files. | `general`, `forcings`, `observations`, `formulation`, `simulation` |
+| `sandbox --dryrun` | Show the prepared run without executing it. | `general`, `forcings`, `observations`, `formulation`, `simulation` |
+| `sandbox --run` | Execute the configured simulation or calibration. | `general`, `forcings`, `observations`, `formulation`, `simulation` |
 
 `configs/calib_config.yaml` is used when generating or running calibration and
 validation tasks. Pass another file with `-j`; otherwise the distributed
@@ -356,3 +375,17 @@ configuration files. Edit them when a run needs different model initialization
 values, switches, static attributes, or trained-model locations.
 
 See [model_configuration.md](./model_configuration.md#model-basefiles).
+
+## Related Guides
+
+| Topic | Guide |
+|---|---|
+| Installation and verification | [install.md](./install.md) |
+| Running a project | [workflow.md](./workflow.md) |
+| Resource and output directory structures | [directory_layout.md](./directory_layout.md) |
+| Forcing files and rechunking | [forcing.md](./forcing.md) |
+| Supported formulations | [formulations.md](./formulations.md) |
+| Model instances and basefiles | [model_configuration.md](./model_configuration.md) |
+| Observations and objective functions | [observations.md](./observations.md) |
+| Calibration, DDS, PSO, and parameter files | [calibration.md](./calibration.md) |
+| Common errors | [diagnostics.md](./diagnostics.md) |
