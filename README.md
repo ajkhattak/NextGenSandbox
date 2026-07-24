@@ -10,17 +10,17 @@ repeatable workflow.
 
 First-time users should follow these guides in order:
 
-1. **[Install and verify NextGenSandbox](doc/install.md)**
+1. **[Install and verify NextGenSandbox](docs/install.md)**
 
    Build the environments, ngen, models, and t-route, then confirm the
    installation with the workflow smoke test.
 
-2. **[Configure a project](doc/configuration.md)**
+2. **[Configure a project](docs/configuration.md)**
 
    Understand `sandbox_config.yaml`, `calib_config.yaml`, model defaults, and
    the settings that control project resources and simulations.
 
-3. **[Run a project](doc/workflow.md)**
+3. **[Run a project](docs/workflow.md)**
 
    Prepare hydrofabric and forcing resources, generate model files, inspect the
    command with dry run, and execute the simulation or calibration.
@@ -40,14 +40,14 @@ Use these guides when the main sequence directs you to a specific topic:
 
 | Topic | Guide |
 |---|---|
-| Directory organization | [Directory layout](doc/directory_layout.md) |
-| Forcing files and rechunking | [Forcing data](doc/forcing.md) |
-| Supported model combinations | [Formulations](doc/formulations.md) |
-| Model instances and basefiles | [Model configuration](doc/model_configuration.md) |
-| Calibration, DDS, and PSO | [Calibration](doc/calibration.md) |
-| Local observations and objectives | [Observations](doc/observations.md) |
-| Common setup and workflow errors | [Diagnostics](doc/diagnostics.md) |
-| Contributor test suites | [Testing](doc/testing.md) |
+| Directory organization | [Directory layout](docs/directory_layout.md) |
+| Forcing files and rechunking | [Forcing data](docs/forcing.md) |
+| Supported model combinations | [Formulations](docs/formulations.md) |
+| Model instances and basefiles | [Model configuration](docs/model_configuration.md) |
+| Calibration, DDS, and PSO | [Calibration](docs/calibration.md) |
+| Local observations and objectives | [Observations](docs/observations.md) |
+| Common setup and workflow errors | [Diagnostics](docs/diagnostics.md) |
+| Contributor test suites | [Testing](docs/testing.md) |
 
 ## Supported Formulations
 
@@ -57,5 +57,5 @@ After installation, list the currently registered formulation components with:
 sandbox --formulations
 ```
 
-See the [formulations guide](doc/formulations.md) for supported combinations,
+See the [formulations guide](docs/formulations.md) for supported combinations,
 model variants, and setup notes.
