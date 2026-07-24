@@ -36,3 +36,25 @@ python -m pytest extern/ngen-cal/python/ngen_cal/tests
 
 The standard Sandbox build installs the `test` dependency extra, including
 `pytest` and `pytest-mock`.
+
+## Preview Documentation Locally
+
+Documentation contributors can preview the published site without changing the
+Sandbox environments:
+
+```bash
+python -m venv .venv-docs
+source .venv-docs/bin/activate
+python -m pip install -r docs/requirements.txt
+mkdocs serve
+```
+
+Open `http://127.0.0.1:8000` in a browser. MkDocs rebuilds the preview when a
+documentation file changes. Run the same strict build used by GitHub Actions
+before submitting documentation changes:
+
+```bash
+mkdocs build
+```
+
+The generated `site/` directory is ignored by Git.

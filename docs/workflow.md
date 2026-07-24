@@ -279,4 +279,5 @@ Launcher uses the same `sandbox_config.yaml` and `calib_config.yaml` concepts,
 adds experiment assignments, creates per-gage/per-model output directories, and
 runs locally or submits jobs through Slurm.
 
-Continue to the [Sandbox Launcher guide](../tools/launcher/README.md).
+Continue to the
+[Sandbox Launcher guide](https://github.com/ajkhattak/NextGenSandbox/tree/main/tools/launcher).

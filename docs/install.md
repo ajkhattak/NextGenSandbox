@@ -24,7 +24,9 @@ macOS. It uses a Unix-like shell and requires:
 - CMake, MPI, and NetCDF development libraries for building ngen and its models
 
 HPC users may need to load site-provided compiler, MPI, NetCDF, CMake, Python,
-or conda modules. See [setup_hpc.sh](../utils/setup_hpc.sh) for an example; the
+or conda modules. See
+[setup_hpc.sh](https://github.com/ajkhattak/NextGenSandbox/blob/main/utils/setup_hpc.sh)
+for an example; the
 exact module names vary by system.
 
 Build environments, compiled software, and package caches are stored under
@@ -155,7 +157,7 @@ their corresponding build step has run. Follow the recommendations printed at
 the end of the check.
 
 Additional details about the generated paths are available in the
-[environment validation guide](../utils/venv/validation.md#step-13-validation).
+[environment validation guide](https://github.com/ajkhattak/NextGenSandbox/blob/main/utils/venv/validation.md#step-13-validation).
 
 ### Step 3: Build the Python environments
 
@@ -273,7 +275,8 @@ The components may also be built separately:
 ./bootstrap.sh --troute
 ```
 
-For an example HPC module setup, see [setup_hpc.sh](../utils/setup_hpc.sh).
+For an example HPC module setup, see
+[setup_hpc.sh](https://github.com/ajkhattak/NextGenSandbox/blob/main/utils/setup_hpc.sh).
 
 ### Step 6: Run the final installation check
 

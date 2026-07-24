@@ -29,7 +29,9 @@ configuration file rather than repeatedly changing the distributed sample.
 
 ## First Look at `sandbox_config.yaml`
 
-Open [configs/sandbox_config.yaml](../configs/sandbox_config.yaml) while reading
+Open
+[configs/sandbox_config.yaml](https://github.com/ajkhattak/NextGenSandbox/blob/main/configs/sandbox_config.yaml)
+while reading
 this guide. It is a YAML file organized into six named top-level sections:
 
 ```yaml

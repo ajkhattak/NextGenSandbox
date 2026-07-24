@@ -1,0 +1,53 @@
+site_name: NextGenSandbox
+site_description: Configure, run, calibrate, validate, and evaluate NextGen models.
+site_url: https://ajkhattak.github.io/NextGenSandbox/
+repo_url: https://github.com/ajkhattak/NextGenSandbox
+repo_name: ajkhattak/NextGenSandbox
+edit_uri: edit/main/docs/
+
+exclude_docs: |
+  requirements.txt
+
+theme:
+  name: material
+  features:
+    - content.code.copy
+    - navigation.footer
+    - navigation.indexes
+    - navigation.sections
+    - navigation.top
+    - search.highlight
+    - search.suggest
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Installation: install.md
+      - Configuration: configuration.md
+      - Run a Project: workflow.md
+  - Resources:
+      - Directory Layout: directory_layout.md
+      - Forcing Data: forcing.md
+      - Workflow Schematic: schematic.md
+  - Models:
+      - Formulations: formulations.md
+      - Model Configuration: model_configuration.md
+  - Calibration:
+      - Calibration Configuration: calibration.md
+      - Observations and Objectives: observations.md
+  - Help:
+      - Diagnostics: diagnostics.md
+      - Testing: testing.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+
+plugins:
+  - search
+
+strict: true

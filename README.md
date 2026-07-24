@@ -6,6 +6,12 @@ experiments. It brings hydrofabric subsetting, forcing preparation, model
 configuration, calibration, validation, and large-scale job launching into one
 repeatable workflow.
 
+## Documentation
+
+Read the complete documentation at
+**[ajkhattak.github.io/NextGenSandbox](https://ajkhattak.github.io/NextGenSandbox/)**.
+The Markdown source remains available under [`docs/`](docs/).
+
 ## Getting Started
 
 First-time users should follow these guides in order:
