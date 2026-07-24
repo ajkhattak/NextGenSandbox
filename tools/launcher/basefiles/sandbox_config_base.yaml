@@ -45,4 +45,4 @@ simulation :
     metadata:
       enabled: true
       index_dir: metadata
-      run_file: run_metadata.yml
+      file: simulation_metadata.yml

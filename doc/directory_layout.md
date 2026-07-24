@@ -30,7 +30,7 @@ The default `gage` layout organizes resources by gage first:
 
 <output_dir>/
   <gage_id>_<run_name>/
-    run_metadata.yml  # optional; written when simulation.outputs.metadata.enabled is true
+    simulation_metadata.yml  # optional; written when simulation.outputs.metadata.enabled is true
     run_index.yml  # written by sandbox --run for calibration/validation tasks
     configs/
       realization_*.json

@@ -210,8 +210,8 @@ NextGenSandbox run step completed successfully.
 
 For calibration and validation tasks, `run_index.yml` maps the configured
 period names to their timestamped ngen-cal worker directories. Optional
-`run_metadata.yml` records the gage, formulation, task, input path, output path,
-and source configuration files.
+`simulation_metadata.yml` records the gage, formulation, task, input path,
+output path, and source configuration files.
 
 See [directory_layout.md](./directory_layout.md) for the generated directory
 structure and [calibration.md](./calibration.md) for calibration output

@@ -241,7 +241,7 @@ partitioning, and output behavior.
 | `outputs.divide_variables` | BMI variables written to divide CSV files. Each variable requires units. |
 | `outputs.calibration.retention` | Calibration output retention: `best` or `all`. |
 | `outputs.metadata.enabled` | Write run metadata during configuration generation. |
-| `outputs.metadata.run_file` | Metadata filename inside each gage output directory. |
+| `outputs.metadata.file` | Metadata filename inside each gage output directory. Default: `simulation_metadata.yml`. |
 | `outputs.metadata.index_dir` | Optional metadata index used by Sandbox Launcher. |
 | `partitioning.mode` | ngen execution mode: `serial` or `parallel`. |
 | `partitioning.max_nexus_per_proc` | Maximum nexus count assigned to one process in parallel mode. |

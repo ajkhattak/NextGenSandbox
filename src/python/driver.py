@@ -70,7 +70,7 @@ class Driver:
                                  clean=ctx.clean)
 
         if ctx.metadata_enabled:
-            self.write_run_metadata(
+            self.write_simulation_metadata(
                 gpkg_id=gpkg_id,
                 num_cpus=num_cpus,
                 input_dir=i_dir,
@@ -97,7 +97,7 @@ class Driver:
 
         return basin_ids, num_cats
 
-    def write_run_metadata(self, gpkg_id, num_cpus, input_dir, output_dir):
+    def write_simulation_metadata(self, gpkg_id, num_cpus, input_dir, output_dir):
         ctx = self.ctx
         metadata = {
             "gage_id": gpkg_id,
@@ -112,8 +112,8 @@ class Driver:
             "calib_config": str(ctx.calib_config_path),
         }
 
-        run_metadata_file = output_dir / ctx.metadata_run_file
-        with run_metadata_file.open("w") as file:
+        metadata_file = output_dir / ctx.metadata_file
+        with metadata_file.open("w") as file:
             yaml.safe_dump(metadata, file, default_flow_style=False, sort_keys=False)
 
         if ctx.metadata_index_dir:

@@ -143,8 +143,8 @@ simulation :
     calibration:
       retention: best #----------------------------------------------------- Calibration outputs: best or all
     metadata:
-      enabled: false #------------------------------------------------------- Write run_metadata.yml inside each gage output directory
-      run_file: run_metadata.yml #------------------------------------------- Metadata file written inside each gage output directory
+      enabled: false #------------------------------------------------------- Write simulation metadata inside each gage output directory
+      file: simulation_metadata.yml #---------------------------------------- Metadata file written inside each gage output directory
       #index_dir: metadata #------------------------------------------------- Optional launcher/status index directory for run_<gage_id>.yml files
 
   partitioning:

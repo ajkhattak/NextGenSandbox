@@ -325,12 +325,12 @@ class SandboxContext:
 
         self.metadata_enabled = bool(metadata_outputs.get("enabled", False))
         self.metadata_index_dir = metadata_outputs.get("index_dir")
-        self.metadata_run_file = metadata_outputs.get("run_file", "run_metadata.yml")
+        self.metadata_file = metadata_outputs.get("file", "simulation_metadata.yml")
 
         if self.metadata_enabled:
-            if not isinstance(self.metadata_run_file, str) or not self.metadata_run_file.strip():
+            if not isinstance(self.metadata_file, str) or not self.metadata_file.strip():
                 raise ValueError(
-                    "simulation.outputs.metadata.run_file must be a non-empty string"
+                    "simulation.outputs.metadata.file must be a non-empty string"
                 )
             if self.metadata_index_dir is not None and (
                 not isinstance(self.metadata_index_dir, str)

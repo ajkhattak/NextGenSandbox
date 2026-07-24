@@ -69,7 +69,7 @@ simulation:
     metadata:
       enabled: true
       index_dir: metadata
-      run_file: run_metadata.yml
+      file: simulation_metadata.yml
 ```
 
 The launcher fills `general.gages.ids`, `simulation.gages`,
