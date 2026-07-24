@@ -188,11 +188,8 @@ build_sandbox()
 
     pip install -e '.[test]'
 
+    # Install the dependency versions pinned by the NextGenSandbox repository.
     git submodule update --init --recursive
-    git submodule update --remote extern/ngen-cal
-    git submodule update --remote extern/CIROH_DL_NextGen
-    git submodule update --remote extern/lstm
-    git submodule update --remote extern/dhbv2
 
     pip install 'extern/ngen-cal/python/ngen_cal[netcdf,pso]'
     pip install extern/ngen-cal/python/ngen_conf
