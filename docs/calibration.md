@@ -1,105 +1,114 @@
 # Calibration Configuration
 
-This guide explains `configs/calib_config.yaml`, model calibration parameter
-files under `configs/calibration/`, and calibration output settings.
+This guide explains the `calibration` block in `sandbox_config.yaml`,
+algorithm-specific settings, model parameter files under
+`configs/calibration/`, and calibration output settings.
 
-## `configs/calib_config.yaml`
+## Calibration Block
 
-The top-level calibration config controls how ngen-cal searches parameters,
-which model is evaluated, and which plugins are enabled.
+The top-level `calibration` block controls how ngen-cal searches parameters and
+which objective it minimizes:
 
 ```yaml
-general:
-  strategy:
-    type: estimation
-    algorithm: dds
-  log: true
-  start_iteration: 0
-  iterations: 40
-  random_seed: 444
-  workdir: ./
-
 calibration:
-  params_dir: calibration
-
-model:
-  type: ngen
-  binary: <*>
-  realization: <*>
-  hydrofabric: <*>
-  eval_feature: <*>
-  strategy: uniform
-  params: <*>
-  eval_params:
-    objective: kling_gupta
-    target: min
-  plugins:
-    - ngen_cal_plugins.save_divide_output_plugin.SaveData
-    - ngen_cal_plugins.save_sim_obs_plugin.SaveData
-    - ngen_cal_plugins.metrics.ComputeMetrics
+  optimizer:
+    algorithm: dds
+    iterations: 500
+    random_seed: 444
+  objective:
+    function: kge
 ```
 
-The sandbox fills `<*>` values when it writes each run's
-`ngen-cal_calib_config.yaml`.
+Sandbox combines this block with the active model parameter files and resolved
+run paths when it writes `ngen-cal_calib_config.yaml`. The generated file is a
+run artifact and does not need to be maintained by the user.
 
 ## Main Fields
 
 | Field | Meaning |
 |---|---|
-| `general.strategy.type` | ngen-cal strategy type, usually `estimation`. |
-| `general.strategy.algorithm` | Search algorithm, such as `dds` or `pso`. |
-| `general.strategy.parameters` | Optional algorithm-specific settings. PSO uses this block; DDS usually does not. |
-| `general.log` | Enables ngen-cal logging. |
-| `general.start_iteration` | First calibration iteration. |
-| `general.iterations` | Number of calibration iterations or generations. |
-| `general.random_seed` | Random seed for reproducibility. |
-| `general.workdir` | ngen-cal working directory. Usually left as `./`. |
-| `calibration.params_dir` | Directory under `configs/` containing model calibration parameter files. |
-| `model.type` | Model type passed to ngen-cal, usually `ngen`. |
-| `model.binary` | Filled by the sandbox with the ngen executable path. |
-| `model.realization` | Filled by the sandbox with the realization file. |
-| `model.hydrofabric` | Filled by the sandbox with the basin geopackage. |
-| `model.eval_feature` | Filled by the sandbox with the target gage/nexus feature. |
-| `model.strategy` | ngen-cal parameter strategy, commonly `uniform`. |
-| `model.params` | Filled by the sandbox from model calibration parameter blocks. |
-| `model.eval_params.objective` | Objective function name or import path. |
-| `model.eval_params.target` | Optimization target, usually `min`. |
-| `model.plugins` | ngen-cal plugin classes to load. |
-| `model.plugin_settings` | Optional plugin-specific settings written by the sandbox when needed. |
+| `optimizer.algorithm` | Search algorithm: `dds` or `pso`. |
+| `optimizer.iterations` | Number of DDS iterations or PSO generations. |
+| `optimizer.random_seed` | Integer random seed for reproducibility. |
+| `optimizer.settings_file` | PSO settings file. Used only for `algorithm: pso`. |
+| `objective.function` | One metric (`kge`, `nse`, or `nnse`), a weighted metric mapping, or a custom Python import path. |
+
+The bundled efficiency metrics calculate `1 - metric` per variable. A
+multi-variable objective combines the variable losses with an L2 norm. All
+objectives are minimized by ngen-cal.
+
+## Weighted Objectives
+
+Use a metric-to-weight mapping to construct an objective:
+
+```yaml
+calibration:
+  objective:
+    function:
+      kge: 0.5
+      log_kge: 0.3
+      fdc: 0.2
+```
+
+The supported components are:
+
+| Metric | Loss | Applies to |
+|---|---|---|
+| `kge` | `1 - KGE` | Every observation variable |
+| `nse` | `1 - NSE` | Every observation variable |
+| `nnse` | `1 - NNSE` | Every observation variable |
+| `log_kge` | `1 - KGE(log10(values))` | Streamflow only |
+| `fdc` | Relative flow-duration-curve error | Streamflow only |
+
+The weighted objective is
+`sqrt(sum((weight * component_loss)^2))`. Weights must be finite and greater
+than zero and must sum to `1.0`.
+
+The FDC component uses the default high-flow exceedances
+`(0.01, 0.05, 0.10)` and low-flow exceedances `(0.70, 0.90, 0.95)`. Each FDC
+point contributes to the root-mean-square relative error.
 
 ## PSO Parameters
 
-Set `algorithm: pso` to use particle swarm optimization. PSO currently supports
-the `uniform` model strategy, where one shared parameter set is calibrated for
-the basin.
+Set `algorithm: pso` and point `settings_file` to a PSO settings YAML. Relative
+paths are resolved from the directory containing the project sandbox config.
+When omitted, the default is `configs/optimizers/pso.yaml`.
 
 ```yaml
-general:
-  strategy:
-    type: estimation
+calibration:
+  optimizer:
     algorithm: pso
-    parameters:
-      particles: 20
-      pool: 4
-      options:
-        c1: 1.5
-        c2: 2.0
-        w: 0.9
-      options_schedule:
-        type: linear
-        end:
-          c1: 0.5
-          c2: 2.5
-          w: 0.4
-      initialization:
-        best_path: /path/to/previous/pso_global_best
-        nearby_fraction: 0.5
-        noise_fraction: 0.1
-      particle_reset:
-        enabled: true
-        patience: 10
-        reset_fraction: 1.0
-        preserve_global_best: true
+    iterations: 500
+    random_seed: 444
+    settings_file: "optimizers/pso.yaml"
+  objective:
+    function: kge
+```
+
+The referenced file contains only PSO-specific tuning values:
+
+```yaml
+particles: 20
+pool: 4
+options:
+  c1: 1.5
+  c2: 2.0
+  w: 0.9
+options_schedule:
+  type: linear
+  end:
+    c1: 0.5
+    c2: 2.5
+    w: 0.4
+initialization:
+  best_path: /path/to/previous/pso_global_best
+  nearby_fraction: 0.5
+  noise_fraction: 0.1
+particle_reset:
+  enabled: true
+  patience: 10
+  reset_fraction: 1.0
+  preserve_global_best: true
 ```
 
 `particles` is the number of candidate parameter sets evaluated each PSO
@@ -170,10 +179,7 @@ PSO writes several progress artifacts in the run directory:
 
 ## Model Calibration Parameter Files
 
-The calibration parameter files live under the directory configured by
-`calibration.params_dir` in `configs/calib_config.yaml`.
-
-With the default layout, those files live under:
+Model calibration parameter files live under:
 
 ```text
 configs/calibration/

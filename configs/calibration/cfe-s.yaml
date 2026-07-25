@@ -27,8 +27,8 @@ cfes_params:
   scale: log10
 - name: expon
   min: 1.0
-  max: 8.0
-  init: 5.0
+  max: 4.0
+  init: 2.0
 - name: Kn
   min: 0.0
   max: 1.0

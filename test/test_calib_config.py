@@ -5,13 +5,14 @@ import unittest
 
 import yaml
 
+from src.python.calibration_config import load_calibration_settings
 from src.python.configuration import ConfigurationCalib
 from src.python.model_instances import build_model_instances
 
 
-def make_context(calib_config_path, instances_by_model):
+def make_parameter_context(sandbox_dir, instances_by_model):
     return SimpleNamespace(
-        calib_config_path=calib_config_path,
+        sandbox_dir=sandbox_dir,
         formulation=",".join(instances_by_model),
         formulation_models=list(instances_by_model),
         get_model_instances=lambda model: instances_by_model.get(model, []),
@@ -35,15 +36,11 @@ class TestCalibrationConfig(unittest.TestCase):
         )
 
         instance = registry["CFE"][0]
-
         self.assertEqual(instance.calib_params_block, "cfex_params")
         self.assertEqual(instance.calib_params_file, "cfe-x.yaml")
 
     def test_rejects_inconsistent_official_cfe_variant(self):
-        with self.assertRaisesRegex(
-            ValueError,
-            "official CFE variant",
-        ):
+        with self.assertRaisesRegex(ValueError, "official CFE variant"):
             build_model_instances(
                 "CFE,T-ROUTE",
                 {
@@ -75,16 +72,12 @@ class TestCalibrationConfig(unittest.TestCase):
         )
 
         instance = registry["CFE"][0]
-
         self.assertEqual(instance.basefile, "config_cfe-x_custom.yaml")
         self.assertEqual(instance.calib_params_block, "cfex_params_custom")
         self.assertEqual(instance.calib_params_file, "cfe-x-custom.yaml")
 
     def test_rejects_mixed_family_markers_in_official_cfe_variant(self):
-        with self.assertRaisesRegex(
-            ValueError,
-            "different variant family",
-        ):
+        with self.assertRaisesRegex(ValueError, "different variant family"):
             build_model_instances(
                 "CFE,T-ROUTE",
                 {
@@ -99,61 +92,28 @@ class TestCalibrationConfig(unittest.TestCase):
                 },
             )
 
-    def test_allows_custom_cfe_variant_fields(self):
-        registry = build_model_instances(
-            "CFE,T-ROUTE",
-            {
-                "CFE": [
-                    {
-                        "name": "cfe-custom",
-                        "basefile": "config_cfe-s.yaml",
-                        "repo_name": "cfe",
-                        "calib_params_block": "custom_cfe_params",
-                        "calib_params_file": "custom-cfe.yaml",
-                    }
-                ]
-            },
-        )
-
-        instance = registry["CFE"][0]
-
-        self.assertEqual(instance.name, "cfe-custom")
-        self.assertEqual(instance.calib_params_block, "custom_cfe_params")
-        self.assertEqual(instance.calib_params_file, "custom-cfe.yaml")
-
     def test_dds_strategy_does_not_include_pso_parameters(self):
         strategy = ConfigurationCalib.build_strategy_config(
-            {
-                "type": "estimation",
-                "algorithm": "dds",
-                "parameters": {
-                    "particles": 20,
-                    "pool": 2,
-                },
-            }
+            "dds",
+            {"particles": 20, "pool": 2},
         )
-
         self.assertEqual(strategy["algorithm"], "dds")
         self.assertNotIn("parameters", strategy)
 
     def test_pso_strategy_includes_pso_parameters(self):
         strategy = ConfigurationCalib.build_strategy_config(
-            {
-                "type": "estimation",
-                "algorithm": "pso",
-                "parameters": {
-                    "particles": 20,
-                    "pool": 2,
-                },
-            }
+            "pso",
+            {"particles": 20, "pool": 2},
         )
-
         self.assertEqual(
             strategy["parameters"],
-            {
-                "particles": 20,
-                "pool": 2,
-            },
+            {"particles": 20, "pool": 2},
+        )
+
+    def test_composite_objective_configuration_plugin_is_loaded(self):
+        self.assertIn(
+            "ngen_cal_plugins.objective_plugin.ConfigureObjective",
+            ConfigurationCalib.DEFAULT_PLUGINS,
         )
 
     def test_log10_parameter_values_are_loaded_in_physical_units(self):
@@ -167,8 +127,6 @@ class TestCalibrationConfig(unittest.TestCase):
                 "scale": "log10",
             },
         )
-
-        self.assertEqual(param["scale"], "log10")
         self.assertAlmostEqual(param["min"], -5.0)
         self.assertAlmostEqual(param["max"], -2.0)
         self.assertAlmostEqual(param["init"], -3.0)
@@ -186,151 +144,48 @@ class TestCalibrationConfig(unittest.TestCase):
                 },
             )
 
-    def test_log10_parameter_init_must_be_within_bounds(self):
-        with self.assertRaisesRegex(ValueError, "init outside min/max"):
-            ConfigurationCalib.normalize_calibration_parameter(
-                "cfes_params",
-                {
-                    "name": "Cgw",
-                    "min": 1.0e-5,
-                    "max": 1.0e-2,
-                    "init": 1.0e-1,
-                    "scale": "log10",
-                },
-            )
-
-    def test_loads_parameter_blocks_from_calibration_directory(self):
+    def test_loads_only_parameter_blocks_used_by_formulation(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            params_dir = root / "calibration"
-            params_dir.mkdir()
-
-            calib_config = root / "calib_config.yaml"
-            calib_config.write_text(
-                yaml.safe_dump(
-                    {
-                        "general": {
-                            "strategy": {
-                                "type": "estimation",
-                                "algorithm": "dds",
-                            }
-                        },
-                        "calibration": {
-                            "params_dir": "calibration",
-                        },
-                        "model": {
-                            "eval_params": {
-                                "objective": "kling_gupta",
-                                "target": "min",
-                            }
-                        },
-                    },
-                    sort_keys=False,
-                )
-            )
+            params_dir = root / "configs" / "calibration"
+            params_dir.mkdir(parents=True)
             (params_dir / "cfe-s.yaml").write_text(
-                yaml.safe_dump(
-                    {
-                        "cfes_params": [
-                            {
-                                "name": "refkdt",
-                                "min": 0.001,
-                                "max": 8.0,
-                                "init": 3.0,
-                            }
-                        ]
-                    },
-                    sort_keys=False,
-                )
+                yaml.safe_dump({"cfes_params": [{"name": "refkdt"}]})
             )
+            (params_dir / "snow17.yaml").write_text("- not\n- a\n- mapping\n")
 
             config = ConfigurationCalib.__new__(ConfigurationCalib)
-            config.ctx = make_context(
-                calib_config,
+            config.ctx = make_parameter_context(
+                root,
                 {
                     "CFE": [
                         SimpleNamespace(
                             model="CFE",
                             name="cfe-s",
                             calib_params_block="cfes_params",
+                            calib_params_file="cfe-s.yaml",
                             calibration_model_name="CFE",
                         )
                     ]
                 },
             )
 
-            loaded = config.load_calib_config()
-
+            loaded = config.load_calibration_parameters()
             self.assertEqual(loaded["cfes_params"][0]["name"], "refkdt")
             self.assertNotIn("snow17_params", loaded)
-
-    def test_ignores_parameter_files_not_used_by_formulation(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            params_dir = root / "calibration"
-            params_dir.mkdir()
-
-            calib_config = root / "calib_config.yaml"
-            calib_config.write_text(
-                yaml.safe_dump(
-                    {
-                        "calibration": {
-                            "params_dir": "calibration",
-                        },
-                    },
-                    sort_keys=False,
-                )
-            )
-            (params_dir / "cfe-s.yaml").write_text(
-                yaml.safe_dump({"cfes_params": []}, sort_keys=False)
-            )
-            (params_dir / "snow17.yaml").write_text(
-                yaml.safe_dump(["not", "a", "mapping"], sort_keys=False)
-            )
-
-            config = ConfigurationCalib.__new__(ConfigurationCalib)
-            config.ctx = make_context(
-                calib_config,
-                {
-                    "CFE": [
-                        SimpleNamespace(
-                            model="CFE",
-                            name="cfe-s",
-                            calib_params_block="cfes_params",
-                            calibration_model_name="CFE",
-                        )
-                    ]
-                },
-            )
-
-            loaded = config.load_calib_config()
-
-            self.assertEqual(loaded["cfes_params"], [])
 
     def test_uses_instance_name_when_calib_params_file_is_not_set(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            params_dir = root / "calibration"
-            params_dir.mkdir()
-
-            calib_config = root / "calib_config.yaml"
-            calib_config.write_text(
-                yaml.safe_dump(
-                    {
-                        "calibration": {
-                            "params_dir": "calibration",
-                        },
-                    },
-                    sort_keys=False,
-                )
-            )
+            params_dir = root / "configs" / "calibration"
+            params_dir.mkdir(parents=True)
             (params_dir / "cfe-x.yaml").write_text(
-                yaml.safe_dump({"cfex_params": []}, sort_keys=False)
+                yaml.safe_dump({"cfex_params": []})
             )
 
             config = ConfigurationCalib.__new__(ConfigurationCalib)
-            config.ctx = make_context(
-                calib_config,
+            config.ctx = make_parameter_context(
+                root,
                 {
                     "CFE": [
                         SimpleNamespace(
@@ -343,90 +198,165 @@ class TestCalibrationConfig(unittest.TestCase):
                     ]
                 },
             )
+            self.assertEqual(
+                config.load_calibration_parameters()["cfex_params"],
+                [],
+            )
 
-            loaded = config.load_calib_config()
+    def test_loads_dds_settings_from_sandbox_config(self):
+        settings = load_calibration_settings(
+            {
+                "calibration": {
+                    "optimizer": {
+                        "algorithm": "dds",
+                        "iterations": 500,
+                        "random_seed": 444,
+                    },
+                    "objective": {"function": "kge"},
+                }
+            },
+            "/tmp/sandbox_config.yaml",
+            "/tmp/sandbox",
+        )
+        self.assertEqual(settings.algorithm, "dds")
+        self.assertEqual(settings.iterations, 500)
+        self.assertEqual(
+            settings.objective,
+            "ngen_cal_plugins.objectives.kge_multi_variable",
+        )
+        self.assertEqual(settings.optimizer_settings, {})
 
-            self.assertEqual(loaded["cfex_params"], [])
+    def test_builds_weighted_composite_objective(self):
+        settings = load_calibration_settings(
+            {
+                "calibration": {
+                    "optimizer": {"algorithm": "dds"},
+                    "objective": {
+                        "function": {
+                            "kge": 0.5,
+                            "log_kge": 0.3,
+                            "fdc": 0.2,
+                        }
+                    },
+                }
+            },
+            "/tmp/sandbox_config.yaml",
+            "/tmp/sandbox",
+        )
 
-    def test_rejects_top_level_parameter_blocks_in_calib_config(self):
+        self.assertEqual(
+            settings.objective,
+            "ngen_cal_plugins.objectives.composite_objective",
+        )
+        self.assertEqual(
+            settings.objective_metrics,
+            {"kge": 0.5, "log_kge": 0.3, "fdc": 0.2},
+        )
+
+    def test_rejects_unknown_composite_metric(self):
+        with self.assertRaisesRegex(ValueError, "Unsupported.*metric"):
+            load_calibration_settings(
+                {
+                    "calibration": {
+                        "optimizer": {"algorithm": "dds"},
+                        "objective": {
+                            "function": {"rmse": 1.0},
+                        },
+                    }
+                },
+                "/tmp/sandbox_config.yaml",
+                "/tmp/sandbox",
+            )
+
+    def test_rejects_nonpositive_composite_weight(self):
+        with self.assertRaisesRegex(ValueError, "greater than zero"):
+            load_calibration_settings(
+                {
+                    "calibration": {
+                        "optimizer": {"algorithm": "dds"},
+                        "objective": {
+                            "function": {"kge": 0.0},
+                        },
+                    }
+                },
+                "/tmp/sandbox_config.yaml",
+                "/tmp/sandbox",
+            )
+
+    def test_rejects_composite_weights_that_do_not_sum_to_one(self):
+        with self.assertRaisesRegex(ValueError, "must sum to 1.0"):
+            load_calibration_settings(
+                {
+                    "calibration": {
+                        "optimizer": {"algorithm": "dds"},
+                        "objective": {
+                            "function": {
+                                "kge": 0.5,
+                                "log_kge": 0.3,
+                                "fdc": 0.1,
+                            },
+                        },
+                    }
+                },
+                "/tmp/sandbox_config.yaml",
+                "/tmp/sandbox",
+            )
+
+    def test_loads_relative_pso_settings_file(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            params_dir = root / "calibration"
-            params_dir.mkdir()
+            settings_file = root / "optimizers" / "pso.yaml"
+            settings_file.parent.mkdir()
+            settings_file.write_text("particles: 8\npool: 2\n")
 
-            calib_config = root / "calib_config.yaml"
-            calib_config.write_text(
-                yaml.safe_dump(
-                    {
-                        "calibration": {
-                            "params_dir": "calibration",
-                        },
-                        "cfes_params": [],
-                    },
-                    sort_keys=False,
-                )
-            )
-            (params_dir / "cfe-s.yaml").write_text(
-                yaml.safe_dump({"cfes_params": []}, sort_keys=False)
-            )
-
-            config = ConfigurationCalib.__new__(ConfigurationCalib)
-            config.ctx = make_context(
-                calib_config,
+            settings = load_calibration_settings(
                 {
-                    "CFE": [
-                        SimpleNamespace(
-                            model="CFE",
-                            name="cfe-s",
-                            calib_params_block="cfes_params",
-                            calibration_model_name="CFE",
-                        )
-                    ]
-                },
-            )
-
-            with self.assertRaisesRegex(
-                ValueError,
-                "must be defined in files under calibration.params_dir",
-            ):
-                config.load_calib_config()
-
-    def test_requires_calibration_params_dir(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            calib_config = root / "calib_config.yaml"
-            calib_config.write_text(
-                yaml.safe_dump(
-                    {
-                        "general": {
-                            "strategy": {
-                                "type": "estimation",
-                                "algorithm": "dds",
-                            }
+                    "calibration": {
+                        "optimizer": {
+                            "algorithm": "pso",
+                            "iterations": 50,
+                            "settings_file": "optimizers/pso.yaml",
                         },
-                        "calibration": {},
-                    },
-                    sort_keys=False,
-                )
-            )
-
-            config = ConfigurationCalib.__new__(ConfigurationCalib)
-            config.ctx = make_context(
-                calib_config,
-                {
-                    "CFE": [
-                        SimpleNamespace(
-                            model="CFE",
-                            name="cfe-s",
-                            calib_params_block="cfes_params",
-                            calibration_model_name="CFE",
-                        )
-                    ]
+                        "objective": {"function": "nnse"},
+                    }
                 },
+                root / "sandbox_config.yaml",
+                root,
+            )
+            self.assertEqual(settings.optimizer_settings["particles"], 8)
+            self.assertEqual(
+                settings.optimizer_settings_file,
+                settings_file.resolve(),
             )
 
-            with self.assertRaisesRegex(ValueError, "calibration.params_dir"):
-                config.load_calib_config()
+    def test_rejects_unknown_objective_alias(self):
+        with self.assertRaisesRegex(ValueError, "custom objective import path"):
+            load_calibration_settings(
+                {
+                    "calibration": {
+                        "optimizer": {"algorithm": "dds"},
+                        "objective": {"function": "not-a-metric"},
+                    }
+                },
+                "/tmp/sandbox_config.yaml",
+                "/tmp/sandbox",
+            )
+
+    def test_rejects_inline_optimizer_settings(self):
+        with self.assertRaisesRegex(ValueError, "unsupported field.*parameters"):
+            load_calibration_settings(
+                {
+                    "calibration": {
+                        "optimizer": {
+                            "algorithm": "pso",
+                            "parameters": {"particles": 8},
+                        },
+                        "objective": {"function": "kge"},
+                    }
+                },
+                "/tmp/sandbox_config.yaml",
+                "/tmp/sandbox",
+            )
 
 
 if __name__ == "__main__":

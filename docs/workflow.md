@@ -42,8 +42,7 @@ can be inspected before a run.
 | Inspect execution | `sandbox --dryrun` | Recommended after configuration generation and before a real run. |
 | Execute models | `sandbox --run` | Run after generated configurations have been reviewed. |
 
-All commands use the same project `sandbox_config.yaml`. Calibration and
-validation commands may also use a project-specific `calib_config.yaml`.
+All commands use the same project `sandbox_config.yaml`.
 
 ## Step 1: Create Project Configuration
 
@@ -51,11 +50,7 @@ Start from the distributed samples:
 
 ```bash
 cp configs/sandbox_config.yaml configs/my_project.yaml
-cp configs/calib_config.yaml configs/my_project_calibration.yaml
 ```
-
-The calibration copy is needed only when you want project-specific changes to
-the search strategy, objective, plugins, or parameter-file location.
 
 Review the following project decisions in `my_project.yaml`:
 
@@ -126,18 +121,8 @@ and NetCDF rechunking.
 
 ## Step 3: Generate Model Configuration
 
-For a control simulation:
-
 ```bash
 sandbox --conf -i configs/my_project.yaml
-```
-
-For calibration or validation with a project-specific calibration file:
-
-```bash
-sandbox --conf \
-  -i configs/my_project.yaml \
-  -j configs/my_project_calibration.yaml
 ```
 
 Expected result:
@@ -162,14 +147,6 @@ without executing it:
 sandbox --dryrun -i configs/my_project.yaml
 ```
 
-For a project-specific calibration configuration:
-
-```bash
-sandbox --dryrun \
-  -i configs/my_project.yaml \
-  -j configs/my_project_calibration.yaml
-```
-
 `--dryrun` is a standalone mode. Do not combine it with `--run`, `--conf`,
 `--subset`, or `--forc`.
 
@@ -184,18 +161,8 @@ Use the output to verify:
 
 ## Step 5: Run the Simulation
 
-For a control simulation:
-
 ```bash
 sandbox --run -i configs/my_project.yaml
-```
-
-For calibration or validation with a project-specific calibration file:
-
-```bash
-sandbox --run \
-  -i configs/my_project.yaml \
-  -j configs/my_project_calibration.yaml
 ```
 
 Expected result:
@@ -275,9 +242,9 @@ After one project configuration succeeds normally, use Sandbox Launcher to
 apply configuration templates across many gages and formulations or to manage
 long calibration jobs.
 
-Launcher uses the same `sandbox_config.yaml` and `calib_config.yaml` concepts,
-adds experiment assignments, creates per-gage/per-model output directories, and
-runs locally or submits jobs through Slurm.
+Launcher uses the same `sandbox_config.yaml`, adds experiment assignments,
+creates per-gage/per-model output directories, and runs locally or submits jobs
+through Slurm.
 
 Continue to the
 [Sandbox Launcher guide](https://github.com/ajkhattak/NextGenSandbox/tree/main/tools/launcher).

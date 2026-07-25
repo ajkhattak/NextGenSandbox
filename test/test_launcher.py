@@ -3,6 +3,10 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+
+import yaml
 
 
 def load_launcher_module():
@@ -91,6 +95,81 @@ class TestLauncherAssignment(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "metadata.enabled"):
             launcher.validate_base_sandbox_config(config)
+
+    def test_generated_configs_use_only_sandbox_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ctx = SimpleNamespace(
+                base_sandbox_cfg={
+                    "general": {
+                        "input_dir": "/tmp/inputs",
+                        "output_dir": "/tmp/outputs",
+                        "gages": {"option": "ids", "ids": []},
+                    },
+                    "calibration": {
+                        "optimizer": {
+                            "algorithm": "dds",
+                            "iterations": 25,
+                        },
+                        "objective": {"function": "kge"},
+                    },
+                    "formulation": {"models": ""},
+                    "simulation": {
+                        "task_type": "calibvalid",
+                        "gages": [],
+                    },
+                },
+                output_dir=root / "outputs",
+            )
+
+            with patch.object(launcher.subprocess, "run") as run:
+                launcher.generate_config_files_for_gage(
+                    ctx,
+                    "pet_cfe",
+                    {"models": "PET, CFE, T-ROUTE"},
+                    "pet_cfe",
+                    "01109403",
+                    root / "configs",
+                    root / "metadata",
+                )
+
+            paths = launcher.generated_config_paths(
+                root / "configs",
+                "01109403",
+            )
+            self.assertEqual(
+                set(paths),
+                {"sandbox_main", "sandbox_restart", "sandbox_validation"},
+            )
+            restart = yaml.safe_load(paths["sandbox_restart"].read_text())
+            self.assertEqual(
+                restart["simulation"]["task_type"],
+                "restart",
+            )
+            self.assertEqual(
+                restart["simulation"]["restart_dir"],
+                str(root / "outputs" / "pet_cfe" / "01109403"),
+            )
+            self.assertNotIn("-j", run.call_args.args[0])
+
+    def test_max_iterations_comes_from_sandbox_calibration_block(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = launcher.generated_config_paths(root, "01109403")
+            paths["sandbox_main"].parent.mkdir(parents=True)
+            paths["sandbox_main"].write_text(
+                yaml.safe_dump(
+                    {
+                        "calibration": {
+                            "optimizer": {"iterations": 75},
+                        }
+                    }
+                )
+            )
+            self.assertEqual(
+                launcher.get_max_iter(root, "01109403"),
+                75,
+            )
 
 
 if __name__ == "__main__":

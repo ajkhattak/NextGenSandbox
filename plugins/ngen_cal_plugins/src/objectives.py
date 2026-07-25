@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import json
+import math
+import os
+
 import numpy as np
 import pandas as pd
 from hydrotools.metrics.metrics import (
@@ -9,9 +13,12 @@ from hydrotools.metrics.metrics import (
 
 NONFINITE_METRIC_LOSS = 1000.0
 LOW_FLOW_EPSILON = 1.0e-6
-LOW_FLOW_QUANTILES = (0.7, 0.9, 0.95)
 LOW_FLOW_EXCEEDANCES = (0.7, 0.9, 0.95)
 HIGH_FLOW_EXCEEDANCES = (0.01, 0.05, 0.1)
+FDC_EXCEEDANCES = HIGH_FLOW_EXCEEDANCES + LOW_FLOW_EXCEEDANCES
+COMPOSITE_METRICS = {"kge", "nse", "nnse", "log_kge", "fdc"}
+COMPOSITE_OBJECTIVE_ENV = "NGEN_CAL_COMPOSITE_OBJECTIVE"
+_composite_metric_weights: dict[str, float] | None = None
 
 
 def kge_multi_variable(
@@ -58,196 +65,109 @@ def nnse_multi_variable(
     )
 
 
-def kge_low_flow(
+def configure_composite_objective(metric_weights: dict[str, float]) -> None:
+    """Set the metric weights used by :func:`composite_objective`."""
+    unknown = set(metric_weights) - COMPOSITE_METRICS
+    if unknown:
+        raise ValueError(
+            "Unsupported composite objective metric(s): "
+            + ", ".join(sorted(unknown))
+        )
+    if not metric_weights:
+        raise ValueError("Composite objective metrics cannot be empty")
+    validated = {}
+    for name, raw_weight in metric_weights.items():
+        if isinstance(raw_weight, bool):
+            raise TypeError(
+                f"Weight for composite metric '{name}' must be numeric"
+            )
+        try:
+            weight = float(raw_weight)
+        except (TypeError, ValueError) as exc:
+            raise TypeError(
+                f"Weight for composite metric '{name}' must be numeric"
+            ) from exc
+        if not math.isfinite(weight) or weight <= 0:
+            raise ValueError(
+                f"Weight for composite metric '{name}' must be finite and "
+                "greater than zero"
+            )
+        validated[name] = weight
+    if not math.isclose(
+        sum(validated.values()),
+        1.0,
+        rel_tol=1.0e-9,
+        abs_tol=1.0e-9,
+    ):
+        raise ValueError(
+            "Composite objective metric weights must sum to 1.0; "
+            f"provided sum: {sum(validated.values()):.12g}"
+        )
+
+    global _composite_metric_weights
+    _composite_metric_weights = validated
+    # Spawned PSO workers import this module afresh. Environment inheritance
+    # carries the same validated recipe into each worker process.
+    os.environ[COMPOSITE_OBJECTIVE_ENV] = json.dumps(validated)
+
+
+def composite_objective(
     observed: pd.Series,
     simulated: pd.Series,
 ) -> float:
-    """Return a KGE loss with extra pressure on log-flow and FDC low flows."""
-    return _efficiency_low_flow_loss(
-        observed,
-        simulated,
-        kling_gupta_efficiency,
-        "KGE",
-    )
+    """Return a weighted L2 loss assembled from configured base metrics."""
+    metric_weights = _configured_composite_metric_weights()
 
-
-def nse_low_flow(
-    observed: pd.Series,
-    simulated: pd.Series,
-) -> float:
-    """Return an NSE loss with extra pressure on log-flow and FDC low flows."""
-    return _efficiency_low_flow_loss(
-        observed,
-        simulated,
-        nash_sutcliffe_efficiency,
-        "NSE",
-    )
-
-
-def kge_low_high_flow(
-    observed: pd.Series,
-    simulated: pd.Series,
-) -> float:
-    """Return a KGE loss balanced across full, low, and high-flow behavior."""
     observed_variables = _split_variables(observed, "observed")
     simulated_variables = _split_variables(simulated, "simulated")
+    _require_matching_variables(observed_variables, simulated_variables)
 
-    if observed_variables.keys() != simulated_variables.keys():
-        missing_simulated = sorted(
-            observed_variables.keys() - simulated_variables.keys()
-        )
-        missing_observed = sorted(
-            simulated_variables.keys() - observed_variables.keys()
-        )
-        details = []
-        if missing_simulated:
-            details.append(
-                f"missing simulated variables: {', '.join(missing_simulated)}"
-            )
-        if missing_observed:
-            details.append(
-                f"missing observed variables: {', '.join(missing_observed)}"
-            )
-        raise ValueError(
-            "Observed and simulated variables do not match; "
-            + "; ".join(details)
-        )
-
-    squared_losses = []
+    variable_losses = []
     for variable in sorted(observed_variables):
         pairs = _aligned_pairs(
             observed_variables[variable],
             simulated_variables[variable],
             variable,
         )
-        kge_loss = _metric_loss(
-            pairs["observed"],
-            pairs["simulated"],
-            kling_gupta_efficiency,
-            "KGE",
-            variable,
-        )
-        if variable == "streamflow":
-            log_kge_loss = _metric_loss(
-                np.log10(pairs["observed"].clip(lower=LOW_FLOW_EPSILON)),
-                np.log10(pairs["simulated"].clip(lower=LOW_FLOW_EPSILON)),
-                kling_gupta_efficiency,
-                "log10-KGE",
-                variable,
-            )
-            low_flow_loss = _fdc_exceedance_loss(
-                pairs["observed"],
-                pairs["simulated"],
-                LOW_FLOW_EXCEEDANCES,
-            )
-            high_flow_loss = _fdc_exceedance_loss(
-                pairs["observed"],
-                pairs["simulated"],
-                HIGH_FLOW_EXCEEDANCES,
-            )
-            squared_losses.append(
-                (0.4 * kge_loss) ** 2
-                + (0.25 * log_kge_loss) ** 2
-                + (0.2 * low_flow_loss) ** 2
-                + (0.15 * high_flow_loss) ** 2
-            )
-        else:
-            squared_losses.append(kge_loss ** 2)
+        weighted_losses = []
+        for metric_name, weight in metric_weights.items():
+            if metric_name in {"log_kge", "fdc"} and variable != "streamflow":
+                continue
+            loss = _composite_metric_loss(metric_name, pairs, variable)
+            weighted_losses.append((weight * loss) ** 2)
 
-    return float(np.sqrt(sum(squared_losses)))
+        if weighted_losses:
+            variable_losses.append(sum(weighted_losses))
 
-
-def _efficiency_low_flow_loss(
-    observed: pd.Series,
-    simulated: pd.Series,
-    metric,
-    metric_name,
-) -> float:
-    observed_variables = _split_variables(observed, "observed")
-    simulated_variables = _split_variables(simulated, "simulated")
-
-    if observed_variables.keys() != simulated_variables.keys():
-        missing_simulated = sorted(
-            observed_variables.keys() - simulated_variables.keys()
-        )
-        missing_observed = sorted(
-            simulated_variables.keys() - observed_variables.keys()
-        )
-        details = []
-        if missing_simulated:
-            details.append(
-                f"missing simulated variables: {', '.join(missing_simulated)}"
-            )
-        if missing_observed:
-            details.append(
-                f"missing observed variables: {', '.join(missing_observed)}"
-            )
+    if not variable_losses:
         raise ValueError(
-            "Observed and simulated variables do not match; "
-            + "; ".join(details)
+            "The configured objective metrics do not apply to any available "
+            "observation variable. log_kge and fdc require streamflow."
         )
+    return float(np.sqrt(sum(variable_losses)))
 
-    squared_losses = []
-    for variable in sorted(observed_variables):
-        pairs = _aligned_pairs(
-            observed_variables[variable],
-            simulated_variables[variable],
-            variable,
-        )
-        efficiency_loss = _metric_loss(
-            pairs["observed"],
-            pairs["simulated"],
-            metric,
-            metric_name,
-            variable,
-        )
-        if variable == "streamflow":
-            log_efficiency_loss = _metric_loss(
-                np.log10(pairs["observed"].clip(lower=LOW_FLOW_EPSILON)),
-                np.log10(pairs["simulated"].clip(lower=LOW_FLOW_EPSILON)),
-                metric,
-                f"log10-{metric_name}",
-                variable,
-            )
-            fdc_loss = _low_flow_fdc_loss(
-                pairs["observed"],
-                pairs["simulated"],
-            )
-            squared_losses.append(
-                (0.5 * efficiency_loss) ** 2
-                + (0.3 * log_efficiency_loss) ** 2
-                + (0.2 * fdc_loss) ** 2
-            )
-        else:
-            squared_losses.append(efficiency_loss ** 2)
 
-    return float(np.sqrt(sum(squared_losses)))
+def _configured_composite_metric_weights() -> dict[str, float]:
+    if _composite_metric_weights is not None:
+        return _composite_metric_weights
+
+    encoded = os.environ.get(COMPOSITE_OBJECTIVE_ENV)
+    if encoded:
+        weights = json.loads(encoded)
+        configure_composite_objective(weights)
+        assert _composite_metric_weights is not None
+        return _composite_metric_weights
+
+    raise RuntimeError(
+        "Composite objective was not configured. Ensure ConfigureObjective "
+        "is loaded by ngen-cal."
+    )
 
 
 def _multi_variable_loss(observed, simulated, metric, metric_name):
     observed_variables = _split_variables(observed, "observed")
     simulated_variables = _split_variables(simulated, "simulated")
-
-    if observed_variables.keys() != simulated_variables.keys():
-        missing_simulated = sorted(
-            observed_variables.keys() - simulated_variables.keys()
-        )
-        missing_observed = sorted(
-            simulated_variables.keys() - observed_variables.keys()
-        )
-        details = []
-        if missing_simulated:
-            details.append(
-                f"missing simulated variables: {', '.join(missing_simulated)}"
-            )
-        if missing_observed:
-            details.append(
-                f"missing observed variables: {', '.join(missing_observed)}"
-            )
-        raise ValueError(
-            "Observed and simulated variables do not match; "
-            + "; ".join(details)
-        )
+    _require_matching_variables(observed_variables, simulated_variables)
 
     squared_losses = []
     for variable in sorted(observed_variables):
@@ -266,6 +186,78 @@ def _multi_variable_loss(observed, simulated, metric, metric_name):
         squared_losses.append(loss ** 2)
 
     return float(np.sqrt(sum(squared_losses)))
+
+
+def _composite_metric_loss(metric_name, pairs, variable):
+    observed = pairs["observed"]
+    simulated = pairs["simulated"]
+    if metric_name == "kge":
+        return _metric_loss(
+            observed,
+            simulated,
+            kling_gupta_efficiency,
+            "KGE",
+            variable,
+        )
+    if metric_name == "nse":
+        return _metric_loss(
+            observed,
+            simulated,
+            nash_sutcliffe_efficiency,
+            "NSE",
+            variable,
+        )
+    if metric_name == "nnse":
+        def nnse(obs, sim):
+            nse = nash_sutcliffe_efficiency(obs, sim)
+            return 1.0 / (2.0 - nse)
+
+        return _metric_loss(
+            observed,
+            simulated,
+            nnse,
+            "NNSE",
+            variable,
+        )
+    if metric_name == "log_kge":
+        return _metric_loss(
+            np.log10(observed.clip(lower=LOW_FLOW_EPSILON)),
+            np.log10(simulated.clip(lower=LOW_FLOW_EPSILON)),
+            kling_gupta_efficiency,
+            "log10-KGE",
+            variable,
+        )
+    if metric_name == "fdc":
+        return _fdc_exceedance_loss(
+            observed,
+            simulated,
+            FDC_EXCEEDANCES,
+        )
+    raise ValueError(f"Unsupported composite objective metric: {metric_name}")
+
+
+def _require_matching_variables(observed_variables, simulated_variables):
+    if observed_variables.keys() == simulated_variables.keys():
+        return
+    missing_simulated = sorted(
+        observed_variables.keys() - simulated_variables.keys()
+    )
+    missing_observed = sorted(
+        simulated_variables.keys() - observed_variables.keys()
+    )
+    details = []
+    if missing_simulated:
+        details.append(
+            f"missing simulated variables: {', '.join(missing_simulated)}"
+        )
+    if missing_observed:
+        details.append(
+            f"missing observed variables: {', '.join(missing_observed)}"
+        )
+    raise ValueError(
+        "Observed and simulated variables do not match; "
+        + "; ".join(details)
+    )
 
 
 def _aligned_pairs(observed, simulated, variable):
@@ -298,15 +290,6 @@ def _metric_loss(observed, simulated, metric, metric_name, variable):
         )
         return NONFINITE_METRIC_LOSS
     return abs(1.0 - score)
-
-
-def _low_flow_fdc_loss(observed, simulated):
-    obs = observed.clip(lower=LOW_FLOW_EPSILON).to_numpy(dtype=float)
-    sim = simulated.clip(lower=LOW_FLOW_EPSILON).to_numpy(dtype=float)
-    obs_quantiles = np.quantile(obs, LOW_FLOW_QUANTILES)
-    sim_quantiles = np.quantile(sim, LOW_FLOW_QUANTILES)
-    relative_error = (sim_quantiles - obs_quantiles) / obs_quantiles
-    return float(np.sqrt(np.mean(relative_error ** 2)))
 
 
 def _fdc_exceedance_loss(observed, simulated, exceedances):

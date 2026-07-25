@@ -1,0 +1,21 @@
+particles: 16
+pool: 4
+options:
+  c1: 1.2
+  c2: 1.2
+  w: 0.9
+options_schedule:
+  type: linear
+  end:
+    c1: 0.5
+    c2: 1.8
+    w: 0.3
+initialization:
+  # best_path: "path/to/pso_global_best/"
+  nearby_fraction: 0.1
+  noise_fraction: 0.2
+particle_reset:
+  enabled: true
+  patience: 10
+  reset_fraction: 1.0
+  preserve_global_best: true

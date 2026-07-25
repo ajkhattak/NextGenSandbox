@@ -77,24 +77,12 @@ class ConfigurationCalib:
     OBSERVATION_PLUGIN = (
         "ngen_cal_plugins.read_obs_plugin.ReadObservedData"
     )
-    NGEN_CAL_OBJECTIVES = {
-        "custom",
-        "kling_gupta",
-        "nnse",
-        "single_peak",
-        "volume",
-    }
-    OBSERVATION_OBJECTIVES = {
-        "kge": "ngen_cal_plugins.objectives.kge_multi_variable",
-        "nse": "ngen_cal_plugins.objectives.nse_multi_variable",
-        "nnse": "ngen_cal_plugins.objectives.nnse_multi_variable",
-    }
-    CALIB_CONFIG_RESERVED_KEYS = {
-        "general",
-        "calibration",
-        "model",
-        "strategy",
-    }
+    DEFAULT_PLUGINS = [
+        "ngen_cal_plugins.objective_plugin.ConfigureObjective",
+        "ngen_cal_plugins.save_divide_output_plugin.SaveData",
+        "ngen_cal_plugins.save_sim_obs_plugin.SaveData",
+        "ngen_cal_plugins.metrics.ComputeMetrics",
+    ]
 
     def __init__(self,
                  ctx,
@@ -180,15 +168,14 @@ class ConfigurationCalib:
         return candidates
 
     @staticmethod
-    def build_strategy_config(base_strategy):
-        algorithm = base_strategy.get("algorithm", "dds")
+    def build_strategy_config(algorithm, optimizer_settings=None):
         strategy = {
-            "type": base_strategy.get("type", "estimation"),
+            "type": "estimation",
             "algorithm": algorithm,
         }
 
-        if algorithm.lower() == "pso" and "parameters" in base_strategy:
-            strategy["parameters"] = base_strategy["parameters"]
+        if algorithm == "pso" and optimizer_settings:
+            strategy["parameters"] = optimizer_settings
 
         return strategy
 
@@ -264,45 +251,10 @@ class ConfigurationCalib:
 
         return normalized
 
-    def load_calib_config(self):
-        with open(self.ctx.calib_config_path, "r") as file:
-            base_file = yaml.safe_load(file) or {}
-
-        if not isinstance(base_file, dict):
-            raise ValueError(
-                f"Calibration config must be a YAML mapping: {self.ctx.calib_config_path}"
-            )
-        extra_top_level_keys = {
-            key: value
-            for key, value in base_file.items()
-            if key not in self.CALIB_CONFIG_RESERVED_KEYS
-        }
-        if extra_top_level_keys:
-            keys = ", ".join(sorted(extra_top_level_keys))
-            raise ValueError(
-                "Calibration parameter blocks must be defined in files under "
-                "calibration.params_dir, not directly in calib_config.yaml. "
-                f"Move top-level block(s) to configs/calibration/*.yaml: {keys}"
-            )
-
+    def load_calibration_parameters(self):
         param_blocks = {}
-        calibration = base_file.get("calibration", {}) or {}
-        if not isinstance(calibration, dict):
-            raise ValueError("calibration block in calib_config.yaml must be a mapping")
-
-        params_dir = calibration.get("params_dir")
-        if not params_dir:
-            raise ValueError(
-                "calibration.params_dir must be provided in calib_config.yaml. "
-                "Each model's calibration parameters must live in a YAML file "
-                "under that directory."
-            )
-
         required_blocks = self._required_calib_params_blocks()
-
-        params_dir = Path(params_dir)
-        if not params_dir.is_absolute():
-            params_dir = Path(self.ctx.calib_config_path).resolve().parent / params_dir
+        params_dir = Path(self.ctx.sandbox_dir) / "configs" / "calibration"
 
         if not params_dir.is_dir():
             raise FileNotFoundError(
@@ -322,11 +274,6 @@ class ConfigurationCalib:
                 )
 
             for key, value in file_blocks.items():
-                if key in self.CALIB_CONFIG_RESERVED_KEYS:
-                    raise ValueError(
-                        f"Reserved key '{key}' is not allowed in calibration "
-                        f"parameter file: {params_file}"
-                    )
                 if key in param_blocks:
                     raise ValueError(
                         f"Duplicate calibration parameter block '{key}' found "
@@ -342,14 +289,11 @@ class ConfigurationCalib:
             raise ValueError(
                 "Calibration parameter block(s) were not found for the "
                 "active formulation: "
-                f"{', '.join(missing_blocks)}. Check "
-                "configs/calib_config.yaml calibration.params_dir and the "
-                "model files under configs/calibration/."
+                f"{', '.join(missing_blocks)}. Check the model files under "
+                f"{params_dir}."
             )
-        
-        param_blocks = self.normalize_calibration_parameter_blocks(param_blocks)
-        base_file.update(param_blocks)
-        return base_file
+
+        return self.normalize_calibration_parameter_blocks(param_blocks)
 
     def get_flowpath_attributes(self):
 
@@ -427,52 +371,6 @@ class ConfigurationCalib:
                 plugin_settings.pop("read_obs_data", None)
             return
 
-        objective_key = (
-            "val_params"
-            if getattr(self, "ngen_cal_type", None) == "validation"
-            else "eval_params"
-        )
-        objective_params = model_config.setdefault(objective_key, {})
-        observation_objective = getattr(
-            self.ctx,
-            "observation_objective",
-            None,
-        )
-        if observation_objective:
-            objective_name = observation_objective.strip().lower()
-            if objective_name in self.OBSERVATION_OBJECTIVES:
-                objective = self.OBSERVATION_OBJECTIVES[objective_name]
-            elif "." in observation_objective:
-                objective = observation_objective.strip()
-            else:
-                supported = ", ".join(sorted(self.OBSERVATION_OBJECTIVES))
-                raise ValueError(
-                    f"Unsupported observations.objective "
-                    f"'{observation_objective}'. Supported objectives: "
-                    f"{supported}, or a custom objective import path"
-                )
-            objective_params["objective"] = objective
-            objective_params["target"] = "min"
-
-        variables = set(observation_settings)
-        uses_streamflow_default = variables == {"streamflow"}
-        objective = objective_params.get("objective")
-        uses_custom_objective = (
-            isinstance(objective, str)
-            and objective not in self.NGEN_CAL_OBJECTIVES
-        )
-        if not uses_streamflow_default and not uses_custom_objective:
-            names = ", ".join(observation_settings)
-            raise ValueError(
-                "Built-in ngen-cal objectives are only valid when streamflow is "
-                "the sole local observation type. "
-                f"Configured observation types: {names}. "
-                "Set model.eval_params.objective in configs/calib_config.yaml to "
-                "the import path of a custom objective function, typically defined "
-                "in the plugins package."
-            )
-
-
         plugins = list(model_config.get("plugins") or [])
         if self.OBSERVATION_PLUGIN not in plugins:
             plugins.append(self.OBSERVATION_PLUGIN)
@@ -493,26 +391,24 @@ class ConfigurationCalib:
         else:
             assert len(realization_file) == 1
 
-        if not os.path.exists(self.ctx.calib_config_path):
-            sys.exit(f"Sample calib yaml file does not exist, provided is {self.ngen_cal_basefile}")
-
         gpkg_name = os.path.basename(self.gpkg_file).split(".")[0]
         gage_id = self.get_flowpath_attributes()
 
-        base_file = self.load_calib_config()
-
-        base_strategy = base_file.get("general", {}).get("strategy", {})
-        strategy = self.build_strategy_config(base_strategy)
+        param_blocks = self.load_calibration_parameters()
+        strategy = self.build_strategy_config(
+            self.ctx.calibration_algorithm,
+            self.ctx.optimizer_settings,
+        )
 
         df_new = {
             "general": {
                 "strategy": strategy,
-                "log": base_file.get("general").get("log", True),
-                "start_iteration": base_file.get("general").get("start_iteration", 0),
-                "iterations": base_file.get("general").get("iterations"),
-                "random_seed": base_file.get("general").get("random_seed", 444.0),
+                "log": True,
+                "start_iteration": 0,
+                "iterations": self.ctx.calibration_iterations,
+                "random_seed": self.ctx.calibration_random_seed,
                 "workdir": self.output_dir.as_posix(),
-                "restart": base_file.get("general").get("restart", False),
+                "restart": False,
             }
         }
 
@@ -526,12 +422,11 @@ class ConfigurationCalib:
                 if not name:
                     continue
 
-                param_values = base_file.get(name)
+                param_values = param_blocks.get(name)
                 if param_values is None:
                     raise ValueError(
                         f"Calibration parameter block '{name}' was not found. "
-                        "Check configs/calib_config.yaml calibration.params_dir "
-                        "and the model files under configs/calibration/."
+                        "Check the model files under configs/calibration/."
                     )
 
                 if (self.ctx.ensemble_enabled
@@ -555,7 +450,7 @@ class ConfigurationCalib:
             "realization": realization_file[0],
             "hydrofabric": self.gpkg_file.as_posix(),
             "routing_output": self.troute_output_file,
-            "strategy": base_file.get("strategy", "uniform"),
+            "strategy": "uniform",
             "eval_feature": gpkg_name.split("_")[1]
         }
 
@@ -604,8 +499,8 @@ class ConfigurationCalib:
                 #'sim_start': self.simulation_time['start_time'],
                 'evaluation_start': self.evaluation_time['start_time'],
                 'evaluation_stop' : self.evaluation_time['end_time'],
-                'objective': base_file.get("model").get("eval_params").get("objective", "kling_gupta"),
-                'target'   : base_file.get("model").get("eval_params").get("target", "min"),
+                'objective': self.ctx.calibration_objective,
+                'target': "min",
             }
 
         # Validation
@@ -614,7 +509,8 @@ class ConfigurationCalib:
                 'sim_start': self.simulation_time['start_time'],
                 'evaluation_start': self.evaluation_time['start_time'],
                 'evaluation_stop': self.evaluation_time['end_time'],
-                'objective': "kling_gupta"
+                'objective': self.ctx.calibration_objective,
+                'target': "min",
             }
 
             df_new["model"]["plugin_settings"] = {
@@ -623,7 +519,7 @@ class ConfigurationCalib:
                 }
             }
 
-        df_new["model"]["plugins"] = base_file.get("model", {}).get("plugins", [])
+        df_new["model"]["plugins"] = list(self.DEFAULT_PLUGINS)
         output_retention = (
             self.ctx.calibration_output_retention
             if self.ngen_cal_type in {"calibration", "restart"}
@@ -634,6 +530,10 @@ class ConfigurationCalib:
         ] = {
             "mode": output_retention,
         }
+        if self.ctx.calibration_objective_metrics:
+            df_new["model"]["plugin_settings"]["composite_objective"] = {
+                "metrics": self.ctx.calibration_objective_metrics,
+            }
         self.configure_observations(
             df_new["model"],
             gpkg_name.removeprefix("gage_"),

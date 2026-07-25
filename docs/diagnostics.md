@@ -239,7 +239,7 @@ After `sandbox --conf` has generated run files, use dry-run mode to validate
 the execution setup without launching ngen or ngen-cal:
 
 ```bash
-sandbox --dryrun -i configs/my_sandbox_config.yaml -j configs/calib_config.yaml
+sandbox --dryrun -i configs/my_sandbox_config.yaml
 ```
 
 `--dryrun` is standalone. Do not combine it with `--run`.

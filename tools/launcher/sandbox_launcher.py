@@ -18,17 +18,21 @@ from typing import Any
 
 import yaml
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from src.python.calibration_config import absolutize_optimizer_settings_file
+
 
 @dataclass(frozen=True)
 class LauncherContext:
     launcher_dir: Path
     launcher_config_file: Path
     sandbox_config_file: Path
-    calib_config_file: Path
     map_config_file: Path | None
     submit_script: Path
     base_sandbox_cfg: dict[str, Any]
-    base_calib_cfg: dict[str, Any]
     map_cfg: dict[str, Any]
     output_dir: Path
     input_dir: Path
@@ -248,13 +252,6 @@ def load_context(config_file: Path) -> LauncherContext:
             launcher_cfg.get("sandbox_config", "basefiles/sandbox_config_base.yaml"),
         ),
     )
-    calib_config_file = resolve_path(
-        launcher_dir,
-        templates.get(
-            "calib_config",
-            launcher_cfg.get("calib_config", "basefiles/calib_config_base.yaml"),
-        ),
-    )
     submit_script = resolve_path(
         launcher_dir,
         launcher_cfg.get("submit_script", "submit_gage.slurm"),
@@ -264,7 +261,10 @@ def load_context(config_file: Path) -> LauncherContext:
         load_yaml(sandbox_config_file),
         launcher_cfg,
     )
-    base_calib_cfg = load_yaml(calib_config_file)
+    absolutize_optimizer_settings_file(
+        base_sandbox_cfg,
+        sandbox_config_file,
+    )
 
     if {"experiments", "gages", "assignment"}.issubset(launcher_cfg):
         map_config_file = None
@@ -293,11 +293,9 @@ def load_context(config_file: Path) -> LauncherContext:
         launcher_dir=launcher_dir,
         launcher_config_file=config_file,
         sandbox_config_file=sandbox_config_file,
-        calib_config_file=calib_config_file,
         map_config_file=map_config_file,
         submit_script=submit_script,
         base_sandbox_cfg=base_sandbox_cfg,
-        base_calib_cfg=base_calib_cfg,
         map_cfg=map_cfg,
         output_dir=output_dir,
         input_dir=input_dir,
@@ -382,7 +380,7 @@ def validate_mapping_config(map_cfg: dict[str, Any]) -> None:
 
 
 def validate_context(ctx: LauncherContext) -> None:
-    required_files = [ctx.sandbox_config_file, ctx.calib_config_file]
+    required_files = [ctx.sandbox_config_file]
     if ctx.map_config_file is not None:
         required_files.append(ctx.map_config_file)
 
@@ -426,9 +424,8 @@ def generated_config_paths(exp_config_dir: Path, gage_id: str) -> dict[str, Path
     gage_dir = exp_config_dir / gage_id
     return {
         "sandbox_main": gage_dir / f"sandbox_config_{gage_id}.yaml",
+        "sandbox_restart": gage_dir / f"sandbox_config_{gage_id}_restart.yaml",
         "sandbox_validation": gage_dir / f"sandbox_config_{gage_id}_validation.yaml",
-        "calib_main": gage_dir / f"calib_config_{gage_id}.yaml",
-        "calib_restart": gage_dir / f"calib_config_{gage_id}_restart.yaml",
     }
 
 
@@ -444,7 +441,6 @@ def generate_config_files_for_gage(
     dryrun: bool = False,
 ) -> None:
     sandbox_cfg = copy.deepcopy(ctx.base_sandbox_cfg)
-    calib_cfg = copy.deepcopy(ctx.base_calib_cfg)
 
     sandbox_cfg["general"]["output_dir"] = str(ctx.output_dir / model_dir)
     sandbox_cfg["general"]["gages"] = {
@@ -459,6 +455,7 @@ def generate_config_files_for_gage(
     else:
         sandbox_cfg["formulation"].pop("model_instances", None)
     sandbox_cfg["simulation"]["gages"] = [gage_id]
+    sandbox_cfg["simulation"]["task_type"] = "calibration"
 
     paths = generated_config_paths(exp_config_dir, gage_id)
 
@@ -475,18 +472,29 @@ def generate_config_files_for_gage(
     with paths["sandbox_main"].open("w") as file:
         yaml.safe_dump(sandbox_cfg, file, default_flow_style=False, sort_keys=False)
 
+    sandbox_restart_cfg = copy.deepcopy(sandbox_cfg)
+    sandbox_restart_cfg["simulation"]["task_type"] = "restart"
+    simulation_label = sandbox_cfg["simulation"].get("label")
+    output_name = (
+        f"{gage_id}_{simulation_label}"
+        if simulation_label
+        else gage_id
+    )
+    sandbox_restart_cfg["simulation"]["restart_dir"] = str(
+        ctx.output_dir / model_dir / output_name
+    )
+    with paths["sandbox_restart"].open("w") as file:
+        yaml.safe_dump(
+            sandbox_restart_cfg,
+            file,
+            default_flow_style=False,
+            sort_keys=False,
+        )
+
     sandbox_val_cfg = copy.deepcopy(sandbox_cfg)
     sandbox_val_cfg["simulation"]["task_type"] = "validation"
     with paths["sandbox_validation"].open("w") as file:
         yaml.safe_dump(sandbox_val_cfg, file, default_flow_style=False, sort_keys=False)
-
-    with paths["calib_main"].open("w") as file:
-        yaml.safe_dump(calib_cfg, file, default_flow_style=False, sort_keys=False)
-
-    calib_restart_cfg = copy.deepcopy(calib_cfg)
-    calib_restart_cfg.setdefault("general", {})["restart"] = True
-    with paths["calib_restart"].open("w") as file:
-        yaml.safe_dump(calib_restart_cfg, file, default_flow_style=False, sort_keys=False)
 
     subprocess.run(
         [
@@ -494,19 +502,17 @@ def generate_config_files_for_gage(
             "--conf",
             "-i",
             str(paths["sandbox_main"]),
-            "-j",
-            str(paths["calib_main"]),
         ],
         check=True,
     )
 
 
 def get_max_iter(exp_config_dir: Path, gage_id: str) -> int:
-    calib_file = generated_config_paths(exp_config_dir, gage_id)["calib_main"]
-    if not calib_file.exists():
+    sandbox_file = generated_config_paths(exp_config_dir, gage_id)["sandbox_main"]
+    if not sandbox_file.exists():
         return 0
-    cfg = load_yaml(calib_file)
-    return int(cfg["general"]["iterations"])
+    cfg = load_yaml(sandbox_file)
+    return int(cfg["calibration"]["optimizer"]["iterations"])
 
 
 def read_metadata_index_file(metadata_index_dir: Path, gage_id: str) -> dict[str, Any] | None:
@@ -581,11 +587,15 @@ def run_experiment(
     dryrun: bool = False,
 ) -> None:
     paths = generated_config_paths(exp_config_dir, gage_id)
-    calib_file = paths["calib_main"] if current_iter == 0 else paths["calib_restart"]
     max_iter = get_max_iter(exp_config_dir, gage_id)
     if max_iter == 0 and current_iter == 0:
         max_iter = 1
-    sandbox_file = paths["sandbox_main"] if current_iter < max_iter else paths["sandbox_validation"]
+    if current_iter == 0:
+        sandbox_file = paths["sandbox_main"]
+    elif current_iter < max_iter:
+        sandbox_file = paths["sandbox_restart"]
+    else:
+        sandbox_file = paths["sandbox_validation"]
 
     if check_validation_exists(metadata_index_dir, gage_id):
         return
@@ -599,7 +609,6 @@ def run_experiment(
             f"--job-name={job_name}",
             "--export=ALL,"
             f"SANDBOX_FILE={sandbox_file},"
-            f"CALIB_FILE={calib_file},"
             f"START_DELAY={delay_seconds}",
             str(ctx.submit_script),
         ]
@@ -610,8 +619,6 @@ def run_experiment(
             "--run",
             "-i",
             str(sandbox_file),
-            "-j",
-            str(calib_file),
         ]
         print(f"[{gage_id}] Running locally: {' '.join(cmd)}")
 
@@ -814,7 +821,6 @@ def print_check_report(ctx: LauncherContext) -> None:
     print("==============")
     print(f"Launcher config : {ctx.launcher_config_file}")
     print(f"Sandbox config  : {ctx.sandbox_config_file}")
-    print(f"Calib config    : {ctx.calib_config_file}")
     print(f"Mapping config  : {ctx.map_config_file or 'resolved from launcher_config.yaml'}")
     print(f"Submit script   : {ctx.submit_script}")
     print(f"Input dir       : {ctx.input_dir}")

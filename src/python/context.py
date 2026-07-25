@@ -15,6 +15,7 @@ import pandas as pd
 import glob
 
 from src.python import helper
+from src.python.calibration_config import load_calibration_settings
 from src.python.forcing_files import (
     prepare_rechunked_forcing_file,
     select_netcdf_forcing_file,
@@ -46,7 +47,6 @@ class SandboxContext:
 
     sandbox_dir: Path
     sandbox_config_path: str
-    calib_config_path: str
 
     mode: str = "conf"
 
@@ -109,6 +109,8 @@ class SandboxContext:
 
         self.load_observations_config()
 
+        self.load_calibration_config()
+
 
     def load_formulation_config(self):
         # Formulation block
@@ -169,19 +171,37 @@ class SandboxContext:
 
         if not isinstance(observations, dict):
             raise TypeError("observations must be a mapping of observation names")
+        if "objective" in observations:
+            raise ValueError(
+                "observations.objective is no longer supported. Move it to "
+                "calibration.objective.function."
+            )
 
-        self.observation_objective = observations.get("objective")
-        if self.observation_objective is not None and (
-            not isinstance(self.observation_objective, str)
-            or not self.observation_objective.strip()
+        self.observations = observations
+
+    def load_calibration_config(self):
+        if (
+            self.task_type
+            in {"calibration", "calibvalid", "restart", "validation"}
+            and "calibration" not in self.sandbox_config
         ):
-            raise ValueError("observations.objective must be a non-empty string")
+            raise ValueError(
+                "A top-level calibration block is required for "
+                f"simulation.task_type: {self.task_type}"
+            )
 
-        self.observations = {
-            name: config
-            for name, config in observations.items()
-            if name != "objective"
-        }
+        settings = load_calibration_settings(
+            self.sandbox_config,
+            self.sandbox_config_path,
+            self.sandbox_dir,
+        )
+        self.calibration_algorithm = settings.algorithm
+        self.calibration_iterations = settings.iterations
+        self.calibration_random_seed = settings.random_seed
+        self.calibration_objective = settings.objective
+        self.calibration_objective_metrics = settings.objective_metrics
+        self.optimizer_settings = settings.optimizer_settings
+        self.optimizer_settings_file = settings.optimizer_settings_file
 
     @staticmethod
     def validate_time_window(name, window):

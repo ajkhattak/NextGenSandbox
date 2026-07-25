@@ -32,8 +32,8 @@ if [ -z "$SANDBOX_ENV" ]; then
 fi
 source "$SANDBOX_ENV/bin/activate"
 
-if [ -z "${SANDBOX_FILE:-}" ] || [ -z "${CALIB_FILE:-}" ]; then
-    echo "ERROR: SANDBOX_FILE and CALIB_FILE must be exported by the launcher."
+if [ -z "${SANDBOX_FILE:-}" ]; then
+    echo "ERROR: SANDBOX_FILE must be exported by the launcher."
     exit 1
 fi
 
@@ -43,7 +43,6 @@ python -c "import sqlite3; print('sqlite3 version:', sqlite3.sqlite_version)"
 
 echo "Running gage simulation..."
 echo "SANDBOX_FILE = $SANDBOX_FILE"
-echo "CALIB_FILE   = $CALIB_FILE"
 
 # Delay start based on model index (passed from Python)
 if [[ -n "$START_DELAY" ]]; then
@@ -51,4 +50,4 @@ if [[ -n "$START_DELAY" ]]; then
     sleep $START_DELAY
 fi
 # === Run sandbox ===
-sandbox --run -i "$SANDBOX_FILE" -j "$CALIB_FILE"
+sandbox --run -i "$SANDBOX_FILE"

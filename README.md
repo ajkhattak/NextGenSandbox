@@ -22,8 +22,8 @@ First-time users should follow these guides in order:
 
 2. **[Configure a project](docs/configuration.md)**
 
-   Understand `sandbox_config.yaml`, `calib_config.yaml`, model defaults, and
-   the settings that control project resources and simulations.
+   Understand the single project `sandbox_config.yaml`, model defaults, and
+   the settings that control resources, simulations, and calibration.
 
 3. **[Run a project](docs/workflow.md)**
 

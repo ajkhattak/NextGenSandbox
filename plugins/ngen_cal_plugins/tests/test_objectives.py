@@ -2,12 +2,15 @@ import unittest
 
 import pandas as pd
 
+from ngen_cal_plugins import objectives
 from ngen_cal_plugins.objectives import (
-    kge_low_high_flow,
-    kge_low_flow,
+    FDC_EXCEEDANCES,
+    HIGH_FLOW_EXCEEDANCES,
+    LOW_FLOW_EXCEEDANCES,
+    composite_objective,
+    configure_composite_objective,
     kge_multi_variable,
     nnse_multi_variable,
-    nse_low_flow,
     nse_multi_variable,
 )
 
@@ -90,91 +93,72 @@ class TestKlingGuptaMultiVariable(unittest.TestCase):
 
         self.assertAlmostEqual(score, 0.0)
 
-    def test_low_flow_objective_perfect_streamflow_has_zero_loss(self):
+    def test_composite_objective_perfect_streamflow_has_zero_loss(self):
         observed = pd.Series(
             [0.02, 0.03, 0.05, 0.2, 1.0, 3.0],
             index=pd.date_range("2020-01-01", periods=6, freq="h"),
         )
+        configure_composite_objective(
+            {"kge": 0.5, "log_kge": 0.3, "fdc": 0.2}
+        )
 
-        score = kge_low_flow(observed, observed.copy())
+        score = composite_objective(observed, observed.copy())
 
         self.assertAlmostEqual(score, 0.0)
 
-    def test_low_flow_objective_penalizes_collapsed_tail(self):
+    def test_composite_fdc_uses_low_and_high_flow_exceedances(self):
+        self.assertEqual(
+            FDC_EXCEEDANCES,
+            HIGH_FLOW_EXCEEDANCES + LOW_FLOW_EXCEEDANCES,
+        )
+
+    def test_composite_fdc_penalizes_changed_flow_distribution(self):
         observed = pd.Series(
             [0.02, 0.03, 0.05, 0.2, 1.0, 3.0],
             index=pd.date_range("2020-01-01", periods=6, freq="h"),
         )
         simulated = pd.Series(
-            [1.0e-12, 1.0e-12, 1.0e-12, 0.2, 1.0, 3.0],
+            [1.0e-12, 1.0e-12, 0.05, 0.2, 0.6, 0.8],
             index=observed.index,
         )
+        configure_composite_objective({"fdc": 1.0})
 
-        score = kge_low_flow(observed, simulated)
+        score = composite_objective(observed, simulated)
 
         self.assertGreater(score, 0.1)
 
-    def test_nse_low_flow_objective_perfect_streamflow_has_zero_loss(self):
+    def test_composite_recipe_is_available_to_fresh_worker_module(self):
         observed = pd.Series(
             [0.02, 0.03, 0.05, 0.2, 1.0, 3.0],
             index=pd.date_range("2020-01-01", periods=6, freq="h"),
         )
+        configure_composite_objective({"kge": 1.0})
+        objectives._composite_metric_weights = None
 
-        score = nse_low_flow(observed, observed.copy())
+        score = composite_objective(observed, observed.copy())
 
         self.assertAlmostEqual(score, 0.0)
 
-    def test_nse_low_flow_objective_penalizes_collapsed_tail(self):
-        observed = pd.Series(
+    def test_composite_weights_must_sum_to_one(self):
+        with self.assertRaisesRegex(ValueError, "must sum to 1.0"):
+            configure_composite_objective({"kge": 0.5, "fdc": 0.4})
+
+    def test_composite_objective_skips_flow_metrics_for_et(self):
+        observed = self.create_series(
             [0.02, 0.03, 0.05, 0.2, 1.0, 3.0],
-            index=pd.date_range("2020-01-01", periods=6, freq="h"),
+            [2.0, 3.0, 4.0],
         )
-        simulated = pd.Series(
-            [1.0e-12, 1.0e-12, 1.0e-12, 0.2, 1.0, 3.0],
-            index=observed.index,
-        )
-
-        score = nse_low_flow(observed, simulated)
-
-        self.assertGreater(score, 0.1)
-
-    def test_kge_low_high_flow_objective_perfect_streamflow_has_zero_loss(self):
-        observed = pd.Series(
-            [0.02, 0.03, 0.05, 0.2, 1.0, 3.0],
-            index=pd.date_range("2020-01-01", periods=6, freq="h"),
+        simulated = observed.copy()
+        simulated.loc[
+            simulated.index.get_level_values("variable") == "ET"
+        ] *= 0.5
+        configure_composite_objective(
+            {"kge": 0.5, "log_kge": 0.3, "fdc": 0.2}
         )
 
-        score = kge_low_high_flow(observed, observed.copy())
+        score = composite_objective(observed, simulated)
 
-        self.assertAlmostEqual(score, 0.0)
-
-    def test_kge_low_high_flow_objective_penalizes_collapsed_tail(self):
-        observed = pd.Series(
-            [0.02, 0.03, 0.05, 0.2, 1.0, 3.0],
-            index=pd.date_range("2020-01-01", periods=6, freq="h"),
-        )
-        simulated = pd.Series(
-            [1.0e-12, 1.0e-12, 1.0e-12, 0.2, 1.0, 3.0],
-            index=observed.index,
-        )
-
-        score = kge_low_high_flow(observed, simulated)
-
-        self.assertGreater(score, 0.1)
-
-    def test_kge_low_high_flow_objective_penalizes_flattened_peaks(self):
-        observed = pd.Series(
-            [0.02, 0.03, 0.05, 0.2, 1.0, 3.0],
-            index=pd.date_range("2020-01-01", periods=6, freq="h"),
-        )
-        simulated = pd.Series(
-            [0.02, 0.03, 0.05, 0.2, 0.6, 0.8],
-            index=observed.index,
-        )
-
-        score = kge_low_high_flow(observed, simulated)
-
-        self.assertGreater(score, 0.1)
+        self.assertGreater(score, 0.0)
 
 
 if __name__ == "__main__":

@@ -21,7 +21,6 @@ The launcher supports:
 | `launcher_config.yaml` | Preferred one-window launcher setup: project paths, templates, experiments, gages, and assignments. |
 | `models_gages_map.yaml` | Advanced/direct mapping format; optional when using `launcher_config.yaml` experiments and assignments. |
 | `basefiles/sandbox_config_base.yaml` | Base Sandbox config copied and customized per gage/formulation. |
-| `basefiles/calib_config_base.yaml` | Base calibration config copied per gage/formulation. |
 | `sandbox_launcher.py` | Main launcher CLI. |
 | `submit_launcher.sh` | Entry script for SLURM or local execution. |
 | `submit_gage.slurm` | SLURM worker script for one gage/formulation run. |
@@ -31,9 +30,8 @@ The launcher supports:
 
 1. Copy or edit `launcher_config.yaml`.
 2. Edit `basefiles/sandbox_config_base.yaml`.
-3. Edit `basefiles/calib_config_base.yaml`.
-4. Define experiments and assignments in `launcher_config.yaml`.
-5. On SLURM systems, edit account, partition, time, memory, and module loads in
+3. Define experiments and assignments in `launcher_config.yaml`.
+4. On SLURM systems, edit account, partition, time, memory, and module loads in
    `submit_launcher.sh` and `submit_gage.slurm`.
 
 The base Sandbox config should use the current Sandbox configuration schema:
@@ -52,6 +50,14 @@ forcings:
     start: "2015-10-01"
     end: "2022-09-30 23:00:00"
   gages: all
+
+calibration:
+  optimizer:
+    algorithm: dds
+    iterations: 300
+    random_seed: 444
+  objective:
+    function: kge
 
 simulation:
   gages: []
@@ -92,7 +98,6 @@ project:
 
 templates:
   sandbox_config: basefiles/sandbox_config_base.yaml
-  calib_config: basefiles/calib_config_base.yaml
 
 experiments:
   pet_cfe_x:

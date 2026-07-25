@@ -5,7 +5,6 @@ project:
 
 templates:
   sandbox_config: basefiles/sandbox_config_base.yaml
-  calib_config: basefiles/calib_config_base.yaml
 
 submit_script: submit_gage.slurm
 

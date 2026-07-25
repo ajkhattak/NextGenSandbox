@@ -17,6 +17,17 @@ forcings :
   gages      : all
 
 ########################################################################
+observations: {}
+
+calibration:
+  optimizer:
+    algorithm: dds
+    iterations: 300
+    random_seed: 444
+  objective:
+    function: kge
+
+########################################################################
 formulation :
   models             : ""
   clean              : ['existing']

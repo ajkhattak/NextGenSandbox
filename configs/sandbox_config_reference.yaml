@@ -1,0 +1,166 @@
+# Complete NextGenSandbox configuration reference.
+# Copy the sections you need into sandbox_config.yaml.
+# Do not enable mutually exclusive alternatives simultaneously.
+# Full documentation:
+# https://ajkhattak.github.io/NextGenSandbox/configuration/
+
+general:
+  input_dir: "<path_to_input_directory>"
+  output_dir: "<path_to_output_directory>"
+  resource_layout: gage  # gage or resource
+  gages:
+    option: ids  # ids, file, or gpkg
+    ids: ["01308000", "01109403"]
+
+    # Use this instead of ids when option is file.
+    # file:
+    #   path: "<path_to>/gages.csv"
+    #   column: gage_id
+
+    # Use this instead of ids when option is gpkg.
+    # gpkg:
+    #   dir: "<path_to_geopackages>"
+    #   pattern: "gage_"
+    #   select: ["01308000"]
+
+subsetting:
+  hydrofabric:
+    version: "2.2"
+    gpkg_path: "<path_to>/conus_nextgen.gpkg"
+    compute_divide_attributes: true
+  dem:
+    # Omit input_file to use the default DEM source.
+    # input_file: "<path_to>/dem.vrt"
+    output_dir: dem
+    aggregate_factor: 3
+  vegetation:
+    enabled: false
+    # nlcd_path: "<path_to>/Annual_NLCD_LndCov_2021_CU_C1V1.tif"
+    # classification_method: fraction  # fraction or majority
+  gages: all  # all, one gage ID, or a list
+
+forcings:
+  format: ".nc"  # .nc or .csv
+  use_corrected: true
+  rechunk: true
+  time:
+    start: "2016-10-01"
+    end: "2020-09-30 23:00:00"
+  domain: conus  # conus, HI, PR, or AK
+  gages: all
+
+  # Use an existing file or external directory instead of the default location.
+  # A single .nc file is supported when only one gage is selected.
+  # forcing_dir: "<path_to_forcing>/<gage_id>/forcing.nc"
+
+observations: {}
+  # streamflow:
+  #   layout: point
+  #   path: "<path_to_observations>/<gage_id>_<variable>.parquet"
+  #   time_column: value_time
+  #   value_column: value
+  #   units: "m3/sec"
+
+  # ET:
+  #   layout: distributed
+  #   path: "<path_to_observations>/<gage_id>_<variable>.parquet"
+  #   time_column: value_time
+  #   units: "mm/d"
+  #   simulated: ACTUAL_ET
+
+  # Long-format distributed observations also require:
+  #   id_column: divide_id
+  #   value_column: value
+
+calibration:
+  optimizer:
+    algorithm: dds  # dds or pso
+    iterations: 500
+    random_seed: 444
+    # Required for custom PSO settings:
+    # settings_file: "optimizers/pso.yaml"
+  objective:
+    # A single metric may be kge, nse, or nnse.
+    function: kge
+    # Build a weighted objective from multiple metrics:
+    # function:
+    #   kge: 0.5
+    #   log_kge: 0.3
+    #   fdc: 0.2
+
+formulation:
+  models: "PET, CFE, T-ROUTE"
+  clean: [existing]
+  verbosity: 0
+
+  # Select a non-default or custom model instance.
+  # model_instances:
+  #   CFE:
+  #     - name: cfe-x
+  #       basefile: config_cfe-x.yaml
+  #       repo_name: cfe
+  #       calib_params_block: cfex_params
+  #       calib_params_file: cfe-x.yaml
+  #       library_file: "<path_to_model_library>"
+
+  ensemble:
+    enabled: false
+    # calib_params_groups:
+    #   NOM: local
+    #   CFE: global
+
+simulation:
+  task_type: calibvalid  # control, calibration, validation, calibvalid, or restart
+  gages: all
+  label: pet_cfe
+  time:
+    # Use control for task_type: control.
+    # control:
+    #   start: "2016-10-01 00:00:00"
+    #   spinup: "0 hours"
+    #   end: "2018-09-30 23:00:00"
+
+    calibration:
+      start: "2016-10-01 00:00:00"
+      spinup: "12 months"
+      evaluation: "1 year"
+      # end: "2018-08-01 04:00:00"
+
+    validations:
+      - name: validation
+        start: "2018-10-01 00:00:00"
+        spinup: "12 months"
+        evaluation: "1 year"
+        # end: "2020-08-01 04:00:00"
+
+      # Validation periods may also be selected from a CSV file.
+      # - name: water_year_split
+      #   source: file
+      #   file: "<path_to>/year_tasks.csv"
+      #   year_type: water_year
+      #   year_column: year
+      #   task_column: task_type
+      #   select: valid
+      #   spinup: "12 months"
+      #   evaluation: "1 year"
+
+  # Required for task_type: restart.
+  # restart_dir: "<path_to_restart>/<gage_id>"
+
+  outputs:
+    divide_variables: {}
+      # ACTUAL_ET:
+      #   units: "m/h"
+      # SNOW_WATER_EQUIVALENT:
+      #   units: "mm"
+    calibration:
+      retention: best  # best or all
+    metadata:
+      enabled: false
+      file: simulation_metadata.yml
+      # index_dir: metadata
+
+  partitioning:
+    mode: parallel  # parallel or serial
+    max_nexus_per_proc: 25
+    max_procs: 3

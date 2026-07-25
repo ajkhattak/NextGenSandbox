@@ -1,153 +1,75 @@
-# Sandbox configuration sample file
-#
+# Minimal NextGenSandbox project configuration.
+# For all supported fields and correctly indented alternatives, see:
+# configs/sandbox_config_reference.yaml
+# https://ajkhattak.github.io/NextGenSandbox/configuration/
 
 general:
-  input_dir  : "<path_to_input_directory>"  #-------------------------- Reusable resource directory. Path structure follows general.resource_layout.
-  output_dir : "<path_to_output_directory>" #-------------------------- Generated run artifacts directory: configs, realization files, model outputs, calibration outputs.
-  resource_layout: "gage" #-------------------------------------------- OPTIONS: gage | resource. Project-level resource directory layout used by workflow steps.
+  input_dir: "<path_to_input_directory>"
+  output_dir: "<path_to_output_directory>"
+  resource_layout: gage
   gages:
-    option: ids #------------------------------------------------------- OPTIONS: ids | file | gpkg. Defines the full project gage set.
-    ids: ["01308000"] #------------------------------------------------ List of project gage IDs.
-    file:
-      path: "<path_to_basin_ids_file>/basin_ids_file.csv" #------------ Path to CSV file with project gage IDs.
-      column: "gage_id" #---------------------------------------------- Column name containing gage IDs.
-    gpkg:
-      # dir may be omitted to discover geopackages from general.input_dir
-      # using general.resource_layout.
-      dir: "<path_to_gpkgs_dir>" #------------------------------------- Path to existing geopackages directory or a .gpkg file.
-      pattern: "gage_" #----------------------------------------------- Filename pattern used when discovering geopackages.
-      select: ["01308000"] #------------------------------------------- Selected gages/gpkgs from the gpkg directory.
+    option: ids
+    ids: ["01308000"]
 
-
-########################################################################
-# Subset a basin using hydrofabric; see src/R/main.R for further details
-# make sure to install yaml package using install.packages("yaml") if not installed already
-subsetting :
+subsetting:
   hydrofabric:
-    version               : "2.2" #-------------------------------------- Only enter version number, e.g. "2.2" or "2.1.1"
-    # Ensure that this gpkg matches the hf_version specified above:
-    gpkg_path             : "<path_to>/conus_nextgen.gpkg"  #------------ For example, "<paht_to>/conus_nextgen.gpkg", download it from https://proxy.lynker-spatial.com/hydrofabric/v2.2/conus
-    compute_divide_attributes : TRUE #----------------------------------- # Turn on/off compute divide attributes locally (OPTIONS: TRUE/FALSE, Default is TRUE). If the base hydrofabric (gpkg_path) provides all the divide attributes, then set it to FALSE
+    version: "2.2"
+    gpkg_path: "<path_to>/conus_nextgen.gpkg"
+    compute_divide_attributes: true
   dem:
-    output_dir           : "dem"    #-------------------------------- If set to null string, the dem.tif and associated files will be deleted at the end. If provide an absolute path, all .tif files will be moved to that directory.
-    input_file           : "<path_to>/dem.vrt" #--------------------- Set to local dem.vrt file (download it from https://proxy.lynker-spatial.com/gridded/3DEP/USGS_seamless_DEM_13.vrt), or leave it empty # (OPTIONAL)
-    aggregate_factor : 3 # ------------------------------------------ Aggregation factor to coarsen the DEM resolution; default is 3 for 10 cm DEM to get 30 x 30 m grids
-
+    output_dir: dem
+    aggregate_factor: 3
   vegetation:
-  # Path to NLCD data for vegetation type (IVGTYP) calculation
-    enabled                  : FALSE  #---------------------------------------- Set to FALSE to skip vegetation calculation # OPTIONAL
-    nlcd_path                : "<path_to>/Annual_NLCD_LndCov_2021_CU_C1V1.tif" # OPTIONAL (see src/R/main.R for more details)
-    classification_method    : "fraction"  #----------------------------------- vegetation classfication method (majority or fraction). Defaults to 'majority' method
+    enabled: false
+  gages: all
 
-  gages: all #--------------------------------------------------- Optional subset of general.gages. Use all, one ID, or a list of IDs.
-
-
-########################################################################
-#forcing data default path follows general.resource_layout. gage: <input_dir>/<gage_id>/forcing; resource: <input_dir>/forcing/<gage_id>
-forcings : 
-  format  : ".nc" #----------------------------------------------- Format .nc or .csv (recommended option .nc)
-  use_corrected: true #------------------------------------------- Use corrected NetCDF forcing (recommended; default: true)
-  rechunk : true #------------------------------------------------ Rechunk NetCDF forcing files for faster ngen reads
-  time    : {"start" : "2016-10-01", "end" : "2020-09-30 23:00:00"} #---------- Forcing data time range; simulation start/end times must fall within this period
-
-  domain  : "conus"    #-------------------------------------------- options = ["conus", "HI", "PR", 'AK']
-  gages   : all #--------------------------------------------------- Optional subset of general.gages. Use all, one ID, or a list of IDs.
-
-########################################################################
-# Optional local CSV or Parquet observation datasets. Multiple observation types can
-# be loaded together. Use <gage_id> and <variable> in paths when each basin has
-# its own file.
-observations: {}
-  #objective: kge # options: kge, nse, nnse
-  #streamflow:
-  #  layout: point
-  #  path: "<path_to_observations>/<gage_id>_streamflow.parquet"
-  #  path: "<path_to_observations>/<gage_id>/<variable>.parquet"
-  #  time_column: value_time
-  #  value_column: value
-  #  units: "m3/sec"
-  #
-  #ET:
-  #  layout: distributed
-  #  path: "<path_to_observations>/<gage_id>_ET.parquet"
-  #  path: "<path_to_observations>/<gage_id>_<variable>.parquet"
-  #  time_column: value_time
-  #  units: "mm/d"
-  #  simulated: ACTUAL_ET
-  #  Simulated values are converted from the units declared under
-  #  simulation.outputs.divide_variables.
-  #  For long-format Parquet, provide both fields below. For wide-format
-  #  Parquet, omit them; each non-time column is treated as a sub-basin ID.
-  #  id_column: divide_id
-  #  value_column: value
-
-########################################################################
-formulation :
-  #ngen_dir         : "<path_to_ngen_dir>" #------------------------------- OPTIONAL: Path to NextGen base directory. For instance, <path_to_ngen>/ngen. Defaults is <path_to_sandbox>/extern/ngen
-  models            : "PET, CFE, T-ROUTE"   #------------------------------- Formulation. Run "sandbox -h" to see a complete list of supported formulations
-  clean             : ['existing'] #--------------------------------------- Clean existing config and realization files (does not delete simulation data)
-  verbosity         : 0            #--------------------------------------- Verbosity levels (Set to 0 recommended unless debugging)
-
-  # model_instances customizes the configured instance(s) used for a model in
-  # `models`. If omitted, the sandbox uses the default instance for each model.
-  #
-  # Each entry below defines one configured instance:
-  #   name              : config subdirectory and realization instance name
-  #   basefile          : template file under configs/basefiles
-  #   repo_name         : model repository name under $NGEN_DIR/extern
-  #   calib_params_block: calibration parameter block under configs/calibration/
-  #   calib_params_file : optional calibration parameter file under configs/calibration/
-  #   library_file      : optional full path to model shared library
-  #
-  # Example: keep CFE in `models`, but use the Xinanjiang runoff option instead
-  # of the default cfe-s/Schaake instance.
-  model_instances:
-    CFE:
-      - name: cfe-x
-        basefile: "config_cfe-x.yaml"
-        repo_name: "cfe"
-        calib_params_block: "cfex_params"
-
-  ensemble:
-    enabled: FALSE # ---------------------------------------------------------------- Ensemble ON/OFF (OPTIONS: TRUE/FALSE, Default is FALSE)
-    calib_params_groups: #------------------------------------------- scope of calibratable parameters: local = tile-specific, global = shared across tiles
-      NOM : local
-      CFE : global
-
-simulation :
-  task_type        : "<pick_option>" #------------------------------------- Supported options: calibvalid, calibration, validation, restart, control
-  gages            : all #------------------------------------------------- Optional subset of general.gages. Use all, one ID, or a list of IDs.
-  label            : "pet_cfe" #------------------------------------------- Label appended to the gage ID. For example, 01105000_pet_cfe
+forcings:
+  format: ".nc"
+  use_corrected: true
+  rechunk: true
   time:
-    #control: #------------------------------------------------------------- Use this block when task_type is control
-    #  start: "2016-10-01 00:00:00"
-    #  spinup: "0 hours"
-    #  end: "2018-09-30 23:00:00"
+    start: "2016-10-01"
+    end: "2020-09-30 23:00:00"
+  domain: conus
+  gages: all
+
+observations: {}
+
+calibration:
+  optimizer:
+    algorithm: dds
+    iterations: 500
+    random_seed: 444
+  objective:
+    function: kge
+
+formulation:
+  models: "PET, CFE, T-ROUTE"
+  clean: [existing]
+  verbosity: 0
+
+simulation:
+  task_type: calibvalid
+  gages: all
+  label: pet_cfe
+  time:
     calibration:
       start: "2016-10-01 00:00:00"
       spinup: "12 months"
-      evaluation: "1 year" #------------------------------------------------ Model evaluation period after spinup; ignored if end is provided
-      #end: "2018-08-01 04:00:00" #---------------------------------------- Optional inclusive end override
+      evaluation: "1 year"
     validations:
       - name: validation
         start: "2018-10-01 00:00:00"
         spinup: "12 months"
         evaluation: "1 year"
-        #end: "2020-08-01 04:00:00" #-------------------------------------- Optional inclusive end override
-  restart_dir      : "<path_to_restart_dir>/<gage_id>/202410042024_ngen_qaiklwj0_worker/" #------- Restart experiment from the best iteration
-
   outputs:
-    divide_variables: {} #-------------------------------------------------- BMI variables written to each cat-<divide_id>.csv file
-      #ACTUAL_ET:
-      #  units: "m/h"
+    divide_variables: {}
     calibration:
-      retention: best #----------------------------------------------------- Calibration outputs: best or all
+      retention: best
     metadata:
-      enabled: false #------------------------------------------------------- Write simulation metadata inside each gage output directory
-      file: simulation_metadata.yml #---------------------------------------- Metadata file written inside each gage output directory
-      #index_dir: metadata #------------------------------------------------- Optional launcher/status index directory for run_<gage_id>.yml files
-
+      enabled: false
+      file: simulation_metadata.yml
   partitioning:
-    mode: parallel     #----------------------------------------------------- Execution mode: parallel or serial
-    max_nexus_per_proc: 25  #------------------------------------------------ Maximum number of nexus per processor
-    max_procs: 3       #----------------------------------------------------- # Maximum number of processor to use for parallel execution
+    mode: parallel
+    max_nexus_per_proc: 25
+    max_procs: 3

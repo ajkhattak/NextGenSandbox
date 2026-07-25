@@ -15,8 +15,6 @@ USGS.
 
 ```yaml
 observations:
-  objective: kge
-
   streamflow:
     layout: point
     path: "/path/to/observations/gage_<gage_id>_streamflow.parquet"
@@ -53,15 +51,18 @@ Distributed observations are converted to basin-area-weighted series using
 
 ## Objective Functions
 
-When `observations.objective` is provided, the sandbox replaces the objective
-from `configs/calib_config.yaml` with the corresponding bundled
-multi-variable objective. Supported values are `kge`, `nse`, and `nnse`.
-These objectives are minimized. A custom objective may also be provided using
-its Python import path.
+Configure the calibration objective under `calibration.objective.function`.
+Use `kge`, `nse`, or `nnse` for a single metric, or provide a metric-to-weight
+mapping to construct a composite objective. Sandbox minimizes the resulting
+objective value.
 
 ```yaml
-observations:
-  objective: nnse
+calibration:
+  objective:
+    function:
+      kge: 0.5
+      log_kge: 0.3
+      fdc: 0.2
 ```
 
 When one observation type is configured, ngen-cal receives an ordinary
@@ -69,15 +70,11 @@ datetime-indexed series. When multiple observation types are configured, the
 local observation plugin returns one series indexed by `value_time` and
 `variable`.
 
-The default ngen-cal objective may only be used when streamflow is the sole
-configured observation type. A custom objective function import path is
-required for multiple observation variables or for a single non-streamflow
-variable.
-
-The bundled multi-variable objectives compute the selected efficiency metric
-independently for each variable and minimize the L2 norm of their losses. For a
-metric value `E`, each variable contributes `(1 - E)^2` to the combined
-objective.
+The bundled multi-variable objectives compute efficiency metrics independently
+for each variable and minimize the L2 norm of their losses. `log_kge` and
+`fdc` are streamflow-specific; `kge`, `nse`, and `nnse` apply to every
+variable. The FDC component uses default exceedances for both high flows
+`(0.01, 0.05, 0.10)` and low flows `(0.70, 0.90, 0.95)`.
 
 For multiple observation variables, both observed and simulated series must
 contain a MultiIndex level named `variable`. The objective aligns each variable

@@ -6,18 +6,19 @@ controls, and points to focused guides for advanced examples.
 
 ## Configuration Files
 
-NextGenSandbox uses two main YAML files:
+NextGenSandbox provides two project configuration samples:
 
 | File | Purpose |
 |---|---|
-| `configs/sandbox_config.yaml` | Defines project paths, gages, reusable resources, observations, formulation, simulation periods, and outputs. |
-| `configs/calib_config.yaml` | Defines ngen-cal search behavior, objective settings, plugins, and the location of model calibration parameters. |
+| `configs/sandbox_config.yaml` | Minimal starter configuration for a typical project. |
+| `configs/sandbox_config_reference.yaml` | Complete, correctly indented reference with optional fields and alternative input methods ready to uncomment. |
 
 Two supporting directories provide model defaults:
 
 | Location | Purpose |
 |---|---|
 | `configs/calibration/*.yaml` | Calibratable parameter names, bounds, initial values, and scales for supported models. |
+| `configs/optimizers/*.yaml` | Algorithm-specific tuning settings, such as PSO swarm coefficients. |
 | `configs/basefiles/*` | Model configuration templates used to generate run-specific model files. |
 
 The supporting files work without modification for their default model
@@ -29,10 +30,12 @@ configuration file rather than repeatedly changing the distributed sample.
 
 ## First Look at `sandbox_config.yaml`
 
-Open
-[configs/sandbox_config.yaml](https://github.com/ajkhattak/NextGenSandbox/blob/main/configs/sandbox_config.yaml)
-while reading
-this guide. It is a YAML file organized into six named top-level sections:
+Start with
+[configs/sandbox_config.yaml](https://github.com/ajkhattak/NextGenSandbox/blob/main/configs/sandbox_config.yaml).
+When you need another gage source, observation layout, optimizer, model
+instance, or task type, copy the prepared structure from
+[configs/sandbox_config_reference.yaml](https://github.com/ajkhattak/NextGenSandbox/blob/main/configs/sandbox_config_reference.yaml).
+Both files use the same seven top-level sections:
 
 ```yaml
 general:
@@ -46,6 +49,9 @@ forcings:
 
 observations:
   # Optional local streamflow, ET, SWE, or other observations
+
+calibration:
+  # Optimizer, iteration count, random seed, and objective function
 
 formulation:
   # Models and model-instance customization
@@ -70,13 +76,9 @@ stage; it does not use every setting in the file.
 |---|---|---|
 | `sandbox --subset` | Create gage-specific hydrofabric files. | `general`, `subsetting` |
 | `sandbox --forc` | Download or prepare forcing data. | `general`, `forcings` |
-| `sandbox --conf` | Generate model and realization files. | `general`, `forcings`, `observations`, `formulation`, `simulation` |
-| `sandbox --dryrun` | Show the prepared run without executing it. | `general`, `forcings`, `observations`, `formulation`, `simulation` |
-| `sandbox --run` | Execute the configured simulation or calibration. | `general`, `forcings`, `observations`, `formulation`, `simulation` |
-
-`configs/calib_config.yaml` is used when generating or running calibration and
-validation tasks. Pass another file with `-j`; otherwise the distributed
-`configs/calib_config.yaml` is used.
+| `sandbox --conf` | Generate model and realization files. | `general`, `forcings`, `observations`, `calibration`, `formulation`, `simulation` |
+| `sandbox --dryrun` | Show the prepared run without executing it. | `general`, `forcings`, `observations`, `calibration`, `formulation`, `simulation` |
+| `sandbox --run` | Execute the configured simulation or calibration. | `general`, `forcings`, `observations`, `calibration`, `formulation`, `simulation` |
 
 ## Sandbox Configuration Reference
 
@@ -181,7 +183,6 @@ Multiple variables, such as streamflow and ET, may be configured together.
 
 | Field | Meaning |
 |---|---|
-| `objective` | Bundled objective shortcut (`kge`, `nse`, or `nnse`) or a custom import path. |
 | `<variable>.layout` | Observation layout: `point` or `distributed`. |
 | `<variable>.path` | CSV or Parquet path. Supports `<gage_id>` and `<variable>` placeholders. |
 | `<variable>.time_column` | Timestamp column. |
@@ -192,10 +193,68 @@ Multiple variables, such as streamflow and ET, may be configured together.
 
 If the block is empty, ngen-cal uses its default streamflow observation
 behavior. Local streamflow must use `m3/s` or `m3/sec`. Multi-variable
-calibration requires a compatible custom objective.
+calibration uses the objective selected under `calibration.objective`.
 
 See [observations.md](./observations.md) for supported file layouts, spatial
 aggregation, units, time alignment, and simulation-observation output.
+
+### `calibration`
+
+The `calibration` block controls the parameter search and objective used for
+calibration and validation. It is separate from `simulation.time.calibration`,
+which defines the calibration time window.
+
+```yaml
+calibration:
+  optimizer:
+    algorithm: dds
+    iterations: 500
+    random_seed: 444
+  objective:
+    function: kge
+```
+
+| Field | Meaning |
+|---|---|
+| `optimizer.algorithm` | Search algorithm: `dds` or `pso`. |
+| `optimizer.iterations` | Number of DDS iterations or PSO generations. Must be greater than zero. |
+| `optimizer.random_seed` | Integer random seed used for reproducibility. |
+| `optimizer.settings_file` | PSO settings YAML. Used only with `algorithm: pso`; a relative path is resolved from the project config directory. |
+| `objective.function` | One metric (`kge`, `nse`, or `nnse`), a weighted metric mapping, or a custom Python import path. |
+
+To emphasize several aspects of streamflow behavior, construct a weighted
+objective:
+
+```yaml
+calibration:
+  objective:
+    function:
+      kge: 0.5
+      log_kge: 0.3
+      fdc: 0.2
+```
+
+Available components are `kge`, `nse`, `nnse`, `log_kge`, and `fdc`.
+`log_kge` and `fdc` apply only to streamflow. The FDC component evaluates both
+high-flow exceedances `(0.01, 0.05, 0.10)` and low-flow exceedances
+`(0.70, 0.90, 0.95)`.
+
+Sandbox objectives are losses minimized internally. For PSO, keep
+swarm-specific values outside the project config:
+
+```yaml
+calibration:
+  optimizer:
+    algorithm: pso
+    iterations: 500
+    random_seed: 444
+    settings_file: "optimizers/pso.yaml"
+  objective:
+    function: kge
+```
+
+See [calibration.md](./calibration.md) for DDS, PSO settings, custom objectives,
+and model parameter files.
 
 ### `formulation`
 
@@ -323,53 +382,14 @@ During calibration or validation, `sandbox --run` writes `run_index.yml` under
 the gage output directory. It maps each named calibration or validation to its
 timestamped ngen-cal worker directory.
 
-## Calibration Configuration Reference
+## Generated ngen-cal Configuration
 
-`configs/calib_config.yaml` is the base ngen-cal configuration. Sandbox fills
-run-specific paths and parameter blocks, adds observation plugin settings when
-needed, and writes a generated `ngen-cal_calib_config.yaml` under the run
-configuration directory.
-
-### `general`
-
-| Field | Meaning |
-|---|---|
-| `strategy.type` | ngen-cal strategy type, normally `estimation`. |
-| `strategy.algorithm` | Search algorithm, such as `dds` or `pso`. |
-| `strategy.parameters` | Algorithm-specific options. Used by PSO; normally omitted for DDS. |
-| `log` | Enable ngen-cal logging. |
-| `start_iteration` | First calibration iteration. |
-| `iterations` | Number of DDS iterations or PSO generations. |
-| `random_seed` | Random seed for reproducibility. |
-| `workdir` | ngen-cal working directory. Usually left as `./`. |
-
-### `calibration`
-
-| Field | Meaning |
-|---|---|
-| `params_dir` | Directory containing model calibration parameter files. A relative path is resolved from the directory containing `calib_config.yaml`. |
-
-### `model`
-
-| Field | Meaning |
-|---|---|
-| `type` | Model type passed to ngen-cal, normally `ngen`. |
-| `binary` | Placeholder filled with the ngen executable path. |
-| `realization` | Placeholder filled with the generated realization path. |
-| `hydrofabric` | Placeholder filled with the selected geopackage. |
-| `eval_feature` | Placeholder filled with the target evaluation feature. |
-| `strategy` | ngen-cal parameter strategy, commonly `uniform`. |
-| `params` | Placeholder filled from the active model calibration files. |
-| `eval_params.objective` | Objective function name or import path. |
-| `eval_params.target` | Optimization direction, normally `min`. |
-| `plugins` | ngen-cal plugin classes to load. |
-| `plugin_settings` | Optional plugin settings. Sandbox adds local observation settings when required. |
-
-Keep the `<*>` placeholders in the base file; Sandbox replaces them for each
-gage and run.
-
-Detailed DDS, PSO, plugin, retention, and parameter-file behavior is documented
-in [calibration.md](./calibration.md).
+For calibration and validation tasks, Sandbox translates the project settings
+into `configs/ngen-cal_calib_config.yaml` or
+`configs/ngen-cal_valid_config.yaml` under the gage output directory. These
+files record resolved paths, active parameter blocks, plugins, observations,
+and objective settings. They are run artifacts for inspection and
+reproducibility, not additional user configuration files.
 
 ## Supporting Model Defaults
 

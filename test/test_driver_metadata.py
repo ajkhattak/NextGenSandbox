@@ -19,7 +19,6 @@ class TestDriverMetadata(unittest.TestCase):
                 task_type="calibration",
                 formulation="PET,CFE,T-ROUTE",
                 sandbox_config_path="sandbox.yaml",
-                calib_config_path="calib.yaml",
             )
 
             Driver(ctx).write_simulation_metadata(
@@ -37,6 +36,7 @@ class TestDriverMetadata(unittest.TestCase):
             self.assertEqual(metadata["gage_id"], "01109403")
             self.assertEqual(metadata["num_cpus"], 2)
             self.assertNotIn("basin_id", metadata)
+            self.assertNotIn("calib_config", metadata)
 
     def test_simulation_metadata_writes_index_when_index_dir_is_configured(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -48,7 +48,6 @@ class TestDriverMetadata(unittest.TestCase):
                 task_type="calibration",
                 formulation="PET,CFE,T-ROUTE",
                 sandbox_config_path="sandbox.yaml",
-                calib_config_path="calib.yaml",
             )
 
             Driver(ctx).write_simulation_metadata(

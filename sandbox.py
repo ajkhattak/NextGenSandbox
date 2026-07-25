@@ -16,6 +16,7 @@ import platform
 
 
 from src.python import forcing, driver, runner
+from src.python.calibration_config import absolutize_optimizer_settings_file
 from src.python.context import SandboxContext
 from src.python.formulations_registry import get_supported_formulations
 
@@ -126,7 +127,7 @@ def normalize_dryrun_args(args):
     raise ValueError("--dryrun is a standalone workflow mode. Do not combine it with --run, --conf, --subset, or --forc.")
 
 
-def Sandbox(args, sandbox_config, calib_config, rscript, dryrun=False):
+def Sandbox(args, sandbox_config, rscript, dryrun=False):
 
     if (args.subset):
         print ("Generating geopackages...", flush=True)
@@ -180,7 +181,6 @@ def Sandbox(args, sandbox_config, calib_config, rscript, dryrun=False):
     ctx = SandboxContext(
         sandbox_dir=Path(sandbox_dir),
         sandbox_config_path=sandbox_config,
-        calib_config_path=calib_config,
         dryrun=dryrun,
         mode=mode
     )
@@ -221,6 +221,8 @@ def write_gage_override_config(
 ):
     with open(sandbox_config, "r") as file:
         config = yaml.safe_load(file)
+
+    absolutize_optimizer_settings_file(config, sandbox_config)
 
     selected_steps = [
         name
@@ -264,7 +266,6 @@ def main():
     parser.add_argument("--conf",   action='store_true',    help="Generate config files")
     parser.add_argument("--run",    action='store_true',    help="Run NextGen simulations")
     parser.add_argument("-i",       dest="sandbox_infile",  type=str, required=False, metavar="FILE", help="sandbox config file")
-    parser.add_argument("-j",       dest="calib_infile",    type=str, required=False, metavar="FILE", help="caliberation config file")
     parser.add_argument("--gage",   dest="gage_id",         type=str, required=False, help="Run selected workflow step for one gage ID")
 
     parser.add_argument(
@@ -304,15 +305,6 @@ def main():
     else:
         sandbox_config = f"{sandbox_dir}/configs/sandbox_config.yaml"
 
-    if (args.calib_infile):
-        if (os.path.exists(args.calib_infile)):
-            calib_config = Path(args.calib_infile).resolve()
-        else:
-            print ("caliberation config file DOES NOT EXIST, provided: ", args.calib_infile)
-            sys.exit(0)
-    else:
-        calib_config = f"{sandbox_dir}/configs/calib_config.yaml"
-
     temp_config = None
     if args.gage_id:
         sandbox_config, temp_config = write_gage_override_config(
@@ -334,7 +326,7 @@ def main():
     check_sandbox_venv(sandbox_build_dir)
 
     try:
-        Sandbox(args, sandbox_config, calib_config, rscript, args.dryrun)
+        Sandbox(args, sandbox_config, rscript, args.dryrun)
     finally:
         if temp_config:
             temp_config.unlink(missing_ok=True)

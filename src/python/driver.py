@@ -109,7 +109,6 @@ class Driver:
             "formulation": ctx.formulation,
             "created_at_utc": datetime.now(timezone.utc).isoformat(),
             "sandbox_config": str(ctx.sandbox_config_path),
-            "calib_config": str(ctx.calib_config_path),
         }
 
         metadata_file = output_dir / ctx.metadata_file

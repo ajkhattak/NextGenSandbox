@@ -328,7 +328,7 @@ class TestObservationLoader(unittest.TestCase):
         self.assertEqual(settings["ET"]["path"], "/absolute/ET.parquet")
         self.assertEqual(settings["ET"]["simulated_units"], "m/h")
 
-    def test_requires_custom_objective_for_multiple_observation_types(self):
+    def test_adds_multiple_observation_types_to_plugin_settings(self):
         generator = ConfigurationCalib.__new__(ConfigurationCalib)
         generator.ctx = SimpleNamespace(
             observation_files={
@@ -359,34 +359,12 @@ class TestObservationLoader(unittest.TestCase):
             "plugins": [],
         }
 
-        with self.assertRaisesRegex(ValueError, "custom objective"):
-            generator.configure_observations(model_config, "12345678")
+        generator.configure_observations(model_config, "12345678")
 
-    def test_requires_custom_objective_for_single_non_streamflow_observation(self):
-        generator = ConfigurationCalib.__new__(ConfigurationCalib)
-        generator.ctx = SimpleNamespace(
-            observation_files={
-                "ET": {
-                    "12345678": {
-                        "path": Path("/absolute/ET.parquet"),
-                        "layout": "distributed",
-                        "time_column": "value_time",
-                        "value_column": None,
-                        "id_column": None,
-                        "units": "mm/d",
-                    }
-                },
-            }
-        )
-        model_config = {
-            "eval_params": {"objective": "kling_gupta"},
-            "plugins": [],
-        }
+        settings = model_config["plugin_settings"]["read_obs_data"]
+        self.assertEqual(set(settings), {"streamflow", "ET"})
 
-        with self.assertRaisesRegex(ValueError, "streamflow is the sole"):
-            generator.configure_observations(model_config, "12345678")
-
-    def test_allows_default_objective_for_single_streamflow_observation(self):
+    def test_adds_single_streamflow_observation(self):
         generator = ConfigurationCalib.__new__(ConfigurationCalib)
         generator.ctx = SimpleNamespace(
             observation_files={
@@ -410,100 +388,6 @@ class TestObservationLoader(unittest.TestCase):
         generator.configure_observations(model_config, "12345678")
 
         self.assertIn(generator.OBSERVATION_PLUGIN, model_config["plugins"])
-
-    def test_observation_objective_selects_bundled_multi_variable_objective(self):
-        generator = ConfigurationCalib.__new__(ConfigurationCalib)
-        generator.ctx = SimpleNamespace(
-            observation_objective="nnse",
-            observation_files={
-                "streamflow": {
-                    "12345678": {
-                        "path": Path("/absolute/streamflow.csv"),
-                        "layout": "point",
-                        "time_column": "value_time",
-                        "value_column": "value",
-                        "id_column": None,
-                        "units": "m3/sec",
-                    }
-                },
-                "ET": {
-                    "12345678": {
-                        "path": Path("/absolute/ET.parquet"),
-                        "layout": "distributed",
-                        "time_column": "value_time",
-                        "value_column": None,
-                        "id_column": None,
-                        "units": "mm/d",
-                    }
-                },
-            },
-        )
-        model_config = {
-            "eval_params": {"objective": "kling_gupta", "target": "max"},
-            "plugins": [],
-        }
-
-        generator.configure_observations(model_config, "12345678")
-
-        self.assertEqual(
-            model_config["eval_params"]["objective"],
-            "ngen_cal_plugins.objectives.nnse_multi_variable",
-        )
-        self.assertEqual(model_config["eval_params"]["target"], "min")
-
-    def test_rejects_unknown_observation_objective(self):
-        generator = ConfigurationCalib.__new__(ConfigurationCalib)
-        generator.ctx = SimpleNamespace(
-            observation_objective="not_a_metric",
-            observation_files={
-                "streamflow": {
-                    "12345678": {
-                        "path": Path("/absolute/streamflow.csv"),
-                        "layout": "point",
-                        "time_column": "value_time",
-                        "value_column": "value",
-                        "id_column": None,
-                        "units": "m3/sec",
-                    }
-                },
-            },
-        )
-        model_config = {
-            "eval_params": {"objective": "kling_gupta"},
-            "plugins": [],
-        }
-
-        with self.assertRaisesRegex(ValueError, "Unsupported observations.objective"):
-            generator.configure_observations(model_config, "12345678")
-
-    def test_accepts_custom_observation_objective_import_path(self):
-        generator = ConfigurationCalib.__new__(ConfigurationCalib)
-        generator.ctx = SimpleNamespace(
-            observation_objective="my_package.objectives.custom_metric",
-            observation_files={
-                "ET": {
-                    "12345678": {
-                        "path": Path("/absolute/ET.parquet"),
-                        "layout": "distributed",
-                        "time_column": "value_time",
-                        "value_column": None,
-                        "id_column": None,
-                        "units": "mm/d",
-                    }
-                },
-            },
-        )
-        model_config = {
-            "eval_params": {"objective": "kling_gupta"},
-            "plugins": [],
-        }
-
-        generator.configure_observations(model_config, "12345678")
-
-        self.assertEqual(
-            model_config["eval_params"]["objective"],
-            "my_package.objectives.custom_metric",
-        )
 
     def test_uses_ngen_cal_streamflow_when_local_observations_are_absent(self):
         generator = ConfigurationCalib.__new__(ConfigurationCalib)
