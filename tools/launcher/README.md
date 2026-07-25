@@ -54,7 +54,7 @@ forcings:
 calibration:
   optimizer:
     algorithm: dds
-    iterations: 300
+    iterations: 400
     random_seed: 444
   objective:
     function: kge

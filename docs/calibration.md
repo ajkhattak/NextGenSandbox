@@ -13,7 +13,7 @@ which objective it minimizes:
 calibration:
   optimizer:
     algorithm: dds
-    iterations: 500
+    iterations: 400
     random_seed: 444
   objective:
     function: kge
@@ -78,7 +78,7 @@ When omitted, the default is `configs/optimizers/pso.yaml`.
 calibration:
   optimizer:
     algorithm: pso
-    iterations: 500
+    iterations: 40
     random_seed: 444
     settings_file: "optimizers/pso.yaml"
   objective:

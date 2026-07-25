@@ -208,7 +208,7 @@ which defines the calibration time window.
 calibration:
   optimizer:
     algorithm: dds
-    iterations: 500
+    iterations: 400
     random_seed: 444
   objective:
     function: kge
@@ -246,7 +246,7 @@ swarm-specific values outside the project config:
 calibration:
   optimizer:
     algorithm: pso
-    iterations: 500
+    iterations: 40
     random_seed: 444
     settings_file: "optimizers/pso.yaml"
   objective:
