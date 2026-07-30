@@ -169,11 +169,18 @@ class ForcingProcessor:
 
         selected_ids = self.selected_gages
 
-        # ---------- filter directories ----------
-        selected_dirs = [gage_dir_map[g] for g in selected_ids if g in gage_dir_map]
+        missing_ids = [
+            gage_id for gage_id in selected_ids
+            if gage_id not in gage_dir_map
+        ]
+        if missing_ids:
+            raise FileNotFoundError(
+                "Geopackages are missing for requested gages: "
+                f"{', '.join(missing_ids)}. "
+                f"Expected files matching: {expected_location}"
+            )
 
-        if not selected_dirs:
-            raise ValueError(f"No matching gage directories found for: {selected_ids}")
+        selected_dirs = [gage_dir_map[gage_id] for gage_id in selected_ids]
 
         print("Selected gage directories:", selected_dirs)
 
