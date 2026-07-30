@@ -12,11 +12,11 @@ get_param <- function(input, param, default_value) {
 
 warn_invalid_gage_ids <- function(gage_ids) {
   gage_ids <- as.character(gage_ids)
-  invalid <- gage_ids[!grepl("^[0-9]{8}$", gage_ids)]
+  invalid <- gage_ids[!grepl("^([0-9]{8}|[0-9]{10}|[0-9]{12})$", gage_ids)]
 
   if (length(invalid) > 0) {
     message(
-      "[WARNING] USGS gage IDs are expected to be exactly 8 digits. ",
+      "[WARNING] USGS gage IDs are expected to contain 8, 10, or 12 digits. ",
       "The following ID(s) do not match that format and may fail during ",
       "NWIS/hydrofabric lookup: ",
       paste(invalid, collapse = ", ")

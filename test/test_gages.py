@@ -76,6 +76,73 @@ class TestGageSelection(unittest.TestCase):
 
             self.assertEqual(load_general_gages(config), ["01308000", "03366500"])
 
+    def test_gpkg_discovery_preserves_supported_gage_id_lengths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            hydrofabric = Path(tmp) / "hydrofabric"
+            hydrofabric.mkdir()
+            expected = ["01308000", "1234567890", "123456789012"]
+            for gage_id in expected:
+                (hydrofabric / f"gage_{gage_id}.gpkg").touch()
+
+            config = {
+                "general": {
+                    "input_dir": tmp,
+                    "resource_layout": "resource",
+                    "gages": {
+                        "option": "gpkg",
+                        "gpkg": {
+                            "pattern": "gage_",
+                        },
+                    },
+                }
+            }
+
+            self.assertEqual(load_general_gages(config), expected)
+
+    def test_gpkg_discovery_rejects_unsupported_gage_id_length(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            hydrofabric = Path(tmp) / "hydrofabric"
+            hydrofabric.mkdir()
+            (hydrofabric / "gage_011094030.gpkg").touch()
+
+            config = {
+                "general": {
+                    "input_dir": tmp,
+                    "resource_layout": "resource",
+                    "gages": {
+                        "option": "gpkg",
+                        "gpkg": {
+                            "pattern": "gage_",
+                        },
+                    },
+                }
+            }
+
+            with self.assertRaisesRegex(ValueError, "Gage IDs are never truncated"):
+                load_general_gages(config)
+
+    def test_gpkg_discovery_rejects_ambiguous_numeric_tokens(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            hydrofabric = Path(tmp) / "hydrofabric"
+            hydrofabric.mkdir()
+            (hydrofabric / "gage_01109403_v2.gpkg").touch()
+
+            config = {
+                "general": {
+                    "input_dir": tmp,
+                    "resource_layout": "resource",
+                    "gages": {
+                        "option": "gpkg",
+                        "gpkg": {
+                            "pattern": "gage_",
+                        },
+                    },
+                }
+            }
+
+            with self.assertRaisesRegex(ValueError, "exactly one numeric gage ID"):
+                load_general_gages(config)
+
     def test_general_gages_from_gage_layout_gpkg_default_dir(self):
         with tempfile.TemporaryDirectory() as tmp:
             for gage_id in ["01308000", "03366500"]:

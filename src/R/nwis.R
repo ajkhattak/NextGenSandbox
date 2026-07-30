@@ -14,7 +14,7 @@ get_gage_state_code <- function(gage_id) {
           stop(sprintf(
             paste0(
               "Failed to retrieve USGS gage metadata for gage ID '%s'. ",
-              "USGS gage IDs are expected to be exactly 8 digits. ",
+              "USGS gage IDs are expected to contain 8, 10, or 12 digits. ",
               "Confirm the ID exists in USGS monitoring-location data and is correctly formatted. ",
               "Water Data API error: %s. ",
               "NWIS fallback error: %s"

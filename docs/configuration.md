@@ -93,7 +93,7 @@ full set of gages available to workflow steps.
 | `output_dir` | Root directory for generated configurations, realizations, simulation outputs, and calibration artifacts. |
 | `resource_layout` | Resource organization. Options: `gage` or `resource`. Use one layout consistently within a project. |
 | `gages.option` | How the project gage set is defined. Options: `ids`, `file`, or `gpkg`. |
-| `gages.ids` | Gage ID list used with `option: ids`. Quote IDs so leading zeros are preserved. |
+| `gages.ids` | Gage ID list used with `option: ids`. Quote IDs so leading zeros are preserved. USGS gage IDs may contain 8, 10, or 12 digits. |
 | `gages.file.path` | CSV file used with `option: file`. |
 | `gages.file.column` | CSV column containing gage IDs. |
 | `gages.gpkg.dir` | Existing geopackage directory or individual geopackage used with `option: gpkg`. If omitted, Sandbox searches `input_dir` using `resource_layout`. |
@@ -109,6 +109,9 @@ individual workflow stage. A step filter accepts:
 - a list of quoted gage IDs
 
 CSV and geopackage discovery belong only under `general.gages`.
+When discovering geopackages, each filename must contain exactly one numeric
+gage ID with 8, 10, or 12 digits. Sandbox preserves the complete ID and rejects
+ambiguous filenames rather than truncating them.
 
 See [directory_layout.md](./directory_layout.md) for the paths produced by the
 `gage` and `resource` layouts.

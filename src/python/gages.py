@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -9,6 +10,8 @@ from src.python.resource_paths import (
     find_gpkg_file,
     has_gpkg_file,
 )
+
+SUPPORTED_GAGE_ID_LENGTHS = (8, 10, 12)
 
 
 def load_general_gages(config: dict) -> list[str]:
@@ -136,13 +139,29 @@ def _gage_ids_from_gpkg_resources(
 
     ids = []
     for path in files:
-        stem = path.stem
-        digits = "".join(ch for ch in stem if ch.isdigit())
-        if digits:
-            ids.append(digits[-8:] if len(digits) >= 8 else digits)
+        ids.append(_gage_id_from_gpkg_filename(path))
     if not ids:
         raise ValueError(f"No gage IDs could be inferred from {directory}")
     return ids
+
+
+def _gage_id_from_gpkg_filename(path: Path) -> str:
+    numeric_tokens = re.findall(r"\d+", path.stem)
+    valid_tokens = [
+        token
+        for token in numeric_tokens
+        if len(token) in SUPPORTED_GAGE_ID_LENGTHS
+    ]
+
+    if len(numeric_tokens) != 1 or len(valid_tokens) != 1:
+        supported = ", ".join(str(length) for length in SUPPORTED_GAGE_ID_LENGTHS)
+        raise ValueError(
+            f"Cannot infer a USGS gage ID from geopackage '{path.name}'. "
+            "Its filename must contain exactly one numeric gage ID with "
+            f"{supported} digits. Gage IDs are never truncated."
+        )
+
+    return valid_tokens[0]
 
 
 def _discover_gpkg_files(directory: Path, pattern: str, resource_layout: str) -> list[Path]:
