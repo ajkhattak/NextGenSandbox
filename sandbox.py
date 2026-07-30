@@ -385,8 +385,9 @@ def main():
         if (os.path.exists(args.sandbox_infile)):
             sandbox_config = Path(args.sandbox_infile).resolve()
         else:
-            print ("sandbox config file DOES NOT EXIST, provided: ", args.sandbox_infile)
-            sys.exit(0)
+            parser.error(
+                f"Sandbox config file does not exist: {args.sandbox_infile}"
+            )
     else:
         sandbox_config = f"{sandbox_dir}/configs/sandbox_config.yaml"
 
