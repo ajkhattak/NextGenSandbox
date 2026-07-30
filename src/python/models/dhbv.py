@@ -77,7 +77,10 @@ class dHBVConfigurationGenerator(ConfigurationGenerator):
 
     def write_dhbv_input_files(self, config_dir, basefile_path, member_id=1, tag="cfg"):
 
-        if self.ctx.ensemble_enabled and "dHBV" in self.ctx.ensemble_models:
+        if (
+            self.ctx.ensemble_enabled
+            and "DHBV" in self.ctx.ensemble_models.upper()
+        ):
             pass
         elif (member_id == 1):
             tag = "cfg"

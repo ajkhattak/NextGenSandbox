@@ -41,7 +41,7 @@ class RealizationGenerator:
         self.ngen_cal_type   = self.ctx.task_type
         self.domain          = self.ctx.domain.lower()
         self.ensemble_enabled   = self.ctx.ensemble_enabled
-        self.ensemble_size      = len([m.strip() for m in ensemble_models.split(",")]) if self.ensemble_enabled else 1
+        self.ensemble_size      = self.ctx.ensemble_size
         self.ensemble_member_id = ensemble_member_id
 
 
@@ -675,7 +675,7 @@ class RealizationGenerator:
 
     def get_lstm_block(self, instance):
 
-        tag = self.tag if (self.ensemble_enabled and "lstm" in self.ensemble_models) else "cfg"
+        tag = self.tag if (self.ensemble_enabled and "dhbv" in self.ensemble_models) else "cfg"
 
         block = {
             "name": "bmi_python",

@@ -124,6 +124,8 @@ class SandboxContext:
             .replace(" ", "")
         )
 
+        self.load_ensemble_config(dformul)
+
         self.model_instances = dformul.get("model_instances", {})
 
         self.verbosity = dformul.get("verbosity", 0)
@@ -286,6 +288,12 @@ class SandboxContext:
         # Simulation block
         dsim = self.sandbox_config["simulation"]
 
+        if "ensemble" in dsim:
+            raise ValueError(
+                "simulation.ensemble is not supported. Move the block to "
+                "formulation.ensemble."
+            )
+
         self.task_type = (dsim.get("task_type", "control").lower())
 
         if "LSTM" in self.formulation:
@@ -413,36 +421,6 @@ class SandboxContext:
             if not self.restart_dir:
                 raise FileNotFoundError(f"restart_dir does not exist, provided {self.restart_dir}.")
 
-        # Ensemble block
-        densemble = dsim.get("ensemble") or None
-
-        if densemble:
-            self.ensemble_enabled = bool(densemble.get('enabled'))
-
-            if self.ensemble_enabled:
-
-                self.ensemble_models = (
-                    self.formulation
-                    .replace("T-ROUTE", "")
-                    .replace(" ,", ",")
-                    .strip(", ")
-                    .strip()
-                )
-
-                self.ensemble_calib_params_groups = densemble.get('calib_params_groups')
-
-            else:
-
-                self.ensemble_size = 1
-                self.ensemble_models = []
-
-        else:
-
-            self.ensemble_enabled = False
-            self.ensemble_models = []
-
-        self.ensemble_size    = len([m.strip() for m in self.ensemble_models.split(",")]) if self.ensemble_enabled else 1
-
     def load_validation_periods(self, dsim):
         validation_periods = dsim.get("validation_periods")
         if validation_periods is None:
@@ -492,6 +470,77 @@ class SandboxContext:
             for model in formulation.split(",")
             if model.strip()
         ]
+
+    def load_ensemble_config(self, formulation_config):
+        ensemble = formulation_config.get("ensemble", {}) or {}
+        if not isinstance(ensemble, dict):
+            raise TypeError("formulation.ensemble must be a mapping")
+
+        unknown_fields = set(ensemble) - {
+            "enabled",
+            "members",
+            "calib_params_groups",
+        }
+        if unknown_fields:
+            raise ValueError(
+                "Unknown formulation.ensemble field(s): "
+                f"{', '.join(sorted(unknown_fields))}"
+            )
+
+        enabled = ensemble.get("enabled", False)
+        if not isinstance(enabled, bool):
+            raise TypeError("formulation.ensemble.enabled must be true or false")
+
+        formulation_models = [
+            model
+            for model in self.parse_formulation_models(self.formulation)
+            if model != "T-ROUTE"
+        ]
+
+        groups = ensemble.get("calib_params_groups", {}) or {}
+        if not isinstance(groups, dict):
+            raise TypeError(
+                "formulation.ensemble.calib_params_groups must be a mapping"
+            )
+
+        normalized_groups = {}
+        for model, scope in groups.items():
+            model_name = str(model).strip().upper()
+            if model_name not in formulation_models:
+                raise ValueError(
+                    "formulation.ensemble.calib_params_groups contains model "
+                    f"'{model}', which is not in formulation.models"
+                )
+            scope_name = str(scope).strip().lower()
+            if scope_name not in {"local", "global"}:
+                raise ValueError(
+                    "formulation.ensemble.calib_params_groups values must be "
+                    f"local or global; provided {model}: {scope}"
+                )
+            normalized_groups[model_name] = scope_name
+
+        self.ensemble_enabled = enabled
+        self.ensemble_calib_params_groups = normalized_groups
+
+        if not enabled:
+            self.ensemble_models = ""
+            self.ensemble_size = 1
+            return
+
+        members = ensemble.get("members")
+        if isinstance(members, bool) or not isinstance(members, int) or members < 1:
+            raise ValueError(
+                "formulation.ensemble.members must be a positive integer when "
+                "the ensemble is enabled"
+            )
+
+        if not formulation_models:
+            raise ValueError(
+                "An enabled ensemble requires at least one non-routing model"
+            )
+
+        self.ensemble_models = ",".join(formulation_models)
+        self.ensemble_size = members
 
     def validate_formulation(self):
         if not is_registered_formulation(self.formulation):

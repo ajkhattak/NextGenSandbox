@@ -68,7 +68,7 @@ class Generate:
         formulation = ctx.formulation
         keys = [k.strip().upper() for k in formulation.replace(",", "+").split("+")]
     
-        static_data = SandboxData(ctx, gpkg_file)
+        static_data = SandboxData(ctx, gpkg_file, output_dir)
     
     
         generators = []

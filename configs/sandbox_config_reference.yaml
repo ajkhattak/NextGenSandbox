@@ -104,6 +104,7 @@ formulation:
 
   ensemble:
     enabled: false
+    members: 2
     # calib_params_groups:
     #   NOM: local
     #   CFE: global

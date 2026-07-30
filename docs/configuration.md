@@ -270,7 +270,14 @@ instances.
 | `verbosity` | Model/configuration verbosity. Use `0` unless debugging. |
 | `model_instances` | Optional overrides or additional instances for a model family. |
 | `ensemble.enabled` | Enable ensemble/member configuration generation. |
+| `ensemble.members` | Number of ensemble members. Required and positive when the ensemble is enabled. |
 | `ensemble.calib_params_groups` | Parameter scope for ensemble members, such as `local` or `global`. |
+
+Land-cover ensembles require the `IVGTYP_nlcd` divide attribute. Generate it
+with `subsetting.vegetation.classification_method: fraction`, and set
+`ensemble.members` to the number of vegetation fractions retained per divide.
+Models omitted from `calib_params_groups` use globally shared calibration
+parameters.
 
 List the registered formulation components with:
 

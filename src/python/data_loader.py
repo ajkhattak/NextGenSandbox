@@ -31,12 +31,11 @@ os_name = platform.system()
 
 class SandboxData:
 
-    def __init__(self, ctx,
-                 gpkg_file
-                 ):
+    def __init__(self, ctx, gpkg_file, output_dir):
 
         #self.ctx = ctx
         self.gpkg_file = gpkg_file
+        self.output_dir = Path(output_dir)
                          
         self.soil_params_NWM_dir = os.path.join(ctx.ngen_dir,
                                                 "extern/noah-owp-modular/noah-owp-modular/parameters")
@@ -173,32 +172,67 @@ class SandboxData:
 
         if not ctx.ensemble_enabled:
             return
+        if "IVGTYP_nlcd" not in self.gdf.columns:
+            raise ValueError(
+                "Enabled ensembles require the IVGTYP_nlcd divide attribute. "
+                "Generate the hydrofabric with "
+                "subsetting.vegetation.classification_method: fraction."
+            )
 
         rows = []
 
         for catID in self.catids:
             cat_name = 'cat-' + str(catID)
-            
-            veg_type_nlcd = json.loads(self.gdf.loc[cat_name]['IVGTYP_nlcd'])
+
+            raw_vegetation = self.gdf.loc[cat_name]["IVGTYP_nlcd"]
+            try:
+                veg_type_nlcd = json.loads(raw_vegetation)
+            except (TypeError, json.JSONDecodeError) as exc:
+                raise ValueError(
+                    f"{cat_name}: IVGTYP_nlcd must contain valid vegetation "
+                    "fraction JSON"
+                ) from exc
             df = pd.DataFrame(veg_type_nlcd, columns=['v', 'frequency'])
             frequencies = df['frequency'].tolist()
 
-            if len(frequencies) !=  self.ensemble_size:
-                frequencies.append(0)
+            if len(frequencies) not in {1, ctx.ensemble_size}:
+                raise ValueError(
+                    f"{cat_name}: expected either 1 or {ctx.ensemble_size} "
+                    "vegetation fractions for the configured ensemble, "
+                    f"found {len(frequencies)}"
+                )
+            if any(frequency < 0 for frequency in frequencies):
+                raise ValueError(
+                    f"{cat_name}: ensemble weights cannot be negative"
+                )
+            if not np.isclose(sum(frequencies), 1.0, atol=1e-3):
+                raise ValueError(
+                    f"{cat_name}: ensemble weights must sum to 1, "
+                    f"found {sum(frequencies)}"
+                )
+
+            frequencies.extend(
+                [0.0] * (ctx.ensemble_size - len(frequencies))
+            )
 
             rows.append([cat_name] + frequencies)
 
-        columns = ['divide_id'] + [f'weight_{i+1}' for i in range(self.ensemble_size)]
+        columns = [
+            "divide_id",
+            *(f"weight_{i+1}" for i in range(ctx.ensemble_size)),
+        ]
        
         out_df = pd.DataFrame(rows, columns=columns)
 
         # Save file
-        out_path = os.path.join(self.output_dir, "configs", "ensemble_weights")
+        config_dir = self.output_dir / "configs"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        out_path = config_dir / "ensemble_weights"
 
         if file_format == "csv":
-            out_df.to_csv(f"{out_path}.csv", index=False)
+            out_df.to_csv(out_path.with_suffix(".csv"), index=False)
         elif file_format == "parquet":
-            out_df.to_parquet(f"{out_path}.parquet", index=False)
+            out_df.to_parquet(out_path.with_suffix(".parquet"), index=False)
         else:
             raise ValueError("file_format must be one of ['csv', 'parquet']")
 
