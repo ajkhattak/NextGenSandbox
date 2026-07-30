@@ -20,6 +20,154 @@ def make_parameter_context(sandbox_dir, instances_by_model):
 
 
 class TestCalibrationConfig(unittest.TestCase):
+    @staticmethod
+    def _state_file(directory, name="ngen_cal_nex-1_parameter_df_state.parquet"):
+        directory.mkdir(parents=True, exist_ok=True)
+        state_file = directory / name
+        state_file.touch()
+        (directory / "best_params.txt").write_text("1\n1\n0.5\n")
+        return state_file
+
+    @staticmethod
+    def _state_config(root, ngen_cal_type="validation"):
+        config = ConfigurationCalib.__new__(ConfigurationCalib)
+        config.ngen_cal_type = ngen_cal_type
+        config.output_dir = root
+        config.state_dir = Path(root)
+        config.ctx = SimpleNamespace(restart_dir=root)
+        return config
+
+    def test_state_selection_uses_latest_completed_indexed_run(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            old_worker = root / "20260101_ngen_old_worker"
+            latest_worker = root / "20260201_ngen_latest_worker"
+            failed_worker = root / "20260301_ngen_failed_worker"
+            self._state_file(root, "stale_parameter_df_state.parquet")
+            self._state_file(old_worker)
+            latest_state = self._state_file(latest_worker)
+            self._state_file(failed_worker)
+            (root / "run_index.yml").write_text(
+                yaml.safe_dump(
+                    {
+                        "runs": [
+                            {
+                                "task_type": "calibration",
+                                "status": "completed",
+                                "worker_dirs": [str(old_worker)],
+                            },
+                            {
+                                "task_type": "calibration",
+                                "status": "completed",
+                                "worker_dirs": [str(latest_worker)],
+                            },
+                            {
+                                "task_type": "calibration",
+                                "status": "failed",
+                                "worker_dirs": [str(failed_worker)],
+                            },
+                        ]
+                    }
+                )
+            )
+
+            config = self._state_config(root)
+
+            self.assertEqual(config.find_state_file(), latest_state)
+
+    def test_state_selection_uses_pso_global_best_for_indexed_run(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            workers = []
+            for particle in range(3):
+                worker = root / f"20260101_ngen_particle_{particle}_worker"
+                workers.append(worker)
+                self._state_file(worker)
+            global_best = self._state_file(root / "pso_global_best")
+            (root / "run_index.yml").write_text(
+                yaml.safe_dump(
+                    {
+                        "runs": [
+                            {
+                                "task_type": "calibration",
+                                "status": "completed",
+                                "worker_dirs": [
+                                    str(worker)
+                                    for worker in workers
+                                ],
+                            }
+                        ]
+                    }
+                )
+            )
+
+            config = self._state_config(root)
+
+            self.assertEqual(config.find_state_file(), global_best)
+
+    def test_state_selection_does_not_fall_back_from_latest_completed_run(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            old_worker = root / "20260101_ngen_old_worker"
+            missing_worker = root / "20260201_ngen_missing_worker"
+            self._state_file(old_worker)
+            missing_worker.mkdir()
+            (root / "run_index.yml").write_text(
+                yaml.safe_dump(
+                    {
+                        "runs": [
+                            {
+                                "task_type": "calibration",
+                                "status": "completed",
+                                "worker_dirs": [str(old_worker)],
+                            },
+                            {
+                                "task_type": "calibration",
+                                "status": "completed",
+                                "worker_dirs": [str(missing_worker)],
+                            },
+                        ]
+                    }
+                )
+            )
+
+            config = self._state_config(root)
+
+            with self.assertRaisesRegex(
+                FileNotFoundError,
+                "latest completed run",
+            ):
+                config.find_state_file()
+
+    def test_state_selection_rejects_ambiguous_unindexed_states(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._state_file(root / "20260101_ngen_first_worker")
+            self._state_file(root / "20260201_ngen_second_worker")
+            config = self._state_config(root)
+
+            with self.assertRaisesRegex(ValueError, "no run_index.yml"):
+                config.find_state_file()
+
+    def test_state_selection_accepts_explicit_state_file(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_file = self._state_file(Path(temp_dir) / "selected_worker")
+            config = self._state_config(state_file, ngen_cal_type="restart")
+
+            self.assertEqual(config.find_state_file(), state_file)
+
+    def test_state_selection_requires_matching_best_params(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_file = (
+                Path(temp_dir)
+                / "ngen_cal_nex-1_parameter_df_state.parquet"
+            )
+            state_file.touch()
+            config = self._state_config(state_file, ngen_cal_type="restart")
+
+            with self.assertRaisesRegex(FileNotFoundError, "best_params.txt"):
+                config.find_state_file()
+
     def test_official_cfe_x_instance_gets_cfe_x_calib_params_file(self):
         registry = build_model_instances(
             "CFE,T-ROUTE",

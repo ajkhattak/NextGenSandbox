@@ -93,7 +93,8 @@ class ConfigurationCalib:
                  simulation_time,
                  evaluation_time,
                  num_procs,
-                 ngen_cal_type
+                 ngen_cal_type,
+                 state_dir=None,
                  ):
         self.ctx=ctx
         self.gpkg_file          = gpkg_file
@@ -104,6 +105,8 @@ class ConfigurationCalib:
         self.realization_file_par = realization_file_par
         self.num_procs =  num_procs
         self.ngen_cal_type = ngen_cal_type
+        self.state_dir = Path(state_dir) if state_dir is not None else None
+        self.selected_state_file = None
 
     @staticmethod
     def _calibration_filename_stems(value):
@@ -312,32 +315,194 @@ class ConfigurationCalib:
         return basin_gage_id
 
     def find_state_file(self):
-        if self.ngen_cal_type == 'validation':
-            params_state_dir = self.output_dir
-
-        elif self.ngen_cal_type == 'restart':
-            params_state_dir = self.ctx.restart_dir
-        else:
-            raise ValueError(f"Invalid task_type option: {self.ngen_cal_type}")
-
-        params_state_path = Path(params_state_dir)
+        params_state_path = self._state_source_path()
 
         if not params_state_path.exists():
-            raise FileNotFoundError(f"Directory does not exist: {params_state_path}")
+            raise FileNotFoundError(
+                f"Calibration state source does not exist: {params_state_path}"
+            )
 
-        # First pattern: directly inside directory
-        files = glob.glob(str(params_state_path / "*_parameter_df_state.parquet"))
-        if files:
-            return files[0]
+        if params_state_path.is_file():
+            return self._validate_state_file(params_state_path)
 
-        # Second pattern: inside *_worker subdirectories
-        files = glob.glob(str(params_state_path / "*_worker" / "*_parameter_df_state.parquet"))
-        if files:
-            return files[0]
+        run_index = params_state_path / "run_index.yml"
+        if run_index.is_file():
+            return self._state_file_from_run_index(params_state_path, run_index)
 
+        return self._single_unindexed_state_file(params_state_path)
 
-        raise FileNotFoundError(
-            f"No parameters state file found in {params_state_path} or its *_worker subdirectory"
+    def _state_source_path(self):
+        if self.state_dir is not None:
+            return self.state_dir
+        if self.ngen_cal_type == "validation":
+            return Path(self.output_dir)
+        if self.ngen_cal_type == "restart":
+            return Path(self.ctx.restart_dir)
+        raise ValueError(f"Invalid task_type option: {self.ngen_cal_type}")
+
+    @staticmethod
+    def _validate_state_file(state_file):
+        state_file = Path(state_file)
+        if (
+            not state_file.is_file()
+            or not state_file.name.endswith("_parameter_df_state.parquet")
+        ):
+            raise ValueError(
+                "Calibration state must be an existing "
+                f"*_parameter_df_state.parquet file: {state_file}"
+            )
+
+        best_params = state_file.parent / "best_params.txt"
+        if not best_params.is_file():
+            raise FileNotFoundError(
+                f"Calibration state is missing its matching best_params.txt: "
+                f"{state_file}"
+            )
+        return state_file
+
+    @classmethod
+    def _complete_state_files(cls, directory):
+        directory = Path(directory)
+        return [
+            state_file
+            for state_file in sorted(
+                directory.glob("*_parameter_df_state.parquet")
+            )
+            if (state_file.parent / "best_params.txt").is_file()
+        ]
+
+    @staticmethod
+    def _resolve_index_path(root, value):
+        path = Path(value)
+        return path if path.is_absolute() else root / path
+
+    @classmethod
+    def _state_file_from_run_index(cls, root, run_index):
+        index = yaml.safe_load(run_index.read_text()) or {}
+        runs = index.get("runs")
+        if not isinstance(runs, list):
+            raise ValueError(
+                f"Invalid run index: 'runs' must be a list in {run_index}"
+            )
+
+        completed_runs = [
+            run
+            for run in runs
+            if isinstance(run, dict)
+            and run.get("status") == "completed"
+            and run.get("task_type") in {"calibration", "restart"}
+        ]
+        if not completed_runs:
+            raise FileNotFoundError(
+                f"No completed calibration or restart run is recorded in "
+                f"{run_index}"
+            )
+
+        latest_run = completed_runs[-1]
+        indexed_state = latest_run.get("state_file")
+        if indexed_state:
+            state_file = cls._resolve_index_path(root, indexed_state)
+            return cls._validate_state_file(state_file)
+
+        worker_dirs = latest_run.get("worker_dirs") or []
+        if not isinstance(worker_dirs, list):
+            raise ValueError(
+                f"Invalid worker_dirs for the latest completed run in {run_index}"
+            )
+
+        worker_paths = [
+            cls._resolve_index_path(root, worker_dir)
+            for worker_dir in worker_dirs
+        ]
+        return cls.resolve_completed_run_state_file(
+            root,
+            worker_paths,
+            prefer_pso=latest_run.get("algorithm") == "pso",
+            run_name=latest_run.get("name", latest_run.get("task_type")),
+            run_index=run_index,
+        )
+
+    @classmethod
+    def resolve_completed_run_state_file(
+        cls,
+        root,
+        worker_dirs,
+        *,
+        prefer_pso=False,
+        run_name="calibration",
+        run_index=None,
+    ):
+        root = Path(root)
+        worker_dirs = [Path(worker_dir) for worker_dir in worker_dirs]
+        worker_states = [
+            state_file
+            for worker_dir in worker_dirs
+            for state_file in cls._complete_state_files(worker_dir)
+        ]
+
+        pso_dirs = [root / "pso_global_best"] + [
+            worker_dir / "pso_global_best"
+            for worker_dir in worker_dirs
+        ]
+        pso_states = [
+            state_file
+            for pso_dir in pso_dirs
+            for state_file in cls._complete_state_files(pso_dir)
+        ]
+        worker_states = sorted(set(worker_states))
+        pso_states = sorted(set(pso_states))
+
+        if prefer_pso and len(pso_states) == 1:
+            return pso_states[0]
+        if len(worker_states) == 1:
+            return worker_states[0]
+        if len(pso_states) == 1:
+            return pso_states[0]
+
+        source = f" in {run_index}" if run_index else ""
+        if not worker_states and not pso_states:
+            raise FileNotFoundError(
+                f"The latest completed run '{run_name}'{source} has no "
+                "complete calibration state and best_params.txt pair."
+            )
+
+        candidates = worker_states + pso_states
+        raise ValueError(
+            f"The latest completed run '{run_name}'{source} has "
+            f"{len(candidates)} possible calibration states. Refusing to "
+            "choose one arbitrarily. Record state_file in run_index.yml or "
+            "select the exact state file for restart."
+        )
+
+    @classmethod
+    def _single_unindexed_state_file(cls, root):
+        candidate_dirs = [
+            root,
+            root / "pso_global_best",
+            *sorted(root.glob("*_worker")),
+        ]
+        candidate_dirs.extend(
+            worker_dir / "pso_global_best"
+            for worker_dir in sorted(root.glob("*_worker"))
+        )
+        candidates = [
+            state_file
+            for directory in candidate_dirs
+            for state_file in cls._complete_state_files(directory)
+        ]
+
+        if len(candidates) == 1:
+            return candidates[0]
+        if not candidates:
+            raise FileNotFoundError(
+                f"No complete calibration state and best_params.txt pair found "
+                f"under {root}"
+            )
+
+        raise ValueError(
+            f"Found {len(candidates)} calibration states under {root}, but no "
+            "run_index.yml identifies which completed run should be used. "
+            "Restore the run index or explicitly select a state file."
         )
 
     def configure_observations(self, model_config, gage_id):
@@ -544,6 +709,7 @@ class ConfigurationCalib:
 
 
             state_file = self.find_state_file()
+            self.selected_state_file = Path(state_file)
 
             df_parq = pd.read_parquet(state_file)
             df_params = pd.read_csv(Path(state_file).parent / "best_params.txt", header = None)

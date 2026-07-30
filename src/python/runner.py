@@ -219,7 +219,8 @@ class Runner:
             simulation_time      = sim_time,
             evaluation_time      = eval_time,
             num_procs            = self.num_procs,
-            ngen_cal_type        = ngen_cal_type
+            ngen_cal_type        = ngen_cal_type,
+            state_dir            = restart_dir if mode == "restart" else o_dir,
         )
 
         ConfigGen.write_calib_input_files()
@@ -250,6 +251,34 @@ class Runner:
         if not self.ctx.dryrun:
             result = subprocess.run(run_command, shell=True)
             after_workers = self.worker_dirs(o_dir)
+            new_workers = after_workers - before_workers
+            state_file = None
+            state_error = None
+            if result.returncode == 0 and mode in {"calibration", "restart"}:
+                try:
+                    if mode == "restart" and not new_workers:
+                        if ConfigGen.selected_state_file is None:
+                            raise FileNotFoundError(
+                                "Restart did not retain its selected state file."
+                            )
+                        state_file = configuration.ConfigurationCalib._validate_state_file(
+                            ConfigGen.selected_state_file
+                        )
+                    else:
+                        state_file = (
+                            configuration.ConfigurationCalib
+                            .resolve_completed_run_state_file(
+                                o_dir,
+                                new_workers,
+                                prefer_pso=(
+                                    self.ctx.calibration_algorithm == "pso"
+                                ),
+                                run_name=validation_name or mode,
+                            )
+                        )
+                except (FileNotFoundError, ValueError) as error:
+                    state_error = error
+
             self.write_run_index(
                 output_dir=o_dir,
                 gage_id=id,
@@ -259,12 +288,27 @@ class Runner:
                 command=run_command,
                 simulation_time=sim_time,
                 evaluation_time=eval_time,
-                worker_dirs=after_workers - before_workers,
+                worker_dirs=new_workers,
                 returncode=result.returncode,
-                status="completed" if result.returncode == 0 else "failed",
+                status=(
+                    "completed"
+                    if result.returncode == 0 and state_error is None
+                    else "failed"
+                ),
+                algorithm=(
+                    self.ctx.calibration_algorithm
+                    if mode in {"calibration", "restart"}
+                    else None
+                ),
+                state_file=state_file,
             )
             if result.returncode != 0:
                 raise RuntimeError(f"{mode.capitalize()} step failed...")
+            if state_error is not None:
+                raise RuntimeError(
+                    f"{mode.capitalize()} completed, but its calibration "
+                    f"state could not be identified: {state_error}"
+                ) from state_error
         else:
             print(f"Dry run command: {run_command}")
             self.write_run_index(
@@ -327,6 +371,8 @@ class Runner:
         worker_dirs,
         returncode,
         status,
+        algorithm=None,
+        state_file=None,
     ):
         index_file = Path(output_dir) / "run_index.yml"
         if index_file.exists():
@@ -335,24 +381,27 @@ class Runner:
             index = {}
 
         runs = index.setdefault("runs", [])
-        runs.append(
-            {
-                "gage_id": str(gage_id),
-                "task_type": mode,
-                "name": str(name),
-                "status": status,
-                "returncode": returncode,
-                "created_at_utc": datetime.now(timezone.utc).isoformat(),
-                "config_file": str(config_file),
-                "worker_dirs": [
-                    str(path)
-                    for path in sorted(worker_dirs)
-                ],
-                "simulation_time": simulation_time,
-                "evaluation_time": evaluation_time,
-                "command": command,
-            }
-        )
+        run = {
+            "gage_id": str(gage_id),
+            "task_type": mode,
+            "name": str(name),
+            "status": status,
+            "returncode": returncode,
+            "created_at_utc": datetime.now(timezone.utc).isoformat(),
+            "config_file": str(config_file),
+            "worker_dirs": [
+                str(path)
+                for path in sorted(worker_dirs)
+            ],
+            "simulation_time": simulation_time,
+            "evaluation_time": evaluation_time,
+            "command": command,
+        }
+        if algorithm is not None:
+            run["algorithm"] = algorithm
+        if state_file is not None:
+            run["state_file"] = str(state_file)
+        runs.append(run)
 
         with index_file.open("w") as file:
             yaml.safe_dump(index, file, default_flow_style=False, sort_keys=False)

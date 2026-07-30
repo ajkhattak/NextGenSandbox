@@ -304,7 +304,7 @@ partitioning, and output behavior.
 | `time.control` | Time period for a control run. |
 | `time.calibration` | Time period used for calibration. |
 | `time.validations` | One or more validation period definitions. |
-| `restart_dir` | Restart source path. Supports `<gage_id>`. |
+| `restart_dir` | Restart source output directory, worker directory, or exact `*_parameter_df_state.parquet` file. Supports `<gage_id>`. |
 | `outputs.divide_variables` | BMI variables written to divide CSV files. Each variable requires units. |
 | `outputs.calibration.retention` | Calibration output retention: `best` or `all`. |
 | `outputs.metadata.enabled` | Write run metadata during configuration generation. |

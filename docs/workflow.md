@@ -185,6 +185,11 @@ period names to their timestamped ngen-cal worker directories. Optional
 `simulation_metadata.yml` records the gage, formulation, task, input path,
 output path, and source configuration files.
 
+Validation uses the latest completed calibration or restart recorded in
+`run_index.yml`. When no run index exists, Sandbox accepts a calibration state
+only if exactly one state file and matching `best_params.txt` pair is present;
+it stops on ambiguous directories rather than selecting an arbitrary state.
+
 To start a fresh run while preserving the generated `configs/` directory, use:
 
 ```bash

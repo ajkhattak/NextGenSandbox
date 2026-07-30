@@ -34,6 +34,8 @@ class TestRunnerRunIndex(unittest.TestCase):
                 worker_dirs={worker_dir},
                 returncode=0,
                 status="completed",
+                algorithm="dds",
+                state_file=worker_dir / "state_parameter_df_state.parquet",
             )
 
             index = yaml.safe_load((output_dir / "run_index.yml").read_text())
@@ -44,6 +46,11 @@ class TestRunnerRunIndex(unittest.TestCase):
             self.assertEqual(index["runs"][0]["name"], "water_year_split_wy2011")
             self.assertEqual(index["runs"][0]["status"], "completed")
             self.assertEqual(index["runs"][0]["worker_dirs"], [str(worker_dir)])
+            self.assertEqual(index["runs"][0]["algorithm"], "dds")
+            self.assertEqual(
+                index["runs"][0]["state_file"],
+                str(worker_dir / "state_parameter_df_state.parquet"),
+            )
 
     def test_safe_filename_removes_path_unfriendly_characters(self):
         self.assertEqual(
