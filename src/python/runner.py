@@ -55,12 +55,13 @@ class Runner:
     def run_ngen_without_calibration(self):
         ngen_exe = os.path.join(self.ctx.ngen_dir, "cmake_build/ngen")
 
-
-        for id in self.ctx.gage_ids:
-
-            o_dir = self.ctx.output_dir / self.ctx.output_dir_name(id)
-
-            i_dir = Path(self.ctx.input_dir) / id
+        resources = zip(
+            self.ctx.gage_ids,
+            self.ctx.gpkg_dirs,
+            self.ctx.output_dirs,
+            strict=True,
+        )
+        for gage_id, gpkg_resource, o_dir in resources:
 
             if not os.path.isdir(o_dir):
                 raise FileNotFoundError(f"directory {o_dir} does not exist, this dir is created at the config generation step")
@@ -68,11 +69,10 @@ class Runner:
             os.chdir(o_dir)
 
             print("cwd: ", os.getcwd())
-            print("input_dir: ", i_dir)
+            print("input_resource: ", gpkg_resource)
             print("output_dir: ", o_dir)
 
-            gpkg_file = find_gpkg_file(i_dir)
-            gpkg_name = gpkg_file.stem
+            gpkg_file = find_gpkg_file(gpkg_resource)
 
             realization = glob.glob(str(o_dir / "configs" / "realization_*.json"))
 
@@ -106,12 +106,12 @@ class Runner:
                 run_cmd = f'PYTHONEXECUTABLE=$(which python) {run_cmd}'
 
             if not self.ctx.dryrun:
-                print(f"Running basin {id} on cores {self.num_procs} ********", flush=True)
+                print(f"Running basin {gage_id} on cores {self.num_procs} ********", flush=True)
                 print(f"Run command: {run_cmd}", flush=True)
                 result = subprocess.run(run_cmd, shell=True)
                 if result.returncode != 0:
                     raise RuntimeError(
-                        f"NextGen run failed for gage {id} with exit code "
+                        f"NextGen run failed for gage {gage_id} with exit code "
                         f"{result.returncode}."
                     )
             else:
