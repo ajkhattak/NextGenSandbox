@@ -44,53 +44,78 @@ def ensure_troute_available(ngen_dir=None):
         "  ./bootstrap.sh --troute\n"
     )
 
-def create_clean_dirs(output_dir,
-                      task_type,
-                      clean = ["none"]):
-    
-    if (clean == ["all"]):
-        subdirs  = os.listdir(output_dir)
-        for d in subdirs:
-            if (d != "data"):
-                try:
-                    shutil.rmtree(d)
-                except:
-                    os.remove(d)
-    elif (clean == ["existing"]):
-        subdirs  = os.listdir(output_dir)
-        for d in subdirs:
-            if (d in ["configs", "outputs"]):
-                try:
-                    shutil.rmtree(d)
-                except:
-                    os.remove(d)
-    elif (len(clean) >= 1 and clean != ["none"]):
-        subdirs  = os.listdir(output_dir)
-        for d in subdirs:
-            if (d in clean):
-                try:
-                    shutil.rmtree(d)
-                except:
-                    os.remove(d)
+def remove_path(path):
+    path = Path(path)
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path)
+    elif path.exists() or path.is_symlink():
+        path.unlink()
 
-   
-    subdirs  = os.listdir(output_dir)
 
-    for d in subdirs:
-        if (d in ["configs", "outputs"]):
-            try:
-                shutil.rmtree(d)
-            except:
-                os.remove(d)
+def validate_gage_output_directory(output_dir, project_output_dir):
+    output_dir = Path(output_dir).resolve()
+    project_output_dir = Path(project_output_dir).resolve()
+    if output_dir == project_output_dir or project_output_dir not in output_dir.parents:
+        raise ValueError(
+            "Refusing to modify an output path that is not a gage-specific "
+            f"directory under {project_output_dir}: {output_dir}"
+        )
+    return output_dir
 
-    os.mkdir("configs")
-    if task_type == 'control':
-        os.makedirs("outputs/div")
-        os.makedirs("outputs/troute")
-        #os.makedirs("outputs/troute_parq")
-    
-    if (os.path.isdir("dem")):
-        shutil.rmtree("dem")
+
+def prepare_configuration_output(
+    output_dir,
+    task_type,
+    *,
+    project_output_dir,
+    replace_existing=False,
+    reset_output=False,
+):
+    """Prepare one selected gage output directory for configuration generation."""
+    output_dir = validate_gage_output_directory(output_dir, project_output_dir)
+
+    if reset_output and output_dir.exists():
+        remove_path(output_dir)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    config_dir = output_dir / "configs"
+
+    if replace_existing and config_dir.exists():
+        remove_path(config_dir)
+
+    config_dir.mkdir(parents=True, exist_ok=True)
+
+    if task_type == "control":
+        (output_dir / "outputs" / "div").mkdir(parents=True, exist_ok=True)
+        (output_dir / "outputs" / "troute").mkdir(parents=True, exist_ok=True)
+
+
+def replace_run_output(
+    output_dir,
+    task_type,
+    *,
+    project_output_dir,
+    metadata_file=None,
+):
+    """Remove run artifacts while preserving generated configuration files."""
+    output_dir = validate_gage_output_directory(output_dir, project_output_dir)
+    if not output_dir.is_dir():
+        raise FileNotFoundError(
+            f"Gage output directory does not exist: {output_dir}. "
+            "Run sandbox --conf first."
+        )
+
+    preserved_names = {"configs"}
+    if metadata_file:
+        preserved_names.add(str(metadata_file))
+
+    for path in output_dir.iterdir():
+        if path.name not in preserved_names:
+            remove_path(path)
+
+    if task_type == "control":
+        (output_dir / "outputs" / "div").mkdir(parents=True, exist_ok=True)
+        (output_dir / "outputs" / "troute").mkdir(parents=True, exist_ok=True)
 
 
 def prepare_basin_partitioning(sandbox_dir, gpkg_file, partitioning, create_par_file=True):

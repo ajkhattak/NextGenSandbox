@@ -126,8 +126,6 @@ class SandboxContext:
 
         self.model_instances = dformul.get("model_instances", {})
 
-        self.clean = self.process_clean_input_param(dformul.get("clean", "none"))
-
         self.verbosity = dformul.get("verbosity", 0)
 
         self.schema_type = dformul.get("schema_type", "noaa-owp")
@@ -809,11 +807,3 @@ class SandboxContext:
             sandbox_dir=self.sandbox_dir,
             enabled=self.rechunk_forcing,
         )
-
-    def process_clean_input_param(self, clean):
-        clean_lst = []
-        if isinstance(clean, str):
-            clean_lst = [clean]
-        elif isinstance(clean, list):
-            clean_lst.extend(clean)
-        return clean_lst

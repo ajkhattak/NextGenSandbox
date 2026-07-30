@@ -90,7 +90,6 @@ calibration:
 
 formulation:
   models: "PET, CFE, T-ROUTE"
-  clean: [existing]
   verbosity: 0
 
   # Select a non-default or custom model instance.

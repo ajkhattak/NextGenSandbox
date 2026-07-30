@@ -65,10 +65,6 @@ class Driver:
 
         gpkg_dir = os.path.join(i_dir, gpkg_dir)
         
-        helper.create_clean_dirs(output_dir=o_dir,
-                                 task_type=ctx.task_type,
-                                 clean=ctx.clean)
-
         if ctx.metadata_enabled:
             self.write_simulation_metadata(
                 gpkg_id=gpkg_id,
@@ -190,13 +186,6 @@ class Driver:
             print(ctx.simulation_time)
 
         start_time = time.time()
-
-        if ctx.clean[0] == "all":
-            check = input("\nDo you really want to delete all except \'data\' directory? you will lose all ngen output data: ")
-            if check.lower() in ["y", "yes"]:
-                print("Deleting all existing simulation data except \'data\' directory.")
-            elif check.lower() in ["n", "no"]:
-                sys.exit("Quiting...")
 
         ctx.output_dir.mkdir(parents=True, exist_ok=True)
 

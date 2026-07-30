@@ -30,7 +30,6 @@ calibration:
 ########################################################################
 formulation :
   models             : ""
-  clean              : ['existing']
   verbosity          : 0
 
 simulation :

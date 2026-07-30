@@ -138,6 +138,15 @@ configuration files, and ngen-cal configuration when required.
 Inspect these files before execution, especially after changing a model
 basefile, model instance, objective function, or simulation period.
 
+Configuration generation does not remove existing directories by default.
+Files generated at the same deterministic paths may be updated, while existing
+run outputs and ngen-cal worker directories are preserved. To first remove the
+generated `configs/` directory, run:
+
+```bash
+sandbox --conf --replace-existing -i configs/my_project.yaml
+```
+
 ## Step 4: Inspect the Run Command
 
 Dry run initializes the run context and prints the ngen or ngen-cal command
@@ -175,6 +184,29 @@ For calibration and validation tasks, `run_index.yml` maps the configured
 period names to their timestamped ngen-cal worker directories. Optional
 `simulation_metadata.yml` records the gage, formulation, task, input path,
 output path, and source configuration files.
+
+To start a fresh run while preserving the generated `configs/` directory, use:
+
+```bash
+sandbox --run --replace-existing -i configs/my_project.yaml
+```
+
+This removes prior run outputs, ngen-cal worker directories, parameter-state
+files, and run indexes for each selected gage. Because `validation` and
+`restart` depend on existing calibration state, run replacement is not allowed
+for those task types.
+
+When a completely fresh gage output directory is needed, regenerate
+configuration with:
+
+```bash
+sandbox --conf --reset-output -i configs/my_project.yaml
+```
+
+`--reset-output` deletes the complete gage-specific output directory before
+recreating it. It never deletes the project-level `general.output_dir`, and it
+can only be used with `--conf`. It is not allowed for `validation` or `restart`,
+which require existing calibration state.
 
 See [directory_layout.md](./directory_layout.md) for the generated directory
 structure and [calibration.md](./calibration.md) for calibration output

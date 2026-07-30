@@ -13,10 +13,23 @@ from hydrotools.metrics.metrics import (
 
 NONFINITE_METRIC_LOSS = 1000.0
 LOW_FLOW_EPSILON = 1.0e-6
+NONZERO_LOW_FLOW_EXCEEDANCE = 0.7
 LOW_FLOW_EXCEEDANCES = (0.7, 0.9, 0.95)
 HIGH_FLOW_EXCEEDANCES = (0.01, 0.05, 0.1)
 FDC_EXCEEDANCES = HIGH_FLOW_EXCEEDANCES + LOW_FLOW_EXCEEDANCES
-COMPOSITE_METRICS = {"kge", "nse", "nnse", "log_kge", "fdc"}
+COMPOSITE_METRICS = {
+    "kge",
+    "nse",
+    "nnse",
+    "log_kge",
+    "fdc",
+    "nonzero_low_flow_log_mae",
+}
+STREAMFLOW_ONLY_METRICS = {
+    "log_kge",
+    "fdc",
+    "nonzero_low_flow_log_mae",
+}
 COMPOSITE_OBJECTIVE_ENV = "NGEN_CAL_COMPOSITE_OBJECTIVE"
 _composite_metric_weights: dict[str, float] | None = None
 
@@ -131,7 +144,7 @@ def composite_objective(
         )
         weighted_losses = []
         for metric_name, weight in metric_weights.items():
-            if metric_name in {"log_kge", "fdc"} and variable != "streamflow":
+            if metric_name in STREAMFLOW_ONLY_METRICS and variable != "streamflow":
                 continue
             loss = _composite_metric_loss(metric_name, pairs, variable)
             weighted_losses.append((weight * loss) ** 2)
@@ -142,7 +155,8 @@ def composite_objective(
     if not variable_losses:
         raise ValueError(
             "The configured objective metrics do not apply to any available "
-            "observation variable. log_kge and fdc require streamflow."
+            "observation variable. log_kge, fdc, and "
+            "nonzero_low_flow_log_mae require streamflow."
         )
     return float(np.sqrt(sum(variable_losses)))
 
@@ -233,6 +247,8 @@ def _composite_metric_loss(metric_name, pairs, variable):
             simulated,
             FDC_EXCEEDANCES,
         )
+    if metric_name == "nonzero_low_flow_log_mae":
+        return _nonzero_low_flow_log_mae_loss(observed, simulated)
     raise ValueError(f"Unsupported composite objective metric: {metric_name}")
 
 
@@ -300,6 +316,34 @@ def _fdc_exceedance_loss(observed, simulated, exceedances):
     sim_quantiles = np.quantile(sim, quantiles)
     relative_error = (sim_quantiles - obs_quantiles) / obs_quantiles
     return float(np.sqrt(np.mean(relative_error ** 2)))
+
+
+def _nonzero_low_flow_log_mae_loss(observed, simulated):
+    positive_observed = observed[observed > LOW_FLOW_EPSILON]
+    if positive_observed.empty:
+        raise ValueError(
+            "nonzero_low_flow_log_mae requires at least one observed "
+            f"streamflow value greater than {LOW_FLOW_EPSILON}"
+        )
+
+    low_flow_quantile = 1.0 - NONZERO_LOW_FLOW_EXCEEDANCE
+    low_flow_threshold = float(
+        np.quantile(positive_observed.to_numpy(dtype=float), low_flow_quantile)
+    )
+    low_flow_mask = (
+        (observed > LOW_FLOW_EPSILON)
+        & (observed <= low_flow_threshold)
+    )
+    if not low_flow_mask.any():
+        raise ValueError(
+            "nonzero_low_flow_log_mae found no nonzero observed low-flow "
+            "streamflow values"
+        )
+
+    obs_log = np.log10(observed[low_flow_mask].clip(lower=LOW_FLOW_EPSILON))
+    sim_log = np.log10(simulated[low_flow_mask].clip(lower=LOW_FLOW_EPSILON))
+    log_error = (sim_log - obs_log).abs()
+    return float(np.mean(log_error))
 
 
 def _split_variables(series: pd.Series, label: str) -> dict[str, pd.Series]:

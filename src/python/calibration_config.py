@@ -15,7 +15,14 @@ OBJECTIVE_ALIASES = {
     "nnse": "ngen_cal_plugins.objectives.nnse_multi_variable",
 }
 COMPOSITE_OBJECTIVE = "ngen_cal_plugins.objectives.composite_objective"
-COMPOSITE_METRICS = {"kge", "nse", "nnse", "log_kge", "fdc"}
+COMPOSITE_METRICS = {
+    "kge",
+    "nse",
+    "nnse",
+    "log_kge",
+    "fdc",
+    "nonzero_low_flow_log_mae",
+}
 
 
 @dataclass(frozen=True)

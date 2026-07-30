@@ -1,5 +1,6 @@
 import unittest
 
+import numpy as np
 import pandas as pd
 
 from ngen_cal_plugins import objectives
@@ -7,6 +8,7 @@ from ngen_cal_plugins.objectives import (
     FDC_EXCEEDANCES,
     HIGH_FLOW_EXCEEDANCES,
     LOW_FLOW_EXCEEDANCES,
+    NONZERO_LOW_FLOW_EXCEEDANCE,
     composite_objective,
     configure_composite_objective,
     kge_multi_variable,
@@ -126,6 +128,48 @@ class TestKlingGuptaMultiVariable(unittest.TestCase):
         score = composite_objective(observed, simulated)
 
         self.assertGreater(score, 0.1)
+
+    def test_nonzero_low_flow_log_mae_ignores_zeros_and_high_flows(self):
+        observed = pd.Series(
+            [0.0, 0.02, 0.03, 0.05, 0.2, 1.0, 3.0],
+            index=pd.date_range("2020-01-01", periods=7, freq="h"),
+        )
+        simulated = pd.Series(
+            [5.0, 0.02, 0.03, 0.05, 5.0, 10.0, 30.0],
+            index=observed.index,
+        )
+        configure_composite_objective({"nonzero_low_flow_log_mae": 1.0})
+
+        score = composite_objective(observed, simulated)
+
+        self.assertAlmostEqual(score, 0.0)
+
+    def test_nonzero_low_flow_log_mae_penalizes_magnitude_error(self):
+        observed = pd.Series(
+            [0.0, 0.02, 0.03, 0.05, 0.2, 1.0, 3.0],
+            index=pd.date_range("2020-01-01", periods=7, freq="h"),
+        )
+        simulated = pd.Series(
+            [0.0, 0.2, 0.03, 0.5, 0.2, 1.0, 3.0],
+            index=observed.index,
+        )
+        configure_composite_objective({"nonzero_low_flow_log_mae": 1.0})
+
+        score = composite_objective(observed, simulated)
+
+        low_flow_threshold = observed[observed > 1.0e-6].quantile(
+            1.0 - NONZERO_LOW_FLOW_EXCEEDANCE
+        )
+        low_flow_mask = (
+            (observed > 1.0e-6)
+            & (observed <= low_flow_threshold)
+        )
+        expected = (
+            np.log10(simulated[low_flow_mask])
+            - np.log10(observed[low_flow_mask])
+        ).abs().mean()
+        self.assertAlmostEqual(score, expected)
+        self.assertGreater(score, 0.0)
 
     def test_composite_recipe_is_available_to_fresh_worker_module(self):
         observed = pd.Series(

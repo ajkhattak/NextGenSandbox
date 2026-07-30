@@ -47,7 +47,7 @@ calibration:
     function:
       kge: 0.5
       log_kge: 0.3
-      fdc: 0.2
+      nonzero_low_flow_log_mae: 0.2
 ```
 
 The supported components are:
@@ -59,6 +59,7 @@ The supported components are:
 | `nnse` | `1 - NNSE` | Every observation variable |
 | `log_kge` | `1 - KGE(log10(values))` | Streamflow only |
 | `fdc` | Relative flow-duration-curve error | Streamflow only |
+| `nonzero_low_flow_log_mae` | Mean absolute error of `log10(sim) - log10(obs)` where observed positive streamflow is below its 30th percentile | Streamflow only |
 
 The weighted objective is
 `sqrt(sum((weight * component_loss)^2))`. Weights must be finite and greater
@@ -67,6 +68,8 @@ than zero and must sum to `1.0`.
 The FDC component uses the default high-flow exceedances
 `(0.01, 0.05, 0.10)` and low-flow exceedances `(0.70, 0.90, 0.95)`. Each FDC
 point contributes to the root-mean-square relative error.
+The `nonzero_low_flow_log_mae` component uses only observed streamflow greater
+than `1e-6` and below the 30th percentile of positive observed streamflow.
 
 ## PSO Parameters
 

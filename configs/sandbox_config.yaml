@@ -45,7 +45,6 @@ calibration:
 
 formulation:
   models: "PET, CFE, T-ROUTE"
-  clean: [existing]
   verbosity: 0
 
 simulation:

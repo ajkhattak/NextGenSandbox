@@ -231,13 +231,16 @@ calibration:
     function:
       kge: 0.5
       log_kge: 0.3
-      fdc: 0.2
+      nonzero_low_flow_log_mae: 0.2
 ```
 
-Available components are `kge`, `nse`, `nnse`, `log_kge`, and `fdc`.
-`log_kge` and `fdc` apply only to streamflow. The FDC component evaluates both
-high-flow exceedances `(0.01, 0.05, 0.10)` and low-flow exceedances
-`(0.70, 0.90, 0.95)`.
+Available components are `kge`, `nse`, `nnse`, `log_kge`, `fdc`, and
+`nonzero_low_flow_log_mae`. `log_kge`, `fdc`, and
+`nonzero_low_flow_log_mae` apply only to streamflow. The FDC component
+evaluates both high-flow exceedances `(0.01, 0.05, 0.10)` and low-flow
+exceedances `(0.70, 0.90, 0.95)`. `nonzero_low_flow_log_mae` evaluates mean
+absolute log10 error only where observed streamflow is greater than `1e-6` and
+below the 30th percentile of positive observed streamflow.
 
 Sandbox objectives are losses minimized internally. For PSO, keep
 swarm-specific values outside the project config:
@@ -264,7 +267,6 @@ instances.
 | Field | Meaning |
 |---|---|
 | `models` | Comma-separated supported components, such as `"PET, CFE, T-ROUTE"`. |
-| `clean` | Cleanup policy for existing generated configuration and realization files. |
 | `verbosity` | Model/configuration verbosity. Use `0` unless debugging. |
 | `model_instances` | Optional overrides or additional instances for a model family. |
 | `ensemble.enabled` | Enable ensemble/member configuration generation. |

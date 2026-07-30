@@ -15,7 +15,7 @@ import sandbox
 import platform
 
 
-from src.python import forcing, driver, runner
+from src.python import forcing, driver, helper, runner
 from src.python.calibration_config import absolutize_optimizer_settings_file
 from src.python.context import SandboxContext
 from src.python.formulations_registry import get_supported_formulations
@@ -127,6 +127,50 @@ def normalize_dryrun_args(args):
     raise ValueError("--dryrun is a standalone workflow mode. Do not combine it with --run, --conf, --subset, or --forc.")
 
 
+def validate_output_management_args(args):
+    if args.replace_existing and args.reset_output:
+        raise ValueError(
+            "--replace-existing and --reset-output cannot be used together"
+        )
+
+    if args.reset_output and not args.conf:
+        raise ValueError("--reset-output can only be used with --conf")
+
+    if args.replace_existing and not (args.conf or args.run):
+        raise ValueError(
+            "--replace-existing can only be used with --conf or --run"
+        )
+
+    if args.replace_existing and args.conf and args.run:
+        raise ValueError(
+            "--replace-existing requires exactly one of --conf or --run"
+        )
+
+    if args.dryrun and (args.replace_existing or args.reset_output):
+        raise ValueError(
+            "--dryrun cannot be combined with output deletion options"
+        )
+
+
+def validate_output_management_task(args, task_type):
+    state_dependent_tasks = {"validation", "restart"}
+    if task_type not in state_dependent_tasks:
+        return
+
+    if args.reset_output:
+        raise ValueError(
+            f"--reset-output cannot be used with task_type: {task_type} because "
+            "that task depends on existing calibration state"
+        )
+
+    if args.run and args.replace_existing:
+        raise ValueError(
+            f"--run --replace-existing cannot be used with task_type: "
+            f"{task_type} because that task depends on existing calibration "
+            "state"
+        )
+
+
 def Sandbox(args, sandbox_config, rscript, dryrun=False):
 
     if (args.subset):
@@ -186,8 +230,22 @@ def Sandbox(args, sandbox_config, rscript, dryrun=False):
     )
 
     ctx.initialize()
+    validate_output_management_task(args, ctx.task_type)
 
     if (args.conf):
+        for output_dir in ctx.output_dirs:
+            if args.reset_output:
+                print(f"Resetting gage output directory: {output_dir}")
+            elif args.replace_existing:
+                print(f"Replacing generated configs: {output_dir / 'configs'}")
+            helper.prepare_configuration_output(
+                output_dir,
+                ctx.task_type,
+                project_output_dir=ctx.output_dir,
+                replace_existing=args.replace_existing,
+                reset_output=args.reset_output,
+            )
+
         print ("Generating config files...")
         status = driver.Driver(ctx).run()
 
@@ -197,6 +255,16 @@ def Sandbox(args, sandbox_config, rscript, dryrun=False):
             print("NextGenSandbox configuration step completed successfully.")
 
     if (args.run):
+        if args.replace_existing:
+            for output_dir in ctx.output_dirs:
+                print(f"Replacing run artifacts: {output_dir}")
+                helper.replace_run_output(
+                    output_dir,
+                    ctx.task_type,
+                    project_output_dir=ctx.output_dir,
+                    metadata_file=ctx.metadata_file if ctx.metadata_enabled else None,
+                )
+
         print ("Running NextGen simulations...")
 
         status = runner.Runner(ctx).run()
@@ -267,6 +335,22 @@ def main():
     parser.add_argument("--run",    action='store_true',    help="Run NextGen simulations")
     parser.add_argument("-i",       dest="sandbox_infile",  type=str, required=False, metavar="FILE", help="sandbox config file")
     parser.add_argument("--gage",   dest="gage_id",         type=str, required=False, help="Run selected workflow step for one gage ID")
+    parser.add_argument(
+        "--replace-existing",
+        action="store_true",
+        help=(
+            "With --conf, replace generated configs. With --run, remove "
+            "existing run artifacts while preserving configs."
+        ),
+    )
+    parser.add_argument(
+        "--reset-output",
+        action="store_true",
+        help=(
+            "With --conf, delete each selected gage output directory before "
+            "generating fresh configs."
+        ),
+    )
 
     parser.add_argument(
         "--dryrun",
@@ -282,6 +366,7 @@ def main():
 
     try:
         normalize_dryrun_args(args)
+        validate_output_management_args(args)
     except ValueError as exc:
         parser.error(str(exc))
 
