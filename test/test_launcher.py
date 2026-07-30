@@ -171,6 +171,19 @@ class TestLauncherAssignment(unittest.TestCase):
                 75,
             )
 
+    def test_slurm_command_requests_one_cpu_per_mpi_task(self):
+        command = launcher.build_slurm_submit_command(
+            Path("/tmp/submit_gage.slurm"),
+            Path("/tmp/sandbox_config.yaml"),
+            "pet_cfe_01109403",
+            num_mpi_tasks=4,
+            delay_seconds=10,
+        )
+
+        self.assertIn("--ntasks-per-node=4", command)
+        self.assertIn("--cpus-per-task=1", command)
+        self.assertNotIn("--cpus-per-task=4", command)
+
 
 if __name__ == "__main__":
     unittest.main()

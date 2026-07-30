@@ -573,6 +573,25 @@ def check_validation_exists(metadata_index_dir: Path, gage_id: str, *, status: b
     return False
 
 
+def build_slurm_submit_command(
+    submit_script: Path,
+    sandbox_file: Path,
+    job_name: str,
+    num_mpi_tasks: int,
+    delay_seconds: int,
+) -> list[str]:
+    return [
+        "sbatch",
+        "--cpus-per-task=1",
+        f"--ntasks-per-node={num_mpi_tasks}",
+        f"--job-name={job_name}",
+        "--export=ALL,"
+        f"SANDBOX_FILE={sandbox_file},"
+        f"START_DELAY={delay_seconds}",
+        str(submit_script),
+    ]
+
+
 def run_experiment(
     ctx: LauncherContext,
     model_dir: str,
@@ -601,17 +620,14 @@ def run_experiment(
         return
 
     if use_slurm:
-        num_cpus = get_num_cpus(metadata_index_dir, gage_id)
-        cmd = [
-            "sbatch",
-            f"--cpus-per-task={num_cpus}",
-            f"--ntasks-per-node={num_cpus}",
-            f"--job-name={job_name}",
-            "--export=ALL,"
-            f"SANDBOX_FILE={sandbox_file},"
-            f"START_DELAY={delay_seconds}",
-            str(ctx.submit_script),
-        ]
+        num_mpi_tasks = get_num_cpus(metadata_index_dir, gage_id)
+        cmd = build_slurm_submit_command(
+            ctx.submit_script,
+            sandbox_file,
+            job_name,
+            num_mpi_tasks,
+            delay_seconds,
+        )
         print(f"[{gage_id}] Submitting: {' '.join(cmd)}")
     else:
         cmd = [

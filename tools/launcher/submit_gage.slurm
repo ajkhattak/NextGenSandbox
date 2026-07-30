@@ -14,7 +14,8 @@ set -euo pipefail
 
 ##SBATCH --cpus-per-task=1
 
-echo "Allocated CPUs: $SLURM_CPUS_PER_TASK"
+echo "Allocated MPI tasks: ${SLURM_NTASKS:-1}"
+echo "CPUs per task: ${SLURM_CPUS_PER_TASK:-1}"
 # === Load modules or activate your environment ===
 
 module load openmpi/4.1.6
