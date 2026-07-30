@@ -9,6 +9,20 @@ from src.python.driver import Driver
 
 
 class TestDriverMetadata(unittest.TestCase):
+    def test_configuration_generation_rejects_mismatched_resource_counts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            ctx = SimpleNamespace(
+                output_dir=output_dir,
+                gage_ids=["12345678", "87654321"],
+                gpkg_dirs=[Path("gage_12345678.gpkg"), Path("gage_87654321.gpkg")],
+                output_dirs=[output_dir / "12345678", output_dir / "87654321"],
+                forcing_files=[Path("forcing_12345678.nc")],
+            )
+
+            with self.assertRaises(ValueError):
+                Driver(ctx).main()
+
     def test_simulation_metadata_does_not_write_index_without_index_dir(self):
         with tempfile.TemporaryDirectory() as tmp:
             output_dir = Path(tmp) / "01109403_pet_cfe"

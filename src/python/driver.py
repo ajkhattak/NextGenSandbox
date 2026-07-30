@@ -140,7 +140,12 @@ class Driver:
         basin_ids = []
         num_cats  = []
 
-        tuple_list = list(zip(ctx.gpkg_dirs, ctx.output_dirs, ctx.forcing_files))
+        tuple_list = list(zip(
+            ctx.gpkg_dirs,
+            ctx.output_dirs,
+            ctx.forcing_files,
+            strict=True,
+        ))
 
         results = []
         for tpl in tuple_list:

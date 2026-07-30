@@ -759,12 +759,10 @@ class SandboxContext:
         self.forcing_files = []
 
         if self.forcing_format == ".nc":
-
             if has_gage_placeholder(self.forcing_dir):
                 for g in self.gpkg_dirs:
-                    forcing_dir_local = self.forcing_dir
                     forcing_path = render_gage_path(
-                        forcing_dir_local,
+                        self.forcing_dir,
                         resource_id(g),
                     )
                     forcing_file = self._resolve_netcdf_forcing_file(g, forcing_path)
@@ -776,16 +774,52 @@ class SandboxContext:
         else:
             if has_gage_placeholder(self.forcing_dir):
                 for g in self.gpkg_dirs:
-                    forcing_dir_local = self.forcing_dir
-                    fdir = render_gage_path(forcing_dir_local, resource_id(g))
+                    fdir = render_gage_path(self.forcing_dir, resource_id(g))
                     fdir = self._resolve_forcing_dir(g, fdir)
 
-                    if not fdir.exists():
-                        raise ValueError(f"Forcing directory {fdir} does not exist.")
-                    if not fdir.is_dir():
-                        raise ValueError("forcing format is .csv, so '{fdir}' should point to a directory and not file.")
-
+                    self._validate_csv_forcing_dir(fdir)
                     self.forcing_files.append(fdir)
+            else:
+                self._require_single_gage_forcing_path()
+                fdir = self._resolve_forcing_dir(
+                    self.gpkg_dirs[0],
+                    Path(self.forcing_dir),
+                )
+                self._validate_csv_forcing_dir(fdir)
+                self.forcing_files.append(fdir)
+
+        self._validate_forcing_resource_count()
+
+    def _require_single_gage_forcing_path(self):
+        if len(self.gpkg_dirs) != 1:
+            raise ValueError(
+                "forcings.forcing_dir does not contain <gage_id>, but "
+                f"{len(self.gpkg_dirs)} gages are configured. A forcing path "
+                "without <gage_id> is only supported for one-gage runs. For "
+                "multiple gages, use a path containing <gage_id> or use the "
+                "default layout-derived forcing paths."
+            )
+
+    @staticmethod
+    def _validate_csv_forcing_dir(forcing_dir):
+        if not forcing_dir.exists():
+            raise ValueError(f"Forcing directory '{forcing_dir}' does not exist.")
+        if not forcing_dir.is_dir():
+            raise ValueError(
+                "Forcing format is .csv, so forcings.forcing_dir must point "
+                f"to a directory, not a file: {forcing_dir}"
+            )
+
+    def _validate_forcing_resource_count(self):
+        expected = len(self.gpkg_dirs)
+        resolved = len(self.forcing_files)
+        if resolved != expected:
+            raise ValueError(
+                "Forcing resource resolution failed: expected exactly one "
+                f"forcing resource for each of {expected} gages, but resolved "
+                f"{resolved}. For multi-gage runs, ensure "
+                "forcings.forcing_dir contains <gage_id>."
+            )
 
     def _resolve_forcing_dir(self, basin_dir, forcing_dir):
         forcing_dir = Path(forcing_dir)
@@ -825,6 +859,7 @@ class SandboxContext:
         )
 
     def _resolve_single_netcdf_forcing_file(self):
+        self._require_single_gage_forcing_path()
         forcing_path = Path(self.forcing_dir)
 
         if not forcing_path.exists():
@@ -836,14 +871,6 @@ class SandboxContext:
                 use_corrected=self.use_corrected_forcing,
             )
         else:
-            if len(self.gpkg_dirs) != 1:
-                raise ValueError(
-                    "forcings.forcing_dir points to a single NetCDF file, "
-                    f"but {len(self.gpkg_dirs)} gages are configured. "
-                    "A single forcing file is only supported for one-gage runs. "
-                    "For multiple gages, use a forcing directory pattern with "
-                    "<gage_id> or the default layout-derived forcing directories."
-                )
             if forcing_path.suffix != ".nc":
                 raise ValueError(
                     "forcings.forcing_dir points to a file, but NetCDF forcing "

@@ -41,7 +41,13 @@ class Runner:
         if self.ctx.task_type in ['calibration', 'validation', 'calibvalid', 'restart']:
             print(f'Running NextGen with task_type {self.ctx.task_type}')
 
-            tuple_list = list(zip(self.ctx.gage_ids, self.ctx.gpkg_dirs, self.ctx.output_dirs, self.ctx.forcing_files))
+            tuple_list = list(zip(
+                self.ctx.gage_ids,
+                self.ctx.gpkg_dirs,
+                self.ctx.output_dirs,
+                self.ctx.forcing_files,
+                strict=True,
+            ))
             #for gage in self.ctx.gage_ids:
             #    self.run_ngen_with_calibration(gage)
             for tpl in tuple_list:

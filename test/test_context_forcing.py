@@ -69,8 +69,43 @@ class TestContextForcing(unittest.TestCase):
 
             ctx = self._context_for_netcdf_file(forcing_file, gpkg_count=2)
 
-            with self.assertRaisesRegex(ValueError, "single NetCDF file"):
+            with self.assertRaisesRegex(ValueError, "does not contain <gage_id>"):
                 ctx._resolve_single_netcdf_forcing_file()
+
+    def test_single_netcdf_directory_rejected_for_multiple_gages(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            forcing_dir = Path(tmp) / "forcing"
+            forcing_dir.mkdir()
+            (forcing_dir / "forcing.nc").touch()
+
+            ctx = self._context_for_netcdf_file(forcing_dir, gpkg_count=2)
+
+            with self.assertRaisesRegex(ValueError, "does not contain <gage_id>"):
+                ctx._resolve_single_netcdf_forcing_file()
+
+    def test_direct_csv_directory_allowed_for_one_gage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            forcing_dir = Path(tmp) / "forcing"
+            forcing_dir.mkdir()
+
+            ctx = self._context_for_pattern(forcing_dir)
+            ctx.forcing_format = ".csv"
+
+            ctx.prepare_forcing_files()
+
+            self.assertEqual(ctx.forcing_files, [forcing_dir])
+
+    def test_direct_csv_directory_rejected_for_multiple_gages(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            forcing_dir = Path(tmp) / "forcing"
+            forcing_dir.mkdir()
+
+            ctx = self._context_for_pattern(forcing_dir)
+            ctx.forcing_format = ".csv"
+            ctx.gpkg_dirs.append(Path("/tmp/gage_03366500.gpkg"))
+
+            with self.assertRaisesRegex(ValueError, "does not contain <gage_id>"):
+                ctx.prepare_forcing_files()
 
     def test_pattern_netcdf_directory_per_gage_allowed(self):
         with tempfile.TemporaryDirectory() as tmp:

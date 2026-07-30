@@ -8,6 +8,20 @@ from src.python.runner import Runner
 
 
 class TestRunnerDryRun(unittest.TestCase):
+    def test_calibration_run_rejects_mismatched_resource_counts(self):
+        ctx = SimpleNamespace(
+            formulation="CFE",
+            task_type="calibration",
+            gage_ids=["12345678", "87654321"],
+            gpkg_dirs=[Path("gage_12345678.gpkg"), Path("gage_87654321.gpkg")],
+            output_dirs=[Path("12345678"), Path("87654321")],
+            forcing_files=[Path("forcing_12345678.nc")],
+        )
+        runner = Runner(ctx)
+
+        with self.assertRaises(ValueError):
+            runner.run()
+
     def test_control_run_uses_context_resolved_resource_layout_paths(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
