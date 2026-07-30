@@ -6,16 +6,48 @@ subsetting_failure_dir <- function(output_dir) {
   file.path(output_dir, SUBSETTING_FAILURE_DIR)
 }
 
-report_failed_gages <- function(output_dir) {
+subsetting_gpkg_id <- function(gpkg_file) {
+  id <- sub(".*_(.*?)\\..*", "\\1", basename(gpkg_file))
+
+  if (is.na(id)) {
+    id <- "11111111"
+  }
+
+  as.character(id)
+}
+
+subset_failure_dirs <- function(output_dir, gage_ids = NULL) {
   failed_gages <- subsetting_failure_dir(output_dir)
 
   if (!dir.exists(failed_gages)) {
-    print("All Gages Passed!!!")
-    return(invisible(FALSE))
+    return(character(0))
   }
 
   files <- list.files(failed_gages, full.names = TRUE)
   subdirs <- files[dir.exists(files)]
+
+  if (!is.null(gage_ids)) {
+    gage_ids <- unique(as.character(gage_ids))
+    subdirs <- subdirs[basename(subdirs) %in% gage_ids]
+  }
+
+  sort(subdirs)
+}
+
+clear_subset_failures <- function(output_dir, gage_ids) {
+  failed_gages <- subsetting_failure_dir(output_dir)
+
+  for (gage_id in unique(as.character(gage_ids))) {
+    failure_dir <- file.path(failed_gages, gage_id)
+    if (dir.exists(failure_dir)) {
+      unlink(failure_dir, recursive = TRUE, force = TRUE)
+    }
+  }
+}
+
+report_failed_gages <- function(output_dir, gage_ids = NULL) {
+  failed_gages <- subsetting_failure_dir(output_dir)
+  subdirs <- subset_failure_dirs(output_dir, gage_ids)
 
   if (length(subdirs) == 0) {
     print("All Gages Passed!!!")

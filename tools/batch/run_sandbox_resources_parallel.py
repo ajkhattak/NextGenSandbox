@@ -7,6 +7,7 @@ import os
 import shutil
 import subprocess
 import sys
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -120,6 +121,10 @@ def load_gages(config_path: Path, step: str) -> list[str]:
     )
 
 
+def duplicate_gages(gages: list[str]) -> list[str]:
+    return sorted(gage_id for gage_id, count in Counter(gages).items() if count > 1)
+
+
 def run_one(step: str, config: Path, log_dir: Path, gage_id: str) -> tuple[str, int]:
     out_file = log_dir / f"{step}_{gage_id}.out"
     err_file = log_dir / f"{step}_{gage_id}.err"
@@ -169,6 +174,15 @@ def main() -> int:
 
     if not gages:
         print(f"No gages selected for {args.step}", file=sys.stderr)
+        return 2
+
+    duplicates = duplicate_gages(gages)
+    if duplicates:
+        print(
+            "Duplicate gage IDs cannot be run in parallel: "
+            f"{', '.join(duplicates)}. Remove duplicate entries from the config.",
+            file=sys.stderr,
+        )
         return 2
 
     log_dir = args.log_dir

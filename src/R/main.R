@@ -282,17 +282,13 @@ validate_subset_config <- function(config) {
   config
 }
 
-prepare_subset_run <- function(config) {
+prepare_subset_run <- function(config, gage_ids) {
   dir.create(config$input_dir, recursive = TRUE, showWarnings = FALSE)
 
   setwd(config$input_dir)
   wbt_wd(getwd())
 
-  failed_dir <- subsetting_failure_dir(config$input_dir)
-
-  if (dir.exists(failed_dir)) {
-    unlink(failed_dir, recursive = TRUE, force = TRUE)
-  }
+  clear_subset_failures(config$input_dir, gage_ids)
 }
 
 load_gage_ids_from_file <- function(config) {
@@ -344,9 +340,7 @@ load_gpkg_files <- function(config) {
   gage_files
 }
 
-run_subset_workflow <- function(config) {
-  start_time <- Sys.time()
-
+resolve_subset_work <- function(config) {
   if (config$gages$option %in% c("ids", "file")) {
     gage_ids <- config$gages$ids
     if (config$gages$option == "file") {
@@ -354,17 +348,31 @@ run_subset_workflow <- function(config) {
     }
 
     stopifnot(length(gage_ids) > 0)
+    return(list(gage_ids = as.character(gage_ids), gage_files = NULL))
+  }
 
+  gage_files <- load_gpkg_files(config)
+  stopifnot(length(gage_files) > 0)
+
+  list(
+    gage_ids = vapply(gage_files, subsetting_gpkg_id, character(1)),
+    gage_files = gage_files
+  )
+}
+
+run_subset_workflow <- function(config, work) {
+  start_time <- Sys.time()
+
+  if (config$gages$option %in% c("ids", "file")) {
     DriverGivenGageIDs(
-      gage_ids = gage_ids,
+      gage_ids = work$gage_ids,
       config = config
     )
   } else if (config$gages$option == "gpkg") {
-    gage_files <- load_gpkg_files(config)
-    print(glue::glue("GPKG FILES : {gage_files}"))
+    print(glue::glue("GPKG FILES : {work$gage_files}"))
 
     DriverGivenGPKG(
-      gage_files = gage_files,
+      gage_files = work$gage_files,
       config = config
     )
   }
@@ -373,7 +381,7 @@ run_subset_workflow <- function(config) {
   time_taken <- as.numeric(end_time - start_time, units = "secs")
   print(paste0("Total Time Taken = ", time_taken))
 
-  report_failed_gages(config$input_dir)
+  report_failed_gages(config$input_dir, work$gage_ids)
 }
 
 main <- function(args = commandArgs(trailingOnly = TRUE)) {
@@ -386,10 +394,11 @@ main <- function(args = commandArgs(trailingOnly = TRUE)) {
   load_subset_dependencies(config$sandbox_dir)
   source(file.path(config$sandbox_dir, "src/R/custom_functions.R"))
 
-  prepare_subset_run(config)
+  work <- resolve_subset_work(config)
+  prepare_subset_run(config, work$gage_ids)
   print("SETUP DONE!")
 
-  run_subset_workflow(config)
+  run_subset_workflow(config, work)
 }
 
 tryCatch({
