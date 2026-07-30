@@ -180,23 +180,29 @@ build_sandbox()
         mkdir -p "$SANDBOX_ENV"
         $PYTHON_CMD -m venv "$SANDBOX_ENV"
         source "$SANDBOX_ENV/bin/activate"
-	python -m pip install --upgrade pip --no-cache-dir
-	#python -m pip install uv
-	uv pip install "setuptools>=64.0,<69.0" wheel
+	"$SANDBOX_ENV/bin/python" -m pip install --upgrade pip --no-cache-dir
+	"$SANDBOX_ENV/bin/python" -m pip install \
+	    "setuptools>=64.0,<69.0" wheel
 
     fi
 
-    pip install -e '.[test]'
+    SANDBOX_PYTHON="$SANDBOX_ENV/bin/python"
+    if [ ! -x "$SANDBOX_PYTHON" ]; then
+        echo "ERROR: Sandbox Python was not created: $SANDBOX_PYTHON" >&2
+        return 1
+    fi
+
+    "$SANDBOX_PYTHON" -m pip install -e '.[test]'
 
     # Install the dependency versions pinned by the NextGenSandbox repository.
     git submodule update --init --recursive
 
-    pip install 'extern/ngen-cal/python/ngen_cal[netcdf,pso]'
-    pip install extern/ngen-cal/python/ngen_conf
-    pip install -e ./plugins/ngen_cal_plugins
-    pip install -e ./extern/lstm
-    pip install -e ./extern/dhbv2
-    pip install 'aiohttp<3.14'
+    "$SANDBOX_PYTHON" -m pip install 'extern/ngen-cal/python/ngen_cal[netcdf,pso]'
+    "$SANDBOX_PYTHON" -m pip install extern/ngen-cal/python/ngen_conf
+    "$SANDBOX_PYTHON" -m pip install -e ./plugins/ngen_cal_plugins
+    "$SANDBOX_PYTHON" -m pip install -e ./extern/lstm
+    "$SANDBOX_PYTHON" -m pip install -e ./extern/dhbv2
+    "$SANDBOX_PYTHON" -m pip install 'aiohttp<3.14'
  
     echo "Sandbox Python Environment Created ($SANDBOX_ENV)"
     
@@ -238,9 +244,9 @@ build_sandbox()
 
 	$PYTHON_CMD -m venv "$FORCING_ENV"
 	source "$FORCING_ENV/bin/activate"
-	python -m pip install --upgrade pip --no-cache-dir
-	#python -m pip install uv
-	pip install -r ./utils/venv/requirements_forcing.txt
+	"$FORCING_ENV/bin/python" -m pip install --upgrade pip --no-cache-dir
+	"$FORCING_ENV/bin/python" -m pip install \
+	    -r ./utils/venv/requirements_forcing.txt
 
 	deactivate
     fi
