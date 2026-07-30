@@ -108,6 +108,18 @@ class TestKlingGuptaMultiVariable(unittest.TestCase):
 
         self.assertAlmostEqual(score, 0.0)
 
+    def test_et_only_series_is_not_treated_as_streamflow(self):
+        times = pd.date_range("2020-01-01", periods=6, freq="D")
+        et = pd.concat(
+            {"ET": pd.Series([1.0, 2.0, 3.0, 2.0, 1.5, 1.0], index=times)},
+            names=["variable"],
+        ).swaplevel().sort_index()
+        et.index.names = ["value_time", "variable"]
+        configure_composite_objective({"fdc": 1.0})
+
+        with self.assertRaisesRegex(ValueError, "require streamflow"):
+            composite_objective(et, et.copy())
+
     def test_composite_fdc_uses_low_and_high_flow_exceedances(self):
         self.assertEqual(
             FDC_EXCEEDANCES,

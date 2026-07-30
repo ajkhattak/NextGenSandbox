@@ -76,6 +76,14 @@ class TestReadObservedData(unittest.TestCase):
 
             self.assertEqual(observations.name, "obs_flow")
             self.assertEqual(observations.tolist(), [20.0, 30.0])
+            self.assertEqual(
+                observations.index.names,
+                ["value_time", "variable"],
+            )
+            self.assertEqual(
+                observations.index.get_level_values("variable").unique().tolist(),
+                ["streamflow"],
+            )
 
     def test_rejects_non_m3_per_sec_units(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -135,6 +143,61 @@ class TestReadObservedData(unittest.TestCase):
             plugin.ngen_cal_model_configure(self.create_config(path))
 
             self.assertEqual(observations.tolist(), [10.0, 20.0])
+            self.assertEqual(
+                observations.index.names,
+                ["value_time", "variable"],
+            )
+
+    def test_et_only_observations_preserve_variable_name(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            et_path = root / "ET.parquet"
+            pd.DataFrame(
+                {
+                    "value_time": pd.date_range(
+                        "2020-01-01",
+                        periods=2,
+                        freq="D",
+                    ),
+                    "cat-1": [1.0, 2.0],
+                    "cat-2": [3.0, 4.0],
+                }
+            ).to_parquet(et_path, index=False)
+            config = SimpleNamespace(
+                plugin_settings={
+                    "read_obs_data": {
+                        "ET": {
+                            "layout": "distributed",
+                            "path": str(et_path),
+                            "time_column": "value_time",
+                            "units": "mm/d",
+                        }
+                    }
+                },
+                hydrofabric=self.create_hydrofabric(root),
+            )
+            plugin = ReadObservedData()
+
+            observations = plugin.ngen_cal_model_observations(
+                nexus=SimpleNamespace(),
+                start_time=pd.Timestamp("2020-01-01"),
+                end_time=pd.Timestamp("2020-01-02"),
+                simulation_interval=pd.Timedelta(hours=1),
+            )
+            plugin.ngen_cal_model_configure(config)
+
+            self.assertEqual(
+                observations.index.names,
+                ["value_time", "variable"],
+            )
+            self.assertEqual(
+                observations.index.get_level_values("variable").unique().tolist(),
+                ["ET"],
+            )
+            self.assertEqual(
+                observations.xs("ET", level="variable").tolist(),
+                [2.5, 3.5],
+            )
 
     def test_combines_streamflow_and_area_weighted_et(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -345,6 +408,57 @@ class TestReadObservedData(unittest.TestCase):
                 )
 
             self.assertAlmostEqual(simulated.iloc[0], 2.5)
+
+    def test_et_only_simulation_preserves_variable_name(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            hydrofabric = self.create_hydrofabric(root)
+            times = pd.date_range("2020-01-01", periods=24, freq="h")
+            pd.DataFrame(
+                {"Time": times, "ET": [0.001] * 24}
+            ).to_csv(root / "cat-1.csv", index=False)
+            pd.DataFrame(
+                {"Time": times, "ET": [0.003] * 24}
+            ).to_csv(root / "cat-2.csv", index=False)
+
+            plugin = ReadObservedData()
+            plugin.hydrofabric = hydrofabric
+            plugin.observations = {
+                "ET": pd.Series(
+                    [1.0, 2.0],
+                    index=pd.date_range("2020-01-01", periods=2, freq="D"),
+                )
+            }
+            plugin.settings = {
+                "ET": {
+                    "simulated": "ET",
+                    "simulated_units": "m/h",
+                    "units": "mm/d",
+                }
+            }
+
+            with patch(
+                "ngen_cal_plugins.read_obs_plugin.Path.cwd",
+                return_value=root,
+            ):
+                wrapper = plugin.ngen_cal_model_output(SimpleNamespace())
+                next(wrapper)
+                with self.assertRaises(StopIteration) as result:
+                    wrapper.send(pd.Series([10.0], index=times[:1]))
+            simulated = result.exception.value
+
+            self.assertEqual(
+                simulated.index.names,
+                ["value_time", "variable"],
+            )
+            self.assertEqual(
+                simulated.index.get_level_values("variable").unique().tolist(),
+                ["ET"],
+            )
+            self.assertAlmostEqual(
+                simulated.xs("ET", level="variable").iloc[0],
+                60.0,
+            )
 
 
 if __name__ == "__main__":

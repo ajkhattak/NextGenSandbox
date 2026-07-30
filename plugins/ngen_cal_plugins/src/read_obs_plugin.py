@@ -166,17 +166,18 @@ class ReadObservedData:
                 f"range: {', '.join(empty)}"
             )
 
-        if len(observations) == 1:
-            combined = next(iter(observations.values()))
-        else:
-            combined = pd.concat(observations, axis=1)
-            combined.columns.name = "variable"
-            combined = combined.stack().sort_index()
-            combined.index.names = ["value_time", "variable"]
+        return self._combine_variables(observations, "obs_flow")
 
-        combined.rename("obs_flow", inplace=True)
+    @staticmethod
+    def _combine_variables(series_by_variable, series_name):
+        if not series_by_variable:
+            raise ValueError("At least one variable is required")
 
-        return combined
+        combined = pd.concat(series_by_variable, axis=1)
+        combined.columns.name = "variable"
+        combined = combined.stack().sort_index()
+        combined.index.names = ["value_time", "variable"]
+        return combined.rename(series_name)
 
     def _area_weighted_mean(self, name, dataframe):
         if self.hydrofabric is None:
@@ -297,14 +298,7 @@ class ReadObservedData:
                 continue
             simulations[name] = self._load_simulated_variable(name, settings)
 
-        if len(simulations) == 1:
-            return next(iter(simulations.values())).rename("sim_flow")
-
-        combined = pd.concat(simulations, axis=1)
-        combined.columns.name = "variable"
-        combined = combined.stack().sort_index()
-        combined.index.names = ["value_time", "variable"]
-        return combined.rename("sim_flow")
+        return self._combine_variables(simulations, "sim_flow")
 
     @hookimpl(tryfirst=True)
     def ngen_cal_model_observations(
