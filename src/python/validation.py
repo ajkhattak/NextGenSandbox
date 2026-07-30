@@ -59,6 +59,22 @@ def _update_troute_config(
     forcing_parameters["nts"] = nts
 
 
+def _evaluate_validation_objective(
+    simulated,
+    observed,
+    objective,
+    evaluation_interval,
+):
+    from ngen.cal.search import _objective_func
+
+    return _objective_func(
+        simulated,
+        observed,
+        objective,
+        evaluation_interval,
+    )
+
+
 def main(general: General, model_conf: Mapping[str, Any], troute_config: Mapping[str, Any]):
     #seed the random number generators if requested
     if general.random_seed is not None:
@@ -149,7 +165,7 @@ def main(general: General, model_conf: Mapping[str, Any], troute_config: Mapping
             agent.update_config(agent.best_params, best_df, calibration_object.id)
             
             # NOTE: importing here so its easier to refactor in the future
-            from ngen.cal.search import _execute, _objective_func
+            from ngen.cal.search import _execute
             from ngen.cal.utils import pushd
 
             # TODO: validation_parms.objective and target are not being correctly configured
@@ -172,7 +188,12 @@ def main(general: General, model_conf: Mapping[str, Any], troute_config: Mapping
                     simulation_interval=simulation_interval,
                 )
 
-                score = _objective_func(sim, obs, validation_parms.objective, (sim_start, sim_end))
+                score = _evaluate_validation_objective(
+                    sim,
+                    obs,
+                    validation_parms.objective,
+                    (eval_start, eval_end),
+                )
                 print(f"validation run score: {score}")
                 agent_pm.hook.ngen_cal_model_iteration_finish(iteration = "validation", info = agent.job)
 
