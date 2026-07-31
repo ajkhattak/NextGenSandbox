@@ -24,7 +24,7 @@ class SMPConfigurationGenerator(ConfigurationGenerator):
         else:
             return
 
-        smp_dir = os.path.join(self.ctx.output_dir, "configs", "smp")
+        smp_dir = os.path.join(self.static_data.config_dir, "smp")
         self.create_directory(smp_dir)
 
         soil_z = "0.1,0.5,1.0,2.0"

@@ -5,6 +5,9 @@ import importlib.util
 import numpy as np
 import subprocess
 import geopandas as gpd
+import re
+import yaml
+from datetime import datetime, timezone
 from pathlib import Path
 
 # called in driver.py
@@ -63,6 +66,124 @@ def validate_gage_output_directory(output_dir, project_output_dir):
     return output_dir
 
 
+def safe_path_name(value):
+    safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value).strip())
+    return safe.strip("._") or "validation"
+
+
+def configuration_dir(
+    output_dir,
+    task_type,
+    validation_name=None,
+    multiple_validations=False,
+):
+    task_type = str(task_type).lower()
+    if task_type == "calibvalid":
+        task_type = "calibration"
+    if task_type == "validation":
+        config_dir = Path(output_dir) / "configs" / "validation"
+        if multiple_validations:
+            config_dir /= safe_path_name(validation_name or "validation")
+        return config_dir
+    return Path(output_dir) / "configs" / task_type
+
+
+def configuration_manifest_file(config_dir):
+    return Path(config_dir) / "configuration_manifest.yml"
+
+
+def _manifest_path(value):
+    return str(Path(value).expanduser().resolve())
+
+
+def configuration_manifest(
+    *,
+    task_type,
+    gage_id,
+    formulation_models,
+    simulation_time,
+    hydrofabric,
+    forcing,
+    validation_name=None,
+):
+    manifest = {
+        "schema_version": 1,
+        "task_type": str(task_type),
+        "gage_id": str(gage_id),
+        "formulation_models": list(formulation_models),
+        "simulation_time": dict(simulation_time),
+        "hydrofabric": _manifest_path(hydrofabric),
+        "forcing": _manifest_path(forcing),
+    }
+    if validation_name is not None:
+        manifest["validation_name"] = str(validation_name)
+    return manifest
+
+
+def write_configuration_manifest(config_dir, **values):
+    manifest_file = configuration_manifest_file(config_dir)
+    manifest_file.parent.mkdir(parents=True, exist_ok=True)
+    manifest = configuration_manifest(**values)
+    manifest["generated_at_utc"] = datetime.now(timezone.utc).isoformat()
+    with manifest_file.open("w") as file:
+        yaml.safe_dump(manifest, file, default_flow_style=False, sort_keys=False)
+    return manifest_file
+
+
+def validate_configuration_manifest(config_dir, **expected_values):
+    manifest_file = configuration_manifest_file(config_dir)
+    if not manifest_file.is_file():
+        raise FileNotFoundError(
+            f"Generated configuration manifest is missing: {manifest_file}. "
+            "Run 'sandbox --conf -i <config>' for the current task before "
+            "running NextGen."
+        )
+
+    generated = yaml.safe_load(manifest_file.read_text()) or {}
+    expected = configuration_manifest(**expected_values)
+    mismatches = []
+    for key, current in expected.items():
+        previous = generated.get(key)
+        if previous != current:
+            mismatches.append(
+                f"  - {key}: generated={previous!r}, current={current!r}"
+            )
+
+    if mismatches:
+        details = "\n".join(mismatches)
+        raise ValueError(
+            "Generated configurations do not match the current Sandbox run:\n"
+            f"{details}\n"
+            "Run 'sandbox --conf -i <config>' after changing task type, time "
+            "windows, formulation, hydrofabric, or forcing."
+        )
+    return manifest_file
+
+
+def prepare_validation_configuration_output(
+    output_dir,
+    validation_names,
+    *,
+    project_output_dir,
+    replace_existing=False,
+):
+    output_dir = validate_gage_output_directory(output_dir, project_output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    validation_root = output_dir / "configs" / "validation"
+    if replace_existing and validation_root.exists():
+        remove_path(validation_root)
+
+    multiple_validations = len(validation_names) > 1
+    for name in validation_names:
+        config_dir = configuration_dir(
+            output_dir,
+            "validation",
+            validation_name=name,
+            multiple_validations=multiple_validations,
+        )
+        config_dir.mkdir(parents=True, exist_ok=True)
+
+
 def prepare_configuration_output(
     output_dir,
     task_type,
@@ -78,7 +199,7 @@ def prepare_configuration_output(
         remove_path(output_dir)
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    config_dir = output_dir / "configs"
+    config_dir = configuration_dir(output_dir, task_type)
 
     if replace_existing and config_dir.exists():
         remove_path(config_dir)
@@ -118,7 +239,13 @@ def replace_run_output(
         (output_dir / "outputs" / "troute").mkdir(parents=True, exist_ok=True)
 
 
-def prepare_basin_partitioning(sandbox_dir, gpkg_file, partitioning, create_par_file=True):
+def prepare_basin_partitioning(
+    sandbox_dir,
+    gpkg_file,
+    partitioning,
+    create_par_file=True,
+    config_dir=None,
+):
 
     nexus     = gpd.read_file(gpkg_file, layer='nexus')
 
@@ -142,14 +269,16 @@ def prepare_basin_partitioning(sandbox_dir, gpkg_file, partitioning, create_par_
     if not create_par_file:
         return num_cpus
 
-    fpar = os.path.join("configs", f"partitions_{num_cpus}.json")
+    config_dir = Path(config_dir) if config_dir is not None else Path.cwd() / "configs"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    fpar = config_dir / f"partitions_{num_cpus}.json"
 
     subprocess.run([
         sys.executable,
         f"{sandbox_dir}/utils/python/local_only_partitions.py",
         gpkg_file,
         str(num_cpus),
-        os.path.join(os.getcwd(), "configs")
+        str(config_dir)
     ], check=True)
 
-    return fpar, num_cpus
+    return str(fpar), num_cpus

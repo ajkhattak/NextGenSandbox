@@ -17,8 +17,9 @@ class TestOutputManagement(unittest.TestCase):
     def test_configuration_preserves_existing_files_by_default(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             output_dir = Path(temp_dir) / "12345678"
-            (output_dir / "configs").mkdir(parents=True)
-            (output_dir / "configs" / "existing.yml").write_text("existing")
+            config_dir = output_dir / "configs" / "calibration"
+            config_dir.mkdir(parents=True)
+            (config_dir / "existing.yml").write_text("existing")
             (output_dir / "old_worker").mkdir()
 
             prepare_configuration_output(
@@ -27,14 +28,20 @@ class TestOutputManagement(unittest.TestCase):
                 project_output_dir=Path(temp_dir),
             )
 
-            self.assertTrue((output_dir / "configs" / "existing.yml").exists())
+            self.assertTrue((config_dir / "existing.yml").exists())
             self.assertTrue((output_dir / "old_worker").exists())
 
     def test_replace_existing_configuration_only_replaces_configs(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             output_dir = Path(temp_dir) / "12345678"
-            (output_dir / "configs").mkdir(parents=True)
-            (output_dir / "configs" / "existing.yml").write_text("existing")
+            config_dir = output_dir / "configs" / "calibration"
+            config_dir.mkdir(parents=True)
+            (config_dir / "existing.yml").write_text("existing")
+            validation_config = (
+                output_dir / "configs" / "validation" / "validation" / "keep.yml"
+            )
+            validation_config.parent.mkdir(parents=True)
+            validation_config.write_text("keep")
             (output_dir / "old_worker").mkdir()
 
             prepare_configuration_output(
@@ -44,8 +51,9 @@ class TestOutputManagement(unittest.TestCase):
                 replace_existing=True,
             )
 
-            self.assertTrue((output_dir / "configs").is_dir())
-            self.assertFalse((output_dir / "configs" / "existing.yml").exists())
+            self.assertTrue(config_dir.is_dir())
+            self.assertFalse((config_dir / "existing.yml").exists())
+            self.assertTrue(validation_config.exists())
             self.assertTrue((output_dir / "old_worker").exists())
 
     def test_reset_output_recreates_selected_gage_directory(self):
@@ -62,17 +70,28 @@ class TestOutputManagement(unittest.TestCase):
                 reset_output=True,
             )
 
-            self.assertTrue((output_dir / "configs").is_dir())
+            self.assertTrue((output_dir / "configs" / "control").is_dir())
             self.assertTrue((output_dir / "outputs" / "div").is_dir())
             self.assertTrue((output_dir / "outputs" / "troute").is_dir())
             self.assertFalse((output_dir / "old_worker").exists())
             self.assertFalse((output_dir / "result.txt").exists())
 
-    def test_replace_run_preserves_configs_and_metadata(self):
+    def test_replace_run_preserves_generated_configs_and_metadata(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             output_dir = Path(temp_dir) / "12345678"
-            (output_dir / "configs").mkdir(parents=True)
-            (output_dir / "configs" / "realization.json").write_text("{}")
+            calibration_config = (
+                output_dir / "configs" / "calibration" / "realization.json"
+            )
+            calibration_config.parent.mkdir(parents=True)
+            calibration_config.write_text("{}")
+            validation_config = (
+                output_dir
+                / "configs"
+                / "validation"
+                / "realization.json"
+            )
+            validation_config.parent.mkdir(parents=True)
+            validation_config.write_text("{}")
             (output_dir / "simulation_metadata.yml").write_text("gage: 12345678")
             (output_dir / "old_worker").mkdir()
             (output_dir / "outputs").mkdir()
@@ -86,7 +105,8 @@ class TestOutputManagement(unittest.TestCase):
                 metadata_file="simulation_metadata.yml",
             )
 
-            self.assertTrue((output_dir / "configs" / "realization.json").exists())
+            self.assertTrue(calibration_config.exists())
+            self.assertTrue(validation_config.exists())
             self.assertTrue((output_dir / "simulation_metadata.yml").exists())
             self.assertFalse((output_dir / "old_worker").exists())
             self.assertFalse((output_dir / "outputs").exists())

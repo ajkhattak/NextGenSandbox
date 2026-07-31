@@ -125,7 +125,8 @@ Ordinary `*` wildcards may appear around `<gage_id>`, as in
 `/path/to/gpkgs/*_<gage_id>_*.gpkg`. Sandbox requires exactly one matching file
 for every selected gage and reports missing or duplicate matches. The explicit
 template is used throughout configuration generation, forcing preparation, and
-simulation; it does not need to follow `general.resource_layout`.
+simulation; it does not need to follow `general.resource_layout`. Other
+characters are literal, so `_` in the template does not match `-` in a filename.
 
 See [directory_layout.md](./directory_layout.md) for the paths produced by the
 `gage` and `resource` layouts.
@@ -160,18 +161,25 @@ optional NetCDF rechunking.
 | Field | Meaning |
 |---|---|
 | `format` | Forcing format: `.nc` or `.csv`. |
-| `use_corrected` | Use the corrected NetCDF forcing file during configuration and model runs. Recommended; default: `true`. |
-| `rechunk` | Create or reuse a rechunked NetCDF file for faster ngen reads. |
+| `use_corrected` | Select corrected NetCDF forcing from Sandbox-managed forcing directories. Recommended; default: `true`. An explicit custom filename template must itself match exactly one file. |
+| `rechunk` | Create or reuse a rechunked NetCDF file during `sandbox --forc` for faster ngen reads. When `true`, later steps pass the prepared rechunked file to ngen. |
 | `time.start` | First forcing timestamp. A date without a time defaults to `00:00:00`. |
 | `time.end` | Last forcing timestamp. A date without a time defaults to `00:00:00`. |
 | `domain` | Forcing domain, such as `conus`, `HI`, `PR`, or `AK`. |
 | `gages` | Optional filter on `general.gages`. |
-| `forcing_dir` | Optional external forcing directory, path pattern, or single NetCDF file. |
+| `forcing_dir` | Optional external forcing directory, NetCDF path template, or single NetCDF file. A flat multi-gage directory can use `/path/to/forcing/*<gage_id>*.nc`. |
 
 When `forcing_dir` is omitted, Sandbox derives the location from `input_dir`
 and `resource_layout`. For one selected gage, `forcing_dir` may point directly
 to one `.nc` file. For multiple gages outside the project resource tree, use
-the `<gage_id>` placeholder in the directory or filename.
+the `<gage_id>` placeholder in the directory or filename. Ordinary `*`
+wildcards are supported in an external NetCDF filename template. Characters
+outside `<gage_id>` are literal. A custom filename template must match exactly
+one file per gage; Sandbox does not choose among source, corrected, and
+rechunked independent matches. With `rechunk: true`, the exact base file and
+its Sandbox-generated `*_rechunked.nc` sibling are treated as one logical
+resource. Run `sandbox --forc` to create or refresh that sibling. Configuration
+and simulation steps only select it; they do not rechunk forcing.
 
 For NetCDF downloaded with `sandbox --forc`, Sandbox preserves the original and
 writes a sibling file named `*_corrected.nc`. The correction fills missing
@@ -410,11 +418,19 @@ timestamped ngen-cal worker directory.
 
 ## Generated ngen-cal Configuration
 
-For calibration and validation tasks, Sandbox translates the project settings
-into `configs/ngen-cal_calib_config.yaml` or
-`configs/ngen-cal_valid_config.yaml` under the gage output directory. These
-files record resolved paths, active parameter blocks, plugins, observations,
-and objective settings. They are run artifacts for inspection and
+For calibration, Sandbox translates the project settings into
+`<gage_output>/configs/calibration/ngen-cal_calib_config.yaml`. Each named
+validation receives an independent configuration at
+`<gage_output>/configs/validation/ngen-cal_valid_config.yaml` when it is the
+only validation. With multiple validation periods, each file is stored under
+`<gage_output>/configs/validation/<validation_name>/`. Validation generation
+therefore does not overwrite calibration realization, routing, or model
+configuration files.
+
+Each generated configuration set also contains `configuration_manifest.yml`.
+Before a run, Sandbox uses this manifest to verify that the generated task,
+time window, formulation, hydrofabric, and forcing file still match the active
+project settings. The generated files are run artifacts for inspection and
 reproducibility, not additional user configuration files.
 
 ## Supporting Model Defaults

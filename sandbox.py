@@ -234,17 +234,38 @@ def Sandbox(args, sandbox_config, rscript, dryrun=False):
 
     if (args.conf):
         for output_dir in ctx.output_dirs:
-            if args.reset_output:
-                print(f"Resetting gage output directory: {output_dir}")
-            elif args.replace_existing:
-                print(f"Replacing generated configs: {output_dir / 'configs'}")
-            helper.prepare_configuration_output(
-                output_dir,
-                ctx.task_type,
-                project_output_dir=ctx.output_dir,
-                replace_existing=args.replace_existing,
-                reset_output=args.reset_output,
-            )
+            if ctx.task_type != "validation":
+                if args.reset_output:
+                    print(f"Resetting gage output directory: {output_dir}")
+                elif args.replace_existing:
+                    print(
+                        "Replacing generated configs: "
+                        f"{helper.configuration_dir(output_dir, ctx.task_type)}"
+                    )
+                helper.prepare_configuration_output(
+                    output_dir,
+                    ctx.task_type,
+                    project_output_dir=ctx.output_dir,
+                    replace_existing=args.replace_existing,
+                    reset_output=args.reset_output,
+                )
+
+            if ctx.task_type in {"validation", "calibvalid"}:
+                validation_names = [
+                    period.get("name", "validation")
+                    for period in ctx.validation_periods
+                ]
+                if args.replace_existing:
+                    print(
+                        "Replacing generated validation configs: "
+                        f"{output_dir / 'configs' / 'validation'}"
+                    )
+                helper.prepare_validation_configuration_output(
+                    output_dir,
+                    validation_names,
+                    project_output_dir=ctx.output_dir,
+                    replace_existing=args.replace_existing,
+                )
 
         print ("Generating config files...")
         status = driver.Driver(ctx).run()

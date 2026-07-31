@@ -48,9 +48,9 @@ forcings:
   domain: conus  # conus, HI, PR, or AK
   gages: all
 
-  # Use an existing file or external directory instead of the default location.
-  # A single .nc file is supported when only one gage is selected.
-  # forcing_dir: "<path/to/forcing>/<gage_id>/forcing.nc"
+  # Select existing external forcing instead of the default location.
+  # The template must match exactly one file per gage.
+  # forcing_dir: "<path/to/forcing>/*<gage_id>*_corrected_rechunked.nc"
 
 observations: {}
   # streamflow:

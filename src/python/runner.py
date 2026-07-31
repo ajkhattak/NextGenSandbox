@@ -17,7 +17,6 @@ import json
 import shlex
 from pathlib import Path
 import shutil
-import re
 from datetime import datetime, timezone
 from src.python import configuration
 from src.python import helper
@@ -66,9 +65,10 @@ class Runner:
             self.ctx.gage_ids,
             self.ctx.gpkg_dirs,
             self.ctx.output_dirs,
+            self.ctx.forcing_files,
             strict=True,
         )
-        for gage_id, gpkg_resource, o_dir in resources:
+        for gage_id, gpkg_resource, o_dir, forcing_file in resources:
 
             if not os.path.isdir(o_dir):
                 raise FileNotFoundError(f"directory {o_dir} does not exist, this dir is created at the config generation step")
@@ -80,12 +80,22 @@ class Runner:
             print("output_dir: ", o_dir)
 
             gpkg_file = find_gpkg_file(gpkg_resource)
+            config_dir = helper.configuration_dir(o_dir, "control")
 
-            realization = glob.glob(str(o_dir / "configs" / "realization_*.json"))
+            self.validate_configuration_profile(
+                config_dir=config_dir,
+                task_type="control",
+                gage_id=gage_id,
+                simulation_time=self.ctx.simulation_time,
+                gpkg_file=gpkg_file,
+                forcing_file=forcing_file,
+            )
+
+            realization = glob.glob(str(config_dir / "realization_*.json"))
 
             if len(realization) != 1:
                 raise RuntimeError(
-                    f"Expected exactly one realization file in {o_dir / 'configs'}, "
+                    f"Expected exactly one realization file in {config_dir}, "
                     f"found {len(realization)}: {realization}"
                 )
             realization = realization[0]
@@ -102,9 +112,10 @@ class Runner:
 
             partitioning = self.ctx.sandbox_config.get("simulation", {}).get("partitioning", {})
             file_par, num_cpus = helper.prepare_basin_partitioning(self.ctx.sandbox_dir, gpkg_file,
-                                                                   partitioning)
+                                                                   partitioning,
+                                                                   config_dir=config_dir)
 
-            self.file_par = os.path.join(o_dir, file_par) if file_par else None
+            self.file_par = file_par
             self.num_procs = int(num_cpus)
 
             if self.mpirun_exists and self.num_procs > 1:
@@ -151,6 +162,7 @@ class Runner:
         id = dirs[0]
         i_dir = dirs[1]
         o_dir = dirs[2]
+        forcing_file = dirs[3]
 
         if not os.path.isdir(o_dir):
             raise FileNotFoundError(f"directory {o_dir} does not exist, this dir is created at the config generation step")
@@ -163,22 +175,35 @@ class Runner:
 
         gpkg_file = find_gpkg_file(i_dir)
         gpkg_name = gpkg_file.stem
+        partition_task = (
+            "calibration"
+            if self.ctx.task_type == "calibvalid"
+            else self.ctx.task_type
+        )
+        partition_config_dir = helper.configuration_dir(
+            o_dir,
+            partition_task,
+        )
 
         partitioning = self.ctx.sandbox_config.get("simulation", {}).get("partitioning", {})
         file_par, num_cpus = helper.prepare_basin_partitioning(self.ctx.sandbox_dir, gpkg_file,
-                                                               partitioning)
+                                                               partitioning,
+                                                               config_dir=partition_config_dir)
 
-        self.file_par = os.path.join(o_dir, file_par) if file_par else None
+        self.file_par = file_par
 
         self.num_procs = int(num_cpus)
 
-        self.validate_configs(o_dir)
-
-        print(f"Running basin {id} on cores {self.num_procs} ********", flush=True)
-
         if self.ctx.task_type in ['calibration', 'calibvalid', 'restart']:
             mode = 'calibration' if self.ctx.task_type == 'calibvalid' else self.ctx.task_type
-            self.run_ngen_experiment(mode, gpkg_file, o_dir, self.file_par, id)
+            self.run_ngen_experiment(
+                mode,
+                gpkg_file,
+                o_dir,
+                self.file_par,
+                id,
+                forcing_file=forcing_file,
+            )
 
             if self.ctx.dryrun and self.ctx.task_type == 'calibvalid':
                 print(
@@ -195,6 +220,7 @@ class Runner:
                     o_dir,
                     self.file_par,
                     id,
+                    forcing_file=forcing_file,
                     validation_period=validation_period,
                 )
 
@@ -206,6 +232,7 @@ class Runner:
         o_dir,
         file_par,
         id,
+        forcing_file,
         validation_period=None,
     ):
         """
@@ -230,6 +257,34 @@ class Runner:
         else:
             raise ValueError(f"Unsupported mode (ngen_cal_type): {mode}")
 
+        if mode == "validation":
+            validation_name = validation_period.get("name", "validation")
+            config_dir = helper.configuration_dir(
+                o_dir,
+                "validation",
+                validation_name=validation_name,
+                multiple_validations=(len(self.validation_periods()) > 1),
+            )
+        else:
+            validation_name = None
+            config_dir = helper.configuration_dir(o_dir, ngen_cal_type)
+
+        self.validate_configuration_profile(
+            config_dir=config_dir,
+            task_type=ngen_cal_type,
+            validation_name=validation_name,
+            gage_id=id,
+            simulation_time=sim_time,
+            gpkg_file=gpkg_file,
+            forcing_file=forcing_file,
+        )
+
+        print(
+            f"Running {mode} for gage {id} on cores "
+            f"{self.num_procs} ********",
+            flush=True,
+        )
+
         troute_output_file = os.path.join(f"./troute_output_{start_time}.nc")
 
 
@@ -245,17 +300,12 @@ class Runner:
             ngen_cal_type        = ngen_cal_type,
             gage_id              = id,
             state_dir            = restart_dir if mode == "restart" else o_dir,
+            config_dir           = config_dir,
         )
 
-        ConfigGen.write_calib_input_files()
+        config_file = ConfigGen.write_calib_input_files()
 
-        validation_name = None
-        if mode == "validation":
-            validation_name = validation_period.get("name", "validation")
-            config_file = self.copy_named_validation_config(validation_name)
-        elif mode in ["calibration", "restart"]:
-            config_file = Path("configs/ngen-cal_calib_config.yaml")
-        else:
+        if mode not in {"validation", "calibration", "restart"}:
             raise ValueError(f"Unsupported mode (ngen_cal_type): {mode}")
 
         # Run command
@@ -277,7 +327,10 @@ class Runner:
 
             if self.ctx.ensemble_enabled:
                 run_command.extend(
-                    ["-routing", "configs/troute_config.yaml"]
+                    [
+                        "-routing",
+                        str(config_dir / "troute_config.yaml"),
+                    ]
                 )
 
         command_text = shlex.join(run_command)
@@ -371,18 +424,9 @@ class Runner:
             }
         ]
 
-    def copy_named_validation_config(self, validation_name):
-        config_dir = Path("configs")
-        source = config_dir / "ngen-cal_valid_config.yaml"
-        safe_name = self.safe_filename(validation_name)
-        target = config_dir / f"ngen-cal_valid_config_{safe_name}.yaml"
-        shutil.copy2(source, target)
-        return target
-
     @staticmethod
     def safe_filename(value):
-        safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value).strip())
-        return safe.strip("._") or "validation"
+        return helper.safe_path_name(value)
 
     @staticmethod
     def worker_dirs(output_dir):
@@ -440,7 +484,31 @@ class Runner:
         with index_file.open("w") as file:
             yaml.safe_dump(index, file, default_flow_style=False, sort_keys=False)
 
-    def validate_configs(self, output_dir):
+    def validate_configuration_profile(
+        self,
+        *,
+        config_dir,
+        task_type,
+        gage_id,
+        simulation_time,
+        gpkg_file,
+        forcing_file,
+        validation_name=None,
+    ):
+        helper.validate_configuration_manifest(
+            config_dir,
+            task_type=task_type,
+            validation_name=validation_name,
+            gage_id=gage_id,
+            formulation_models=self.ctx.formulation_models,
+            simulation_time=simulation_time,
+            hydrofabric=gpkg_file,
+            forcing=forcing_file,
+        )
+        self.validate_configs(config_dir)
+
+    def validate_configs(self, config_dir):
+        config_dir = Path(config_dir)
             
         for model_name, instances in self.ctx.model_registry.items():
             
@@ -449,7 +517,23 @@ class Runner:
 
             for instance in instances:
 
-                model_dir = Path(output_dir) / "configs" / instance.name
+                model_dir = config_dir / instance.name
                 
                 if (not model_dir.exists()):
                     raise FileNotFoundError(model_dir)
+
+        realization_files = sorted(config_dir.glob("realization_*.json"))
+        expected_realizations = (
+            self.ctx.ensemble_size if self.ctx.ensemble_enabled else 1
+        )
+        if len(realization_files) != expected_realizations:
+            raise RuntimeError(
+                f"Expected {expected_realizations} realization file(s) in "
+                f"{config_dir}, found {len(realization_files)}: "
+                f"{realization_files}"
+            )
+
+        if "T-ROUTE" in self.ctx.formulation_models:
+            troute_config = config_dir / "troute_config.yaml"
+            if not troute_config.is_file():
+                raise FileNotFoundError(troute_config)

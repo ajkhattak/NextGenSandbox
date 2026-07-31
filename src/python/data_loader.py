@@ -31,11 +31,17 @@ os_name = platform.system()
 
 class SandboxData:
 
-    def __init__(self, ctx, gpkg_file, output_dir):
+    def __init__(self, ctx, gage_id, gpkg_file, output_dir, config_dir=None):
 
         #self.ctx = ctx
+        self.gage_id = str(gage_id)
         self.gpkg_file = gpkg_file
         self.output_dir = Path(output_dir)
+        self.config_dir = (
+            Path(config_dir)
+            if config_dir is not None
+            else self.output_dir / "configs"
+        )
                          
         self.soil_params_NWM_dir = os.path.join(ctx.ngen_dir,
                                                 "extern/noah-owp-modular/noah-owp-modular/parameters")
@@ -225,9 +231,8 @@ class SandboxData:
         out_df = pd.DataFrame(rows, columns=columns)
 
         # Save file
-        config_dir = self.output_dir / "configs"
-        config_dir.mkdir(parents=True, exist_ok=True)
-        out_path = config_dir / "ensemble_weights"
+        self.config_dir.mkdir(parents=True, exist_ok=True)
+        out_path = self.config_dir / "ensemble_weights"
 
         if file_format == "csv":
             out_df.to_csv(out_path.with_suffix(".csv"), index=False)

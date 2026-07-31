@@ -20,11 +20,21 @@ from src.python.models_registry import load_model_registry
 from src.python.configuration import CompositeConfigurationGenerator
 
 class Generate:
-    def __init__(self, ctx, gpkg_file, forcing_dir, output_dir):
+    def __init__(
+        self,
+        ctx,
+        gage_id,
+        gpkg_file,
+        forcing_dir,
+        output_dir,
+        config_dir,
+    ):
         self.ctx = ctx
+        self.gage_id = str(gage_id)
         self.gpkg_file = gpkg_file
         self.forcing_dir = forcing_dir
         self.output_dir = output_dir
+        self.config_dir = Path(config_dir)
 
             
     def run(self):
@@ -40,9 +50,11 @@ class Generate:
 
         ConfigGen = self.get_config_generator(
             ctx=self.ctx,
+            gage_id=self.gage_id,
             gpkg_file=self.gpkg_file,
             forcing_dir=self.forcing_dir,
-            output_dir=self.output_dir
+            output_dir=self.output_dir,
+            config_dir=self.config_dir,
         )
 
         tag = f"cfg_tile-{member_id}" if self.ctx.ensemble_enabled else "cfg"
@@ -53,6 +65,7 @@ class Generate:
             ctx=self.ctx,
             forcing_dir        = self.forcing_dir,
             output_dir         = self.output_dir,
+            config_dir         = self.config_dir,
             ensemble_member_id = member_id
         )
 
@@ -60,15 +73,23 @@ class Generate:
 
     
     def get_config_generator(self, ctx,
+                             gage_id,
                              gpkg_file,
                              forcing_dir,
-                             output_dir):
+                             output_dir,
+                             config_dir):
 
         models_registry = load_model_registry()
         formulation = ctx.formulation
         keys = [k.strip().upper() for k in formulation.replace(",", "+").split("+")]
     
-        static_data = SandboxData(ctx, gpkg_file, output_dir)
+        static_data = SandboxData(
+            ctx,
+            gage_id,
+            gpkg_file,
+            output_dir,
+            config_dir=config_dir,
+        )
     
     
         generators = []

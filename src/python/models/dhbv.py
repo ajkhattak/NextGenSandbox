@@ -23,7 +23,7 @@ class dHBVConfigurationGenerator(ConfigurationGenerator):
 
         for instance in self.instances:
 
-            config_dir = instance.config_dir
+            config_dir = self.instance_config_dir(instance)
             basefile = instance.basefile
 
             basefile_path = os.path.join(self.ctx.sandbox_dir, f"configs/basefiles/{basefile}")

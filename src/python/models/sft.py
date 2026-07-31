@@ -27,7 +27,7 @@ class SFTConfigurationGenerator(ConfigurationGenerator):
         else:
             return
 
-        sft_dir = os.path.join(self.ctx.output_dir, "configs", "sft")
+        sft_dir = os.path.join(self.static_data.config_dir, "sft")
         self.create_directory(sft_dir)
 
         if self.ctx.surface_water_partitioning_scheme not in ["Schaake", "Xinanjiang"]:

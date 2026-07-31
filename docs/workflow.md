@@ -113,8 +113,9 @@ NextGenSandbox forcing step completed successfully.
 ```
 
 If forcing files already exist outside the project resource directory, set
-`forcings.forcing_dir` to the file, directory, or `<gage_id>` path pattern and
-skip the download step.
+`forcings.forcing_dir` to the file, directory, or `<gage_id>` path pattern. You
+may skip this step when `rechunk: false`. With `rechunk: true`, run it once to
+prepare the external files; Sandbox will not download replacements.
 
 See [forcing.md](./forcing.md) for external forcing, multi-gage path patterns,
 and NetCDF rechunking.
@@ -131,9 +132,16 @@ Expected result:
 NextGenSandbox configuration step completed successfully.
 ```
 
-Generated files are written under each selected gage's output directory. The
-`configs/` directory includes the realization, routing configuration, model
-configuration files, and ngen-cal configuration when required.
+Generated files are written under each selected gage's output directory and
+grouped by task. Calibration uses `configs/calibration`, restart uses
+`configs/restart`, and control uses `configs/control`. Each named validation
+uses `configs/validation` when only one validation is configured. Multiple
+validations use `configs/validation/<validation_name>`. Neither layout
+overwrites calibration configuration.
+
+Every generated configuration set includes `configuration_manifest.yml`. It
+records the task type, simulation window, formulation, hydrofabric, and forcing
+file used during generation.
 
 Inspect these files before execution, especially after changing a model
 basefile, model instance, objective function, or simulation period.
@@ -141,7 +149,7 @@ basefile, model instance, objective function, or simulation period.
 Configuration generation does not remove existing directories by default.
 Files generated at the same deterministic paths may be updated, while existing
 run outputs and ngen-cal worker directories are preserved. To first remove the
-generated `configs/` directory, run:
+active task's generated configuration directory, run:
 
 ```bash
 sandbox --conf --replace-existing -i configs/my_project.yaml
@@ -168,6 +176,13 @@ Use the output to verify:
 - ngen or ngen-cal executable
 - working and output directories
 
+Before printing or executing the command, Sandbox compares the current project
+settings with the configuration manifest. If the task, time window,
+formulation, hydrofabric, or forcing file changed after `sandbox --conf`, it
+stops and asks for configuration regeneration. For NetCDF forcing, Sandbox
+also reads the file's actual time coordinate and stops when it does not cover
+the requested simulation window.
+
 ## Step 5: Run the Simulation
 
 ```bash
@@ -190,7 +205,8 @@ Validation uses the latest completed calibration or restart recorded in
 only if exactly one state file and matching `best_params.txt` pair is present;
 it stops on ambiguous directories rather than selecting an arbitrary state.
 
-To start a fresh run while preserving the generated `configs/` directory, use:
+To start a fresh run while preserving every generated profile under `configs/`,
+use:
 
 ```bash
 sandbox --run --replace-existing -i configs/my_project.yaml

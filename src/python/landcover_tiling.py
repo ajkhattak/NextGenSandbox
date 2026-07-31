@@ -24,7 +24,7 @@ def run(args: dict[str, pathlib.Path]):
     hf          = str(args["hydrofabric"])
     realization = str(args["realization"])
     num_proc    = int(args["partition"])
-    task_type   = str(args["task_type"])
+    output_dir  = Path(args["output_dir"])
 
     ngen = os.path.join(
         os.environ["SANDBOX_BUILD_DIR"],
@@ -39,8 +39,6 @@ def run(args: dict[str, pathlib.Path]):
     partition_file = config_dir / f"partitions_{num_proc}.json"
 
     routing = str(args["routing"])
-    if task_type == "validation":
-        routing = config_dir / "troute_valid_config.yaml"
 
     worker_dir = Path.cwd()
     
@@ -85,7 +83,7 @@ def run(args: dict[str, pathlib.Path]):
                             
     # Apply weights to outputs
     output_dirs = sorted(
-        (config_dir.parent / "output").glob("output_cfg_tile-*")
+        (output_dir / "output").glob("output_cfg_tile-*")
     )
 
     output_dirs = sorted(
@@ -271,11 +269,9 @@ def parse_args(args: list[str] | None = None):
     parser.add_argument("--hydrofabric", type=pathlib.Path, required=True,  help="Path to hydrofabric gpkg")
     parser.add_argument("--realization", type=pathlib.Path, required=True,  help="Path to ngen realization file")
     parser.add_argument("--routing",     type=pathlib.Path, required=True,  help="Path to t-route config file")
+    parser.add_argument("--output-dir",  type=pathlib.Path, required=True,  help="Gage output directory")
     parser.add_argument("--partition",   type=int,          required=False, help="Number of processors", default=1)
 
-    parser.add_argument("--task_type",   type=str,          required=False, help="task type", default="calibration")
-    # based on this tasktype, create a new function for validation, read calib.yaml, write two updated json files
-    # or write to calib.yaml files for each tile and run validation for both -- think more
     parsed = parser.parse_args(args)
     return vars(parsed)
 

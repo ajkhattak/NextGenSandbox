@@ -55,6 +55,12 @@ class ConfigurationGenerator:
             shutil.rmtree(dir_name)
         os.makedirs(dir_name, exist_ok=True)
 
+    def instance_config_dir(self, instance):
+        config_dir = getattr(self.static_data, "config_dir", None)
+        if config_dir is not None:
+            return Path(config_dir) / instance.name
+        return Path(instance.config_dir)
+
 
 class CompositeConfigurationGenerator(ConfigurationGenerator):
 
@@ -89,6 +95,7 @@ class ConfigurationCalib:
                  ngen_cal_type,
                  gage_id,
                  state_dir=None,
+                 config_dir=None,
                  ):
         self.ctx=ctx
         self.gpkg_file          = gpkg_file
@@ -101,6 +108,11 @@ class ConfigurationCalib:
         self.ngen_cal_type = ngen_cal_type
         self.gage_id = str(gage_id)
         self.state_dir = Path(state_dir) if state_dir is not None else None
+        self.config_dir = (
+            Path(config_dir)
+            if config_dir is not None
+            else Path(output_dir) / "configs"
+        )
         self.selected_state_file = None
 
     @staticmethod
@@ -525,9 +537,9 @@ class ConfigurationCalib:
 
     def write_calib_input_files(self):
         
-        conf_dir = os.path.join(self.output_dir, "configs")
+        conf_dir = self.config_dir
         realization_file =  sorted(
-            glob.glob(os.path.join(conf_dir, "realization_*.json"))
+            glob.glob(str(conf_dir / "realization_*.json"))
             )
 
         if (self.ctx.ensemble_enabled):
@@ -604,14 +616,12 @@ class ConfigurationCalib:
             cmd = (
                 f"--hydrofabric {self.gpkg_file.as_posix()} "
                 f"--realization {realization_file[0]} "
-                f"--routing {conf_dir}/troute_config.yaml"
+                f"--routing {conf_dir}/troute_config.yaml "
+                f"--output-dir {self.output_dir}"
             )
             
             if self.num_procs > 1:
                 cmd += f" --partition {self.num_procs}"
-
-            if self.ngen_cal_type == "validation":
-                 cmd += f" --task_type {self.ngen_cal_type}"
 
             df_new["model"]["args"]  = cmd
 
@@ -706,5 +716,7 @@ class ConfigurationCalib:
         else:
             raise ValueError(f"Unsupported ngen_cal_type: {self.ngen_cal_type}")
 
-        with open(os.path.join(conf_dir, config_fname), 'w') as file:
+        config_file = conf_dir / config_fname
+        with config_file.open('w') as file:
             yaml.dump(df_new, file, default_flow_style=False, sort_keys=False)
+        return config_file

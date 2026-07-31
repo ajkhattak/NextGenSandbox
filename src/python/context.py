@@ -17,7 +17,9 @@ import glob
 from src.python import helper
 from src.python.calibration_config import load_calibration_settings
 from src.python.forcing_files import (
-    prepare_rechunked_forcing_file,
+    netcdf_forcing_time_bounds,
+    resolve_netcdf_forcing_pattern,
+    select_prepared_forcing_file,
     select_netcdf_forcing_file,
 )
 from src.python.formulations_registry import (
@@ -73,6 +75,7 @@ class SandboxContext:
         self.build_instances()
         self.prepare_model_instances()
         self.prepare_forcing_files()
+        self.validate_forcing_time_coverage()
         self.resolve_output_dirs()
 
     def resolve_output_dirs(self):
@@ -847,6 +850,49 @@ class SandboxContext:
                 "forcings.forcing_dir contains <gage_id>."
             )
 
+    def required_simulation_windows(self):
+        windows = []
+        if self.task_type in {"calibration", "calibvalid", "restart", "control"}:
+            windows.append((self.task_type, self.simulation_time))
+        if self.task_type in {"validation", "calibvalid"}:
+            windows.extend(
+                (
+                    period.get("name", "validation"),
+                    period["simulation_time"],
+                )
+                for period in self.validation_periods
+            )
+        return windows
+
+    def validate_forcing_time_coverage(self):
+        if self.forcing_format != ".nc":
+            return
+
+        windows = self.required_simulation_windows()
+        for gage_id, forcing_file in zip(
+            self.gage_ids,
+            self.forcing_files,
+            strict=True,
+        ):
+            available_start, available_end = netcdf_forcing_time_bounds(
+                forcing_file
+            )
+            for window_name, simulation_time in windows:
+                required_start = pd.Timestamp(simulation_time["start_time"])
+                required_end = pd.Timestamp(simulation_time["end_time"])
+                if (
+                    required_start < available_start
+                    or required_end > available_end
+                ):
+                    raise ValueError(
+                        f"Forcing data for gage {gage_id} does not cover the "
+                        f"{window_name} simulation window. Required: "
+                        f"{required_start} through {required_end}. Available in "
+                        f"{forcing_file}: {available_start} through "
+                        f"{available_end}. Adjust simulation.time or provide a "
+                        "forcing file with complete coverage."
+                    )
+
     def _resolve_forcing_dir(self, basin_dir, forcing_dir):
         forcing_dir = Path(forcing_dir)
         if forcing_dir.exists() or self.forcing_dir_is_configured:
@@ -859,6 +905,10 @@ class SandboxContext:
 
     def _resolve_netcdf_forcing_file(self, resource, forcing_path):
         forcing_path = self._resolve_forcing_dir(resource, forcing_path)
+        forcing_path = resolve_netcdf_forcing_pattern(
+            forcing_path,
+            rechunk_enabled=self.rechunk_forcing,
+        )
 
         if not forcing_path.exists():
             raise ValueError(
@@ -878,15 +928,17 @@ class SandboxContext:
                 )
             forcing_file = forcing_path
 
-        return prepare_rechunked_forcing_file(
+        return select_prepared_forcing_file(
             forcing_file,
-            sandbox_dir=self.sandbox_dir,
-            enabled=self.rechunk_forcing,
+            rechunk_enabled=self.rechunk_forcing,
         )
 
     def _resolve_single_netcdf_forcing_file(self):
         self._require_single_gage_forcing_path()
-        forcing_path = Path(self.forcing_dir)
+        forcing_path = resolve_netcdf_forcing_pattern(
+            self.forcing_dir,
+            rechunk_enabled=self.rechunk_forcing,
+        )
 
         if not forcing_path.exists():
             raise ValueError(f"Forcing directory or file {forcing_path} does not exist.")
@@ -904,8 +956,7 @@ class SandboxContext:
                 )
             forcing_file = forcing_path
 
-        return prepare_rechunked_forcing_file(
+        return select_prepared_forcing_file(
             forcing_file,
-            sandbox_dir=self.sandbox_dir,
-            enabled=self.rechunk_forcing,
+            rechunk_enabled=self.rechunk_forcing,
         )

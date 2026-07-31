@@ -1,6 +1,11 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+
+import pandas as pd
 
 from src.python.context import SandboxContext
 
@@ -61,6 +66,33 @@ class TestContextForcing(unittest.TestCase):
         ctx = self._context_with_forcing_config(use_corrected=False)
 
         self.assertFalse(ctx.use_corrected_forcing)
+
+    def test_rejects_simulation_outside_actual_forcing_time_range(self):
+        ctx = SimpleNamespace(
+            forcing_format=".nc",
+            task_type="calibration",
+            simulation_time={
+                "start_time": "2013-10-01 00:00:00",
+                "end_time": "2016-09-30 23:00:00",
+            },
+            gage_ids=["02299950"],
+            forcing_files=[Path("forcing_02299950.nc")],
+        )
+        ctx.required_simulation_windows = (
+            SandboxContext.required_simulation_windows.__get__(ctx)
+        )
+
+        with patch(
+            "src.python.context.netcdf_forcing_time_bounds",
+            return_value=(
+                pd.Timestamp("2015-01-01 00:00:00"),
+                pd.Timestamp("2022-12-31 23:00:00"),
+            ),
+        ), self.assertRaisesRegex(
+            ValueError,
+            "does not cover the calibration simulation window",
+        ):
+            SandboxContext.validate_forcing_time_coverage(ctx)
 
     def test_single_netcdf_file_rejected_for_multiple_gages(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -135,6 +167,77 @@ class TestContextForcing(unittest.TestCase):
             ctx.prepare_forcing_files()
 
             self.assertEqual(ctx.forcing_files, [str(forcing_file)])
+
+    def test_flat_custom_netcdf_pattern_resolves_each_gage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            forcing_dir = Path(tmp) / "external forcing"
+            forcing_dir.mkdir()
+            first = forcing_dir / "aorc-gage_50147800-hourly.nc"
+            second = forcing_dir / "aorc-gage_03366500-hourly.nc"
+            first.touch()
+            second.touch()
+
+            ctx = self._context_for_pattern(
+                forcing_dir / "*<gage_id>*.nc"
+            )
+            second_gpkg = Path("/tmp/gage_03366500.gpkg")
+            ctx.gpkg_dirs.append(second_gpkg)
+
+            ctx.prepare_forcing_files()
+
+            self.assertEqual(ctx.forcing_files, [str(first), str(second)])
+
+    def test_rechunk_enabled_prioritizes_current_rechunked_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            forcing_dir = Path(tmp)
+            base = forcing_dir / "gage_50147800_corrected.nc"
+            rechunked = forcing_dir / "gage_50147800_corrected_rechunked.nc"
+            base.touch()
+            rechunked.touch()
+            os.utime(base, (100, 100))
+            os.utime(rechunked, (200, 200))
+
+            ctx = self._context_for_pattern(
+                forcing_dir / "gage_<gage_id>_corrected.nc"
+            )
+            ctx.use_corrected_forcing = True
+            ctx.rechunk_forcing = True
+
+            ctx.prepare_forcing_files()
+
+            self.assertEqual(ctx.forcing_files, [str(rechunked)])
+
+    def test_rechunk_enabled_reuses_sibling_matched_by_broad_custom_pattern(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            forcing_dir = Path(tmp)
+            base = forcing_dir / "gage_50147800_corrected.nc"
+            rechunked = forcing_dir / "gage_50147800_corrected_rechunked.nc"
+            base.touch()
+            rechunked.touch()
+            os.utime(base, (100, 100))
+            os.utime(rechunked, (200, 200))
+
+            ctx = self._context_for_pattern(
+                forcing_dir / "*<gage_id>*.nc"
+            )
+            ctx.rechunk_forcing = True
+
+            ctx.prepare_forcing_files()
+
+            self.assertEqual(ctx.forcing_files, [str(rechunked)])
+
+    def test_rechunk_enabled_requires_prepared_file_during_configuration(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp) / "gage_50147800_corrected.nc"
+            base.touch()
+
+            ctx = self._context_for_pattern(
+                Path(tmp) / "*<gage_id>*.nc"
+            )
+            ctx.rechunk_forcing = True
+
+            with self.assertRaisesRegex(FileNotFoundError, "sandbox --forc"):
+                ctx.prepare_forcing_files()
 
     def test_pattern_netcdf_file_requires_nc_suffix(self):
         with tempfile.TemporaryDirectory() as tmp:

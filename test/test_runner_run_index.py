@@ -16,13 +16,17 @@ class TestRunnerRunIndex(unittest.TestCase):
             worker_dir.mkdir()
 
             runner = Runner(SimpleNamespace())
+            config_file = Path(
+                "configs/validation/water_year_split_wy2011/"
+                "ngen-cal_valid_config.yaml"
+            )
             runner.write_run_index(
                 output_dir=output_dir,
                 gage_id="01109403",
                 mode="validation",
                 name="water_year_split_wy2011",
-                config_file=Path("configs/ngen-cal_valid_config_water_year_split_wy2011.yaml"),
-                command="python validation.py -config configs/ngen-cal_valid_config_water_year_split_wy2011.yaml",
+                config_file=config_file,
+                command=f"python validation.py -config {config_file}",
                 simulation_time={
                     "start_time": "2010-10-01 00:00:00",
                     "end_time": "2012-09-30 23:00:00",
@@ -45,6 +49,7 @@ class TestRunnerRunIndex(unittest.TestCase):
             self.assertEqual(index["runs"][0]["task_type"], "validation")
             self.assertEqual(index["runs"][0]["name"], "water_year_split_wy2011")
             self.assertEqual(index["runs"][0]["status"], "completed")
+            self.assertEqual(index["runs"][0]["config_file"], str(config_file))
             self.assertEqual(index["runs"][0]["worker_dirs"], [str(worker_dir)])
             self.assertEqual(index["runs"][0]["algorithm"], "dds")
             self.assertEqual(

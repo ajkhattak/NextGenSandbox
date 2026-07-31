@@ -352,7 +352,15 @@ load_gpkg_files <- function(config) {
 
   gage_files <- sort(unique(gage_files))
   if (length(gage_files) == 0) {
-    stop(sprintf("No geopackage files found using: %s", gpkg_source))
+    message <- sprintf("No geopackage files found using: %s.", gpkg_source)
+    if (grepl("<gage_id>", gpkg_source, fixed = TRUE)) {
+      message <- paste(
+        message,
+        "Characters outside <gage_id> are matched literally; '_' and '-'",
+        "are different. Adjust them or use * where either should be accepted."
+      )
+    }
+    stop(message)
   }
 
   gage_ids <- vapply(

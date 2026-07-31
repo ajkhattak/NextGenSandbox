@@ -38,7 +38,12 @@ class TestPathsWithSpaces(unittest.TestCase):
                 / "gage_12345678.gpkg"
             )
             output_dir = root / "run outputs" / "12345678"
-            realization = output_dir / "configs" / "realization_test.json"
+            realization = (
+                output_dir
+                / "configs"
+                / "control"
+                / "realization_test.json"
+            )
             gpkg_file.parent.mkdir(parents=True)
             realization.parent.mkdir(parents=True)
             gpkg_file.touch()
@@ -48,9 +53,14 @@ class TestPathsWithSpaces(unittest.TestCase):
                 gage_ids=["12345678"],
                 gpkg_dirs=[gpkg_file],
                 output_dirs=[output_dir],
+                forcing_files=[root / "forcing files" / "forcing.nc"],
                 ngen_dir=root / "ngen build",
                 sandbox_dir=root / "sandbox source",
                 sandbox_config={"simulation": {"partitioning": {}}},
+                simulation_time={
+                    "start_time": "2010-01-01 00:00:00",
+                    "end_time": "2010-01-02 00:00:00",
+                },
                 dryrun=False,
             )
             runner = Runner(ctx)
@@ -65,7 +75,10 @@ class TestPathsWithSpaces(unittest.TestCase):
             ), patch(
                 "src.python.runner.subprocess.run",
                 return_value=SimpleNamespace(returncode=0),
-            ) as run:
+            ) as run, patch.object(
+                runner,
+                "validate_configuration_profile",
+            ):
                 runner.run_ngen_without_calibration()
 
             command = run.call_args.args[0]

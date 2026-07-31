@@ -71,7 +71,8 @@ class TestEnsembleConfiguration(unittest.TestCase):
             root = Path(temp_dir)
             forcing_file = root / "forcing.nc"
             forcing_file.touch()
-            (root / "output" / "configs").mkdir(parents=True)
+            config_dir = root / "output" / "configs" / "calibration"
+            config_dir.mkdir(parents=True)
             context = SimpleNamespace(
                 ngen_dir=root / "ngen",
                 formulation="PET,CFE,T-ROUTE",
@@ -93,6 +94,7 @@ class TestEnsembleConfiguration(unittest.TestCase):
                 context,
                 forcing_file,
                 root / "output",
+                config_dir,
                 ensemble_member_id=1,
             )
 
@@ -103,6 +105,7 @@ class TestEnsembleConfiguration(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             loader = object.__new__(SandboxData)
             loader.output_dir = Path(temp_dir)
+            loader.config_dir = Path(temp_dir) / "configs" / "calibration"
             loader.catids = [1, 2]
             loader.gdf = pd.DataFrame(
                 {
@@ -126,7 +129,7 @@ class TestEnsembleConfiguration(unittest.TestCase):
             loader.save_ensemble_weights(context)
 
             weights = pd.read_csv(
-                Path(temp_dir) / "configs" / "ensemble_weights.csv"
+                loader.config_dir / "ensemble_weights.csv"
             )
             self.assertEqual(
                 list(weights.columns),

@@ -62,10 +62,11 @@ creates the corrected copy.
 
 ## NetCDF forcing rechunking
 
-Sandbox can rechunk NetCDF forcing files before configuration generation. This
-creates a sibling `*_rechunked.nc` file and points ngen to that file. The
-original forcing file is left unchanged. Existing rechunked files are reused
-when they are newer than the source forcing file.
+The `sandbox --forc` step can rechunk downloaded or external NetCDF forcing.
+This creates a sibling `*_rechunked.nc` file; later configuration and run steps
+point ngen to that file without modifying the forcing data. The original file
+is left unchanged. Existing rechunked files are reused when they are newer than
+the source forcing file.
 
 ```yaml
 forcings:
@@ -84,6 +85,13 @@ With both correction and rechunking enabled, the selected file is typically:
 ```
 
 Date-only values default to `00:00:00`.
+
+Before configuration generation or execution, Sandbox reads the actual time
+coordinate from each selected NetCDF file. The workflow stops with the gage,
+required simulation window, available forcing window, and forcing path when
+the file does not cover the complete calibration, validation, or control
+period. The configured `forcings.time` values do not override the dates stored
+inside an existing NetCDF file.
 
 To download or prepare forcing for a subset of the project gages, set
 `forcings.gages` to `all`, one gage ID, or a list of gage IDs. The full project
@@ -135,9 +143,45 @@ forcings:
   forcing_dir: "/path/to/forcing_custom/<gage_id>.nc"
 ```
 
+For custom filenames stored together in one flat directory, ordinary `*`
+wildcards may surround the placeholder:
+
+```yaml
+forcings:
+  format: ".nc"
+  forcing_dir: "/path/to/forcing_custom/*<gage_id>*.nc"
+```
+
 For gage `50147800`, these examples resolve to
 `/path/to/forcing_custom/50147800` and
 `/path/to/forcing_custom/50147800.nc`, respectively.
+
+Characters outside `<gage_id>` are matched literally, so `_` does not match
+`-`. Every selected gage normally must resolve to exactly one file. Sandbox
+does not use `use_corrected` to choose among multiple independent matches from
+a custom filename template. If source and corrected files coexist, make the
+template more specific, for example:
+
+```yaml
+forcing_dir: "/path/to/forcing/*<gage_id>*_corrected.nc"
+```
+
+After that one source file is selected, `rechunk: true` still controls
+preparation for ngen. Run the forcing step once:
+
+```bash
+sandbox --forc -i configs/my_project.yaml
+```
+
+For an external NetCDF filename template, this command does not download or
+correct forcing. It only creates or refreshes the `*_rechunked.nc` sibling. An
+already-rechunked file is used directly. On later runs, a broad custom template
+may match the exact base and rechunked pair; Sandbox treats them as one logical
+forcing resource. Other multiple-match combinations remain errors.
+
+`sandbox --conf`, `sandbox --dryrun`, and `sandbox --run` never rechunk forcing.
+With `rechunk: true`, they require a current prepared sibling and report that
+`sandbox --forc` must be run if it is missing or older than the source.
 
 If `rechunk: true`, the workflow writes a sibling file named
 `*_rechunked.nc`, so the forcing file's parent directory must be writable. Set

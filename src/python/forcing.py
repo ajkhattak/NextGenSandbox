@@ -10,6 +10,7 @@ import pandas as pd
 
 from src.python.forcing_files import (
     prepare_rechunked_forcing_file,
+    resolve_netcdf_forcing_pattern,
     select_netcdf_forcing_file,
     select_source_netcdf_forcing_file,
 )
@@ -61,8 +62,6 @@ class ForcingProcessor:
         )
         self.rechunk_forcing  = self.dforcing.get("rechunk", True)
 
-        self.forcing_venv_dir = Path(os.environ.get("FORCING_ENV"))
-
         start_yr = pd.Timestamp(self.forcing_time['start_time']).year
         end_yr   = pd.Timestamp(self.forcing_time['end_time']).year + 1
 
@@ -80,6 +79,27 @@ class ForcingProcessor:
                 f"forcing/{start_yr}_to_{end_yr}",
             )
         self.forcing_dir = self.dforcing.get("forcing_dir", forcing_dir)
+        self.external_netcdf_template = (
+            Path(str(self.forcing_dir)).suffix.lower() == ".nc"
+            or glob.has_magic(str(self.forcing_dir))
+        )
+        if self.external_netcdf_template and self.forcing_format != ".nc":
+            raise ValueError(
+                "A NetCDF forcings.forcing_dir filename template requires "
+                "forcings.format: .nc"
+            )
+        if (
+            self.external_netcdf_template
+            and len(self.selected_gages) > 1
+            and not has_gage_placeholder(self.forcing_dir)
+        ):
+            raise ValueError(
+                "A custom NetCDF forcings.forcing_dir without <gage_id> is only "
+                "supported for one gage."
+            )
+
+        forcing_env = os.environ.get("FORCING_ENV")
+        self.forcing_venv_dir = Path(forcing_env) if forcing_env else None
 
     def download_forcing(self):
         if not os.path.exists(self.config_file):
@@ -92,12 +112,38 @@ class ForcingProcessor:
             self.gpkg_dirs,
             strict=True,
         ):
-            print (f"Processing gage: {gpkg}")
-            result = self.forcing_generate_catchment(gpkg, gage_id=gage_id)
+            if self.external_netcdf_template:
+                print(f"Preparing existing forcing for gage: {gage_id}")
+                result = self.prepare_existing_forcing(gage_id)
+            else:
+                print(f"Processing gage: {gpkg}")
+                result = self.forcing_generate_catchment(gpkg, gage_id=gage_id)
             if result:
                 failed = True
 
         return failed
+
+    def prepare_existing_forcing(self, gage_id):
+        forcing_path = self.forcing_dir
+        if has_gage_placeholder(forcing_path):
+            forcing_path = render_gage_path(forcing_path, gage_id)
+
+        forcing_file = resolve_netcdf_forcing_pattern(
+            forcing_path,
+            rechunk_enabled=self.rechunk_forcing,
+        )
+        if not forcing_file.is_file():
+            raise FileNotFoundError(
+                f"Custom NetCDF forcing file does not exist: {forcing_file}"
+            )
+
+        prepared_file = prepare_rechunked_forcing_file(
+            forcing_file,
+            sandbox_dir=self.sandbox_dir,
+            enabled=self.rechunk_forcing,
+        )
+        print(f"Prepared forcing file: {prepared_file}")
+        return False
 
 
     def forcing_generate_catchment(self, resource, gage_id=None):
@@ -117,6 +163,12 @@ class ForcingProcessor:
             fdir = render_gage_path(self.forcing_dir, gage_id)
 
         forcing_config = self.write_forcing_input_files(forcing_dir=fdir)
+
+        if self.forcing_venv_dir is None:
+            sys.exit(
+                "FORCING_ENV is not set. Build and load the Sandbox forcing "
+                "environment before downloading forcing data."
+            )
 
         venv_bin = self.forcing_venv_dir / "bin"
         forcing_python = venv_bin / "python"

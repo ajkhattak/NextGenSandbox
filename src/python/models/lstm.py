@@ -21,7 +21,7 @@ class LSTMConfigurationGenerator(ConfigurationGenerator):
 
         for instance in self.instances:
 
-            config_dir = instance.config_dir
+            config_dir = self.instance_config_dir(instance)
             basefile = instance.basefile
 
             basefile_path = os.path.join(self.ctx.sandbox_dir, f"configs/basefiles/{basefile}")
@@ -161,10 +161,6 @@ class LSTMConfigurationGenerator(ConfigurationGenerator):
             })
 
 
-        gpkg_name = os.path.basename(self.static_data.gpkg_file).split(".")[0]
-        gage_id = gpkg_name.split("_")[1]
-        
-
         for catID in self.static_data.catids:
             cat_name = f"cat-{catID}"
             
@@ -173,7 +169,7 @@ class LSTMConfigurationGenerator(ConfigurationGenerator):
 
             config = {
                 "train_cfg_file": [c["train_cfg_path"] for c in config_ensemble],
-                "basin_id": gage_id,
+                "basin_id": self.static_data.gage_id,
                 "verbose": 0,
                 "time_step": "1 hour",
                 "initial_state": "zero",

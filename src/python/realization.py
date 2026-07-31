@@ -27,15 +27,16 @@ class RealizationGenerator:
                  ctx,
                  forcing_dir,
                  output_dir,
+                 config_dir,
                  ensemble_member_id,
                  ):
         self.ctx = ctx
         self.ngen_dir    = self.ctx.ngen_dir 
         self.forcing_dir = forcing_dir
         self.output_dir  = output_dir
+        self.config_dir  = str(config_dir)
         self.formulation = self.ctx.formulation
         self.simulation_time = self.ctx.simulation_time
-        self.config_dir      = os.path.join(output_dir,"configs")
         self.forcing_format  = self.ctx.forcing_format
         self.verbosity       = self.ctx.verbosity
         self.ngen_cal_type   = self.ctx.task_type
@@ -58,8 +59,7 @@ class RealizationGenerator:
         self.tag = f"cfg_tile-{self.ensemble_member_id}" if self.ensemble_enabled else "cfg"
 
         self.realization_file = (
-            Path(self.output_dir)
-            / "configs"
+            Path(self.config_dir)
             / (
                 f"realization_{realization_name}_{self.tag}.json"
                 if self.ensemble_enabled
@@ -228,13 +228,12 @@ class RealizationGenerator:
                 continue
 
             for instance in instances:
+                instance_config_dir = Path(self.config_dir) / instance.name
 
-                instance.config_dir = Path(self.output_dir) / "configs"  / instance.name
-
-                if not instance.config_dir.exists() and not model_name == "SLOTH":
+                if not instance_config_dir.exists() and not model_name == "SLOTH":
                     print(
                         f"{model_name} config directory does not exist: "
-                        f"{instance.config_dir}"
+                        f"{instance_config_dir}"
                     )
                     sys.exit(0)
 

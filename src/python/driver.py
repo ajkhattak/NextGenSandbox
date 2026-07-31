@@ -73,14 +73,39 @@ class Driver:
                 output_dir=o_dir,
             )
 
-        # Call generate files
-        gen = generate.Generate(ctx = self.ctx,
-                                gpkg_file   = gpkg_dir,
-                                forcing_dir = f_dir,
-                                output_dir  = o_dir,
-                                )
+        original_task_type = ctx.task_type
+        original_simulation_time = ctx.simulation_time
+        try:
+            for specification in self.configuration_specs(o_dir):
+                ctx.task_type = specification["task_type"]
+                ctx.simulation_time = specification["simulation_time"]
+                config_dir = specification["config_dir"]
+                config_dir.mkdir(parents=True, exist_ok=True)
 
-        gen.run()
+                gen = generate.Generate(
+                    ctx=self.ctx,
+                    gage_id=gpkg_id,
+                    gpkg_file=gpkg_dir,
+                    forcing_dir=f_dir,
+                    output_dir=o_dir,
+                    config_dir=config_dir,
+                )
+                gen.run()
+
+                helper.write_configuration_manifest(
+                    config_dir,
+                    task_type=specification["task_type"],
+                    validation_name=specification.get("validation_name"),
+                    gage_id=gpkg_id,
+                    formulation_models=ctx.formulation_models,
+                    simulation_time=specification["simulation_time"],
+                    hydrofabric=gpkg_dir,
+                    forcing=f_dir,
+                )
+        finally:
+            ctx.task_type = original_task_type
+            ctx.simulation_time = original_simulation_time
+
         failed = False
         if not failed:
             basin_ids.append(gpkg_id)
@@ -92,6 +117,47 @@ class Driver:
             print(self.colors.GREEN + "  %s " % result + self.colors.END)
 
         return basin_ids, num_cats
+
+    def configuration_specs(self, output_dir):
+        ctx = self.ctx
+        specifications = []
+
+        if ctx.task_type != "validation":
+            task_type = (
+                "calibration"
+                if ctx.task_type == "calibvalid"
+                else ctx.task_type
+            )
+            specifications.append(
+                {
+                    "config_dir": helper.configuration_dir(
+                        output_dir,
+                        task_type,
+                    ),
+                    "task_type": task_type,
+                    "simulation_time": ctx.simulation_time,
+                }
+            )
+
+        if ctx.task_type in {"validation", "calibvalid"}:
+            multiple_validations = len(ctx.validation_periods) > 1
+            for period in ctx.validation_periods:
+                name = period.get("name", "validation")
+                specifications.append(
+                    {
+                        "config_dir": helper.configuration_dir(
+                            output_dir,
+                            "validation",
+                            validation_name=name,
+                            multiple_validations=multiple_validations,
+                        ),
+                        "task_type": "validation",
+                        "validation_name": name,
+                        "simulation_time": period["simulation_time"],
+                    }
+                )
+
+        return specifications
 
     def write_simulation_metadata(self, gpkg_id, num_cpus, input_dir, output_dir):
         ctx = self.ctx

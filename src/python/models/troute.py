@@ -22,7 +22,7 @@ class TRouteConfigurationGenerator(ConfigurationGenerator):
     def write_troute_input_files(self):
 
         troute_basefile = os.path.join(self.ctx.sandbox_dir, "configs/basefiles/config_troute.yaml")
-        troute_dir = os.path.join(self.output_dir,"configs")
+        troute_dir = str(self.static_data.config_dir)
         gpkg_name = os.path.basename(self.static_data.gpkg_file).split(".")[0]
 
         if not os.path.exists(troute_basefile):
@@ -31,13 +31,6 @@ class TRouteConfigurationGenerator(ConfigurationGenerator):
         with open(troute_basefile, 'r') as file:
             d = yaml.safe_load(file)
 
-        # get the terminal nexus id
-        gdf_net = gpd.read_file(self.static_data.gpkg_file, layer="flowpath-attributes")
-        gpkg_id = gpkg_name.split("_")[1]
-        mask    = gdf_net["gage"].str.contains(gpkg_id, na=False)
-
-        terminal_nexus_id = gdf_net.loc[mask, "gage_nex_id"].iloc[0]
-        
         d['network_topology_parameters']['supernetwork_parameters']['geo_file_path'] = self.static_data.gpkg_file
         d['network_topology_parameters']['waterbody_parameters']['level_pool']['level_pool_waterbody_parameter_file_path'] = self.static_data.gpkg_file
         d['network_topology_parameters']['supernetwork_parameters']['title_string'] = gpkg_name
@@ -104,6 +97,15 @@ class TRouteConfigurationGenerator(ConfigurationGenerator):
                 }
             }
             # write mask file for terminal nexus output only
+            gdf_net = gpd.read_file(
+                self.static_data.gpkg_file,
+                layer="flowpath-attributes",
+            )
+            terminal_nexus_id = self._terminal_nexus_id(
+                gdf_net,
+                self.static_data.gage_id,
+                self.static_data.gpkg_file,
+            )
             dnex = {
                 "nex": [terminal_nexus_id.split("-")[1]]
                 }
@@ -114,3 +116,38 @@ class TRouteConfigurationGenerator(ConfigurationGenerator):
 
         with open(os.path.join(troute_dir, "troute_config.yaml"), 'w') as file:
             yaml.dump(d, file, default_flow_style=False, sort_keys=False)
+
+    @staticmethod
+    def _terminal_nexus_id(gdf_net, gage_id, gpkg_file):
+        required = {"gage", "gage_nex_id"}
+        missing = required.difference(gdf_net.columns)
+        if missing:
+            raise ValueError(
+                f"Cannot determine the terminal nexus for gage '{gage_id}' in "
+                f"{gpkg_file}: flowpath-attributes is missing column(s) "
+                f"{', '.join(sorted(missing))}."
+            )
+
+        gage_id = str(gage_id).strip()
+        gages = gdf_net["gage"].astype("string").str.strip()
+        matches = (
+            gdf_net.loc[gages == gage_id, "gage_nex_id"]
+            .dropna()
+            .astype(str)
+            .drop_duplicates()
+        )
+
+        if matches.empty:
+            available = sorted(set(gages.dropna()))
+            preview = ", ".join(available[:10]) or "none"
+            raise ValueError(
+                f"No terminal nexus found for gage '{gage_id}' in "
+                f"{gpkg_file}. Available gage values in flowpath-attributes "
+                f"include: {preview}."
+            )
+        if len(matches) > 1:
+            raise ValueError(
+                f"Multiple terminal nexuses found for gage '{gage_id}' in "
+                f"{gpkg_file}: {', '.join(matches)}."
+            )
+        return matches.iloc[0]

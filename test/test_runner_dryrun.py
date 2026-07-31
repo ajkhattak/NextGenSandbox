@@ -28,17 +28,23 @@ class TestRunnerDryRun(unittest.TestCase):
             gpkg_file = root / "inputs" / "hydrofabric" / "gage_12345678.gpkg"
             output_dir = root / "outputs" / "12345678"
             gpkg_file.parent.mkdir(parents=True)
-            (output_dir / "configs").mkdir(parents=True)
+            config_dir = output_dir / "configs" / "control"
+            config_dir.mkdir(parents=True)
             gpkg_file.touch()
-            (output_dir / "configs" / "realization_test.json").touch()
+            (config_dir / "realization_test.json").touch()
 
             ctx = SimpleNamespace(
                 gage_ids=["12345678"],
                 gpkg_dirs=[gpkg_file],
                 output_dirs=[output_dir],
+                forcing_files=[root / "forcing.nc"],
                 ngen_dir=root / "ngen",
                 sandbox_dir=root,
                 sandbox_config={"simulation": {"partitioning": {}}},
+                simulation_time={
+                    "start_time": "2010-01-01 00:00:00",
+                    "end_time": "2010-01-02 00:00:00",
+                },
                 dryrun=True,
             )
             runner = Runner(ctx)
@@ -49,10 +55,18 @@ class TestRunnerDryRun(unittest.TestCase):
             ) as prepare_partitioning, patch("src.python.runner.os.chdir"), patch(
                 "src.python.runner.os.getcwd",
                 return_value=str(output_dir),
+            ), patch.object(
+                runner,
+                "validate_configuration_profile",
             ):
                 runner.run_ngen_without_calibration()
 
-            prepare_partitioning.assert_called_once_with(root, gpkg_file, {})
+            prepare_partitioning.assert_called_once_with(
+                root,
+                gpkg_file,
+                {},
+                config_dir=config_dir,
+            )
 
     def test_calibvalid_dryrun_skips_validation(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -88,6 +102,7 @@ class TestRunnerDryRun(unittest.TestCase):
                 output_dir,
                 None,
                 "12345678",
+                forcing_file=None,
             )
 
 

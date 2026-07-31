@@ -158,7 +158,14 @@ def load_gpkg_resources(
 
     if not resources_by_gage:
         location = path_spec or directory
-        raise FileNotFoundError(f"No geopackage files found using {location}")
+        message = f"No geopackage files found using {location}."
+        if path_spec and GAGE_ID_PLACEHOLDER in str(path_spec):
+            message += (
+                " Characters outside <gage_id> are matched literally; for "
+                "example, '_' and '-' are different. Adjust the surrounding "
+                "characters or use * where either form should be accepted."
+            )
+        raise FileNotFoundError(message)
 
     requested = selected_gages
     if requested is None and gpkg_config.get("select") is not None:

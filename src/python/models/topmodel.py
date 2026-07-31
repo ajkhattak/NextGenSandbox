@@ -21,7 +21,7 @@ class TopmodelConfigurationGenerator(ConfigurationGenerator):
     def _write_input_files(self, member_id, tag):
         for variant_cfg in self.instances:
 
-            config_dir = variant_cfg.config_dir
+            config_dir = self.instance_config_dir(variant_cfg)
             basefile = variant_cfg.basefile
 
             basefile_path = os.path.join(self.ctx.sandbox_dir, f"configs/basefiles/{basefile}")

@@ -1,6 +1,10 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
+
+import yaml
 
 from src.python.forcing import ForcingProcessor
 
@@ -84,6 +88,55 @@ class TestForcingSelection(unittest.TestCase):
 
             self.assertEqual(processor.load_gage_ids(), [second, first])
             self.assertEqual(processor._resource_gage_id(second), "03366500")
+
+    def test_forcing_step_accepts_existing_netcdf_filename_template(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config_file = Path(tmp) / "sandbox.yaml"
+            config = {
+                "general": {
+                    "input_dir": tmp,
+                    "output_dir": str(Path(tmp) / "outputs"),
+                    "gages": {
+                        "option": "ids",
+                        "ids": ["50147800"],
+                    },
+                },
+                "formulation": {},
+                "forcings": {
+                    "time": {
+                        "start": "2016-01-01",
+                        "end": "2016-12-31 23:00:00",
+                    },
+                    "forcing_dir": str(Path(tmp) / "*<gage_id>*.nc"),
+                },
+            }
+            with config_file.open("w") as stream:
+                yaml.safe_dump(config, stream)
+
+            processor = object.__new__(ForcingProcessor)
+            processor.config_file = str(config_file)
+
+            with patch.dict("os.environ", {}, clear=True):
+                processor.load_config()
+
+            self.assertTrue(processor.external_netcdf_template)
+            self.assertIsNone(processor.forcing_venv_dir)
+
+    def test_forcing_step_prepares_existing_custom_netcdf(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "vendor-gage_50147800-hourly.nc"
+            rechunked = Path(tmp) / "vendor-gage_50147800-hourly_rechunked.nc"
+            source.touch()
+            rechunked.touch()
+            os.utime(source, (100, 100))
+            os.utime(rechunked, (200, 200))
+
+            processor = object.__new__(ForcingProcessor)
+            processor.forcing_dir = str(Path(tmp) / "*<gage_id>*.nc")
+            processor.rechunk_forcing = True
+            processor.sandbox_dir = Path(tmp)
+
+            self.assertFalse(processor.prepare_existing_forcing("50147800"))
 
 
 if __name__ == "__main__":

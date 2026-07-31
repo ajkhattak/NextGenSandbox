@@ -33,13 +33,20 @@ The default `gage` layout organizes resources by gage first:
     simulation_metadata.yml  # optional; written when simulation.outputs.metadata.enabled is true
     run_index.yml  # written by sandbox --run for calibration/validation tasks
     configs/
-      realization_*.json
-      ngen-cal_calib_config.yaml
-      ngen-cal_valid_config.yaml
-      ngen-cal_valid_config_<validation_name>.yaml
-      troute_config.yaml
-      <model_instance_name>/
-        <model_config_files>
+      calibration/
+        configuration_manifest.yml
+        realization_*.json
+        ngen-cal_calib_config.yaml
+        troute_config.yaml
+        <model_instance_name>/
+          <model_config_files>
+      validation/
+        configuration_manifest.yml
+        realization_*.json
+        ngen-cal_valid_config.yaml
+        troute_config.yaml
+        <model_instance_name>/
+          <model_config_files>
     output_*/
     output_sim_obs/
     pso_global_best/
@@ -81,22 +88,59 @@ ngen outputs, validation outputs, and plugin outputs. These files usually
 depend on the selected formulation, model instances, calibration settings, and
 simulation period.
 
-The `configs/` directory contains all generated configuration needed for a
-specific run. This includes the ngen realization file, ngen-cal calibration or
-validation files, routing configuration, and per-model configuration
-directories for every model instance in the formulation. For example, a
-formulation with `NoahOWP`, `CFE-X`, and `T-ROUTE` may generate:
+The `configs/` directory groups generated files by task. Calibration files are
+stored under `configs/calibration`, control files under `configs/control`, and
+restart files under `configs/restart`. A single validation uses
+`configs/validation` directly. When two or more validation periods are
+configured, each receives a named directory under
+`configs/validation/<validation_name>`. This prevents one task or validation
+period from overwriting another. Each set includes an ngen realization,
+routing configuration, per-model configuration directories, and a
+`configuration_manifest.yml` describing the task, time window, hydrofabric,
+forcing file, and formulation used to generate it.
+
+For example, a formulation with `NoahOWP`, `CFE-X`, and `T-ROUTE` may generate:
 
 ```text
 configs/
-  realization_nom_cfe_t-route.json
-  ngen-cal_calib_config.yaml
-  troute_config.yaml
-  noahowp/
-    noahowp_cfg_cat-*.input
-    parameters/
-  cfe-x/
-    cfe_cfg_cat-*.txt
+  calibration/
+    configuration_manifest.yml
+    realization_nom_cfe_t-route.json
+    ngen-cal_calib_config.yaml
+    troute_config.yaml
+    noahowp/
+      noahowp_cfg_cat-*.input
+      parameters/
+    cfe-x/
+      cfe_cfg_cat-*.txt
+  validation/
+    configuration_manifest.yml
+    realization_nom_cfe_t-route.json
+    ngen-cal_valid_config.yaml
+    troute_config.yaml
+    noahowp/
+    cfe-x/
+```
+
+With multiple validation periods, the validation portion becomes:
+
+```text
+configs/
+  validation/
+    water_year_2011/
+      configuration_manifest.yml
+      realization_nom_cfe_t-route.json
+      ngen-cal_valid_config.yaml
+      troute_config.yaml
+      noahowp/
+      cfe-x/
+    water_year_2012/
+      configuration_manifest.yml
+      realization_nom_cfe_t-route.json
+      ngen-cal_valid_config.yaml
+      troute_config.yaml
+      noahowp/
+      cfe-x/
 ```
 
 ## Why Gage First?
@@ -186,6 +230,19 @@ forcings:
   format: ".nc"
   forcing_dir: "/path/to/forcing_custom/<gage_id>.nc"
 ```
+
+All gage files may also share one flat directory with custom names:
+
+```yaml
+forcings:
+  format: ".nc"
+  forcing_dir: "/path/to/forcing_custom/*<gage_id>*.nc"
+```
+
+Each selected gage normally must resolve to exactly one forcing file. With
+`rechunk: true`, Sandbox also accepts the exact base plus
+`*_rechunked.nc` sibling prepared by `sandbox --forc` and uses the current
+rechunked file. Other multiple matches require a more specific template.
 
 Observation paths can use placeholders:
 
