@@ -23,8 +23,6 @@ permissions:
 jobs:
   unit-tests:
     runs-on: ubuntu-latest
-    env:
-      MPLCONFIGDIR: ${{ runner.temp }}/matplotlib
 
     steps:
       - name: Check out repository
@@ -56,3 +54,5 @@ jobs:
 
       - name: Run Python unit tests
         run: python -m unittest discover -s test -p "test_*.py"
+        env:
+          MPLCONFIGDIR: ${{ runner.temp }}/matplotlib
