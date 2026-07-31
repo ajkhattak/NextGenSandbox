@@ -16,7 +16,7 @@ import shutil
 def run_step(label, command):
     print("-------------------------------------")
     print(label)
-    subprocess.run(command, shell=True, check=True)
+    subprocess.run(command, check=True)
 
 def print_success(message):
     print("-------------------------------------")
@@ -55,23 +55,23 @@ if __name__ == "__main__":
 
         # test sandbox -conf
         if args.subset:
-            run_step("Running subset step", f"sandbox --subset -i {sandbox_config}")
+            run_step("Running subset step", ["sandbox", "--subset", "-i", str(sandbox_config)])
             print_success("SUCCESS: subset smoke-test step completed.")
         elif args.forc:
-            run_step("Running forcing step", f"sandbox --forc -i {sandbox_config}")
+            run_step("Running forcing step", ["sandbox", "--forc", "-i", str(sandbox_config)])
             print_success("SUCCESS: forcing smoke-test step completed.")
         elif args.conf:
-            run_step("Running config generation step", f"sandbox --conf -i {sandbox_config}")
+            run_step("Running config generation step", ["sandbox", "--conf", "-i", str(sandbox_config)])
             print_success("SUCCESS: configuration smoke-test step completed.")
         elif args.run:
-            run_step("Running test simulation", f"sandbox --run -i {sandbox_config}")
+            run_step("Running test simulation", ["sandbox", "--run", "-i", str(sandbox_config)])
             print_success("SUCCESS: run smoke-test step completed.")
 
         elif args.all:
-            run_step("Running subset step", f"sandbox --subset -i {sandbox_config}")
-            run_step("Running forcing step", f"sandbox --forc -i {sandbox_config}")
-            run_step("Running config generation step", f"sandbox --conf -i {sandbox_config}")
-            run_step("Running test simulation", f"sandbox --run -i {sandbox_config}")
+            run_step("Running subset step", ["sandbox", "--subset", "-i", str(sandbox_config)])
+            run_step("Running forcing step", ["sandbox", "--forc", "-i", str(sandbox_config)])
+            run_step("Running config generation step", ["sandbox", "--conf", "-i", str(sandbox_config)])
+            run_step("Running test simulation", ["sandbox", "--run", "-i", str(sandbox_config)])
             print_success(
                 "SUCCESS: NextGenSandbox smoke test completed. "
                 "Installation and the core workflow are ready."

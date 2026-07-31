@@ -1,6 +1,7 @@
 import os
 import sys
 import glob
+import shlex
 import yaml
 from pathlib import Path
 import subprocess
@@ -108,21 +109,36 @@ class ForcingProcessor:
 
         forcing_config = self.write_forcing_input_files(forcing_dir=fdir)
 
-        run_cmd = f'python {self.sandbox_dir}/extern/CIROH_DL_NextGen/forcing_prep/generate.py {forcing_config}'
+        venv_bin = self.forcing_venv_dir / "bin"
+        forcing_python = venv_bin / "python"
+        forcing_script = (
+            self.sandbox_dir
+            / "extern"
+            / "CIROH_DL_NextGen"
+            / "forcing_prep"
+            / "generate.py"
+        )
+        run_cmd = [
+            str(forcing_python),
+            str(forcing_script),
+            str(forcing_config),
+        ]
 
-        venv_bin = os.path.join(self.forcing_venv_dir, 'bin')
-
-        if not os.path.exists(venv_bin):
-            msg = f"Python venv for forcing does not exist. Provided {self.forcing_venv_dir}"
+        if not forcing_python.is_file():
+            msg = (
+                "Python executable for forcing does not exist. "
+                f"Expected: {forcing_python}"
+            )
             sys.exit(msg)
 
         env = os.environ.copy()
-        env['PATH'] = f"{venv_bin}:{env['PATH']}"
-        result = subprocess.call(run_cmd, shell=True, env=env)
-        if result != 0:
+        env["PATH"] = f"{venv_bin}{os.pathsep}{env['PATH']}"
+        result = subprocess.run(run_cmd, env=env)
+        if result.returncode != 0:
             print(
                 "Forcing generation failed before post-processing. "
-                f"Command exited with status {result}: {run_cmd}"
+                f"Command exited with status {result.returncode}: "
+                f"{shlex.join(run_cmd)}"
             )
             return True
 

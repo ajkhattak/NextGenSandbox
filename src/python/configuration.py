@@ -11,7 +11,7 @@ import re
 import copy
 import glob
 import json
-import subprocess
+import shutil
 import pandas as pd
 import geopandas as gpd
 import numpy as np
@@ -58,8 +58,7 @@ class ConfigurationGenerator:
 
     def create_directory(self, dir_name, member_id=1):
         if member_id == 1 and os.path.exists(dir_name):
-            str_sub = "rm -rf " + dir_name
-            out = subprocess.call(str_sub, shell=True)
+            shutil.rmtree(dir_name)
         os.makedirs(dir_name, exist_ok=True)
 
 

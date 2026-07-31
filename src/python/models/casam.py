@@ -1,6 +1,6 @@
 import os
-import subprocess
 import json
+import shutil
 import numpy as np
 import pandas as pd
 import yaml
@@ -57,9 +57,8 @@ class CASAMConfigurationGenerator(ConfigurationGenerator):
             "extern/CASAM/CASAM/data/vG_params_stat_nom_ordered.dat"
         )
 
-        # copy params file
-        str_sub = f"cp -r {casam_params_file} {casam_dir}"
-        subprocess.call(str_sub, shell=True)
+        # Copy the shared parameter file into the model configuration directory.
+        shutil.copy2(casam_params_file, casam_dir)
 
         
         for catID in self.static_data.catids:

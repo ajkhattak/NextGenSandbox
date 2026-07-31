@@ -1,9 +1,9 @@
 import os
 import sys
 import yaml
-import subprocess
 import pandas as pd
 import json
+import shutil
 from pathlib import Path
 
 from src.python.models_registry import register_model
@@ -106,9 +106,13 @@ class NOMConfigurationGenerator(ConfigurationGenerator):
         nom_dir = os.path.join(self.output_dir, config_dir)
         self.create_directory(nom_dir, member_id)
         
-        # copy NOM params dir 
-        str_sub ="cp -r "+ self.static_data.soil_params_NWM_dir + " %s"%nom_dir
-        out=subprocess.call(str_sub,shell=True)
+        # Copy the parameter directory into the model configuration directory.
+        soil_params_dir = Path(self.static_data.soil_params_NWM_dir)
+        shutil.copytree(
+            soil_params_dir,
+            Path(nom_dir) / soil_params_dir.name,
+            dirs_exist_ok=True,
+        )
         
         #nom_basefile = os.path.join(self.ctx.sandbox_dir, "configs/basefiles/config_noahowp.input")
 

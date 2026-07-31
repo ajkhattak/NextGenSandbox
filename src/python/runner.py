@@ -14,6 +14,7 @@ import glob
 import yaml
 import platform
 import json
+import shlex
 from pathlib import Path
 import shutil
 import re
@@ -90,7 +91,14 @@ class Runner:
             realization = realization[0]
 
             # defaults to serial run no-mpi mode
-            run_cmd = f'{ngen_exe} {gpkg_file} all {gpkg_file} all {realization}'
+            run_cmd = [
+                str(ngen_exe),
+                str(gpkg_file),
+                "all",
+                str(gpkg_file),
+                "all",
+                str(realization),
+            ]
 
             partitioning = self.ctx.sandbox_config.get("simulation", {}).get("partitioning", {})
             file_par, num_cpus = helper.prepare_basin_partitioning(self.ctx.sandbox_dir, gpkg_file,
@@ -102,26 +110,41 @@ class Runner:
             if self.mpirun_exists and self.num_procs > 1:
                 # Use MPI only when the partitioning request needs multiple processes.
 
-                run_cmd = (
-                    f"mpirun -np {self.num_procs} "
-                    f"{ngen_exe} {gpkg_file} all {gpkg_file} all {realization}"
-                    f" {self.file_par}"
-                )
+                run_cmd = [
+                    "mpirun",
+                    "-np",
+                    str(self.num_procs),
+                    str(ngen_exe),
+                    str(gpkg_file),
+                    "all",
+                    str(gpkg_file),
+                    "all",
+                    str(realization),
+                    str(self.file_par),
+                ]
 
+            run_env = None
+            command_text = shlex.join(run_cmd)
             if self.os_name == "Darwin":
-                run_cmd = f'PYTHONEXECUTABLE=$(which python) {run_cmd}'
+                run_env = os.environ.copy()
+                python_executable = shutil.which("python") or sys.executable
+                run_env["PYTHONEXECUTABLE"] = python_executable
+                command_text = (
+                    f"PYTHONEXECUTABLE={shlex.quote(python_executable)} "
+                    f"{command_text}"
+                )
 
             if not self.ctx.dryrun:
                 print(f"Running basin {gage_id} on cores {self.num_procs} ********", flush=True)
-                print(f"Run command: {run_cmd}", flush=True)
-                result = subprocess.run(run_cmd, shell=True)
+                print(f"Run command: {command_text}", flush=True)
+                result = subprocess.run(run_cmd, env=run_env)
                 if result.returncode != 0:
                     raise RuntimeError(
                         f"NextGen run failed for gage {gage_id} with exit code "
                         f"{result.returncode}."
                     )
             else:
-                print(f"Dry run command: {run_cmd}")
+                print(f"Dry run command: {command_text}")
 
 
     def run_ngen_with_calibration(self, dirs):
@@ -236,20 +259,30 @@ class Runner:
 
         # Run command
         if mode in ['calibration', 'restart']:
-            run_command = f"{sys.executable} -m ngen.cal {config_file}"
+            run_command = [
+                sys.executable,
+                "-m",
+                "ngen.cal",
+                str(config_file),
+            ]
 
         elif mode == 'validation':
-            run_command = (
-                f"{sys.executable} {self.ctx.sandbox_dir}/src/python/validation.py "
-                f"-config {config_file}"
-            )
+            run_command = [
+                sys.executable,
+                str(Path(self.ctx.sandbox_dir) / "src/python/validation.py"),
+                "-config",
+                str(config_file),
+            ]
 
             if self.ctx.ensemble_enabled:
-                run_command += " -routing configs/troute_config.yaml"
+                run_command.extend(
+                    ["-routing", "configs/troute_config.yaml"]
+                )
 
+        command_text = shlex.join(run_command)
         before_workers = self.worker_dirs(o_dir)
         if not self.ctx.dryrun:
-            result = subprocess.run(run_command, shell=True)
+            result = subprocess.run(run_command)
             after_workers = self.worker_dirs(o_dir)
             new_workers = after_workers - before_workers
             state_file = None
@@ -285,7 +318,7 @@ class Runner:
                 mode=mode,
                 name=validation_name or mode,
                 config_file=config_file,
-                command=run_command,
+                command=command_text,
                 simulation_time=sim_time,
                 evaluation_time=eval_time,
                 worker_dirs=new_workers,
@@ -310,14 +343,14 @@ class Runner:
                     f"state could not be identified: {state_error}"
                 ) from state_error
         else:
-            print(f"Dry run command: {run_command}")
+            print(f"Dry run command: {command_text}")
             self.write_run_index(
                 output_dir=o_dir,
                 gage_id=id,
                 mode=mode,
                 name=validation_name or mode,
                 config_file=config_file,
-                command=run_command,
+                command=command_text,
                 simulation_time=sim_time,
                 evaluation_time=eval_time,
                 worker_dirs=[],
