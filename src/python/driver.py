@@ -33,9 +33,10 @@ class Driver:
     def generate_catchment_files(self, dirs):
         ctx = self.ctx
 
-        i_dir = dirs[0]
-        o_dir = dirs[1]
-        f_dir = dirs[2]
+        gpkg_id = dirs[0]
+        i_dir = dirs[1]
+        o_dir = dirs[2]
+        f_dir = dirs[3]
 
         o_dir.mkdir(parents=True, exist_ok=True)
         os.chdir(o_dir)
@@ -52,7 +53,6 @@ class Driver:
 
         gpkg_dir = find_gpkg_file(i_dir)
         gpkg_name = gpkg_dir.name
-        gpkg_id = i_dir.name
 
         # get num of cores for the basin
         gpkg_file = gpkg_dir
@@ -141,6 +141,7 @@ class Driver:
         num_cats  = []
 
         tuple_list = list(zip(
+            ctx.gage_ids,
             ctx.gpkg_dirs,
             ctx.output_dirs,
             ctx.forcing_files,

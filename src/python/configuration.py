@@ -13,9 +13,7 @@ import glob
 import json
 import shutil
 import pandas as pd
-import geopandas as gpd
 import numpy as np
-import fiona
 import yaml
 import platform
 import math
@@ -23,10 +21,6 @@ from pathlib import Path
 
 
 os_name = platform.system()
-try:
-    from src.python import schema
-except:
-    import schema
 
 from src.python.data_loader import SandboxData
 
@@ -93,6 +87,7 @@ class ConfigurationCalib:
                  evaluation_time,
                  num_procs,
                  ngen_cal_type,
+                 gage_id,
                  state_dir=None,
                  ):
         self.ctx=ctx
@@ -104,6 +99,7 @@ class ConfigurationCalib:
         self.realization_file_par = realization_file_par
         self.num_procs =  num_procs
         self.ngen_cal_type = ngen_cal_type
+        self.gage_id = str(gage_id)
         self.state_dir = Path(state_dir) if state_dir is not None else None
         self.selected_state_file = None
 
@@ -296,22 +292,6 @@ class ConfigurationCalib:
             )
 
         return self.normalize_calibration_parameter_blocks(param_blocks)
-
-    def get_flowpath_attributes(self):
-
-        layers = fiona.listlayers(self.gpkg_file)
-        flowpath_layer = [layer for layer in layers if 'flowpath' in layer and not 'flowpaths' in layer][0]
-        gdf_fp_attr = gpd.read_file(self.gpkg_file, layer=flowpath_layer)
-        params = schema.get_schema_flowpath_attributes(gdf_fp_attr, for_gage_id=True)
-
-
-        gage_id = params['gages']
-        waterbody_id = params['key']
-        gdf_fp_cols = gdf_fp_attr[[waterbody_id, gage_id]]
-        basin_gage = gdf_fp_cols[gdf_fp_cols[gage_id].notna()]
-        basin_gage_id = basin_gage[waterbody_id].tolist()
-
-        return basin_gage_id
 
     def find_state_file(self):
         params_state_path = self._state_source_path()
@@ -555,9 +535,6 @@ class ConfigurationCalib:
         else:
             assert len(realization_file) == 1
 
-        gpkg_name = os.path.basename(self.gpkg_file).split(".")[0]
-        gage_id = self.get_flowpath_attributes()
-
         param_blocks = self.load_calibration_parameters()
         strategy = self.build_strategy_config(
             self.ctx.calibration_algorithm,
@@ -615,7 +592,7 @@ class ConfigurationCalib:
             "hydrofabric": self.gpkg_file.as_posix(),
             "routing_output": self.troute_output_file,
             "strategy": "uniform",
-            "eval_feature": gpkg_name.split("_")[1]
+            "eval_feature": self.gage_id,
         }
 
         if self.ctx.ensemble_enabled:
@@ -642,9 +619,6 @@ class ConfigurationCalib:
         if self.num_procs > 1 and self.ctx.ensemble_size == 1:
             df_new["model"]["parallel"] = self.num_procs
             df_new["model"]["partitions"] = self.realization_file_par
-
-        gage_id = self.get_flowpath_attributes()
-
 
         df_new["model"]["params"] = {}
 
@@ -700,7 +674,7 @@ class ConfigurationCalib:
             }
         self.configure_observations(
             df_new["model"],
-            gpkg_name.removeprefix("gage_"),
+            self.gage_id,
         )
              
 

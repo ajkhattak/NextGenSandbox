@@ -25,7 +25,11 @@ from src.python.formulations_registry import (
     is_registered_formulation,
     with_default_routing,
 )
-from src.python.gages import load_general_gages, resolve_step_gages
+from src.python.gages import (
+    load_general_gages,
+    load_gpkg_resources,
+    resolve_step_gages,
+)
 from src.python.model_instances import build_model_instances
 from src.python.observations import ObservationLoader
 from src.python.resource_paths import (
@@ -73,12 +77,12 @@ class SandboxContext:
 
     def resolve_output_dirs(self):
         self.output_dirs = [
-            self.output_dir / self.output_dir_name(gpkg_dir)
-            for gpkg_dir in self.gpkg_dirs
+            self.output_dir / self.output_dir_name(gage_id)
+            for gage_id in self.gage_ids
         ]
 
-    def output_dir_name(self, gpkg_dir):
-        name = resource_id(gpkg_dir)
+    def output_dir_name(self, gage_id):
+        name = Path(gage_id).name
         if self.simulation_label:
             return f"{name}_{self.simulation_label}"
         return name
@@ -656,6 +660,22 @@ class SandboxContext:
 
 
     def load_gpkg_dirs(self):
+        gages_config = (
+            getattr(self, "sandbox_config", {}).get("general", {}).get("gages", {})
+        )
+        if str(gages_config.get("option", "")).lower() == "gpkg":
+            resources = load_gpkg_resources(
+                self.sandbox_config,
+                selected_gages=self.gage_ids,
+            )
+            self.gpkg_dirs = list(resources.values())
+            self._gpkg_gage_ids = {
+                Path(resource): gage_id
+                for gage_id, resource in resources.items()
+            }
+            return
+
+        self._gpkg_gage_ids = {}
         if self.resource_layout == "resource":
             self.gpkg_dirs = sorted(resource_hydrofabric_dir(self.input_dir).glob("*.gpkg"))
         else:
@@ -709,7 +729,10 @@ class SandboxContext:
             raise FileNotFoundError(self._missing_gpkg_message(gage_ids))
 
     def _resource_gage_id(self, resource):
-        if self.resource_layout == "resource":
+        configured_id = getattr(self, "_gpkg_gage_ids", {}).get(Path(resource))
+        if configured_id:
+            return configured_id
+        if getattr(self, "resource_layout", "gage") == "resource":
             return resource_id(resource)
         return resource_id(Path(resource))
 
@@ -763,7 +786,7 @@ class SandboxContext:
                 for g in self.gpkg_dirs:
                     forcing_path = render_gage_path(
                         self.forcing_dir,
-                        resource_id(g),
+                        self._resource_gage_id(g),
                     )
                     forcing_file = self._resolve_netcdf_forcing_file(g, forcing_path)
 
@@ -774,7 +797,10 @@ class SandboxContext:
         else:
             if has_gage_placeholder(self.forcing_dir):
                 for g in self.gpkg_dirs:
-                    fdir = render_gage_path(self.forcing_dir, resource_id(g))
+                    fdir = render_gage_path(
+                        self.forcing_dir,
+                        self._resource_gage_id(g),
+                    )
                     fdir = self._resolve_forcing_dir(g, fdir)
 
                     self._validate_csv_forcing_dir(fdir)

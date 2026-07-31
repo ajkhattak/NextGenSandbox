@@ -96,8 +96,7 @@ full set of gages available to workflow steps.
 | `gages.ids` | Gage ID list used with `option: ids`. Quote IDs so leading zeros are preserved. USGS gage IDs may contain 8, 10, or 12 digits. |
 | `gages.file.path` | CSV file used with `option: file`. |
 | `gages.file.column` | CSV column containing gage IDs. |
-| `gages.gpkg.dir` | Existing geopackage directory or individual geopackage used with `option: gpkg`. If omitted, Sandbox searches `input_dir` using `resource_layout`. |
-| `gages.gpkg.pattern` | Filename pattern used to discover geopackages. |
+| `gages.gpkg.dir` | Existing geopackage directory, individual geopackage, or path template used with `option: gpkg`. A custom template must contain `<gage_id>`, for example `/path/to/*_<gage_id>_*.gpkg`. If omitted, Sandbox searches `input_dir` using `resource_layout`. |
 | `gages.gpkg.select` | Optional subset selected from the discovered geopackages. |
 
 `general.gages` is the authoritative project gage set. The `gages` fields under
@@ -108,10 +107,25 @@ individual workflow stage. A step filter accepts:
 - one quoted gage ID
 - a list of quoted gage IDs
 
-CSV and geopackage discovery belong only under `general.gages`.
-When discovering geopackages, each filename must contain exactly one numeric
-gage ID with 8, 10, or 12 digits. Sandbox preserves the complete ID and rejects
-ambiguous filenames rather than truncating them.
+CSV and geopackage discovery belong only under `general.gages`. When
+`gages.gpkg.dir` points to a directory or one file, each filename must contain
+exactly one numeric gage ID with 8, 10, or 12 digits. For custom filenames or
+locations, use `<gage_id>` in the path template:
+
+```yaml
+general:
+  gages:
+    option: gpkg
+    gpkg:
+      dir: "/path/to/gpkgs/hydrofabric_v2_<gage_id>_final.gpkg"
+      select: ["50147800", "03366500"]  # optional
+```
+
+Ordinary `*` wildcards may appear around `<gage_id>`, as in
+`/path/to/gpkgs/*_<gage_id>_*.gpkg`. Sandbox requires exactly one matching file
+for every selected gage and reports missing or duplicate matches. The explicit
+template is used throughout configuration generation, forcing preparation, and
+simulation; it does not need to follow `general.resource_layout`.
 
 See [directory_layout.md](./directory_layout.md) for the paths produced by the
 `gage` and `resource` layouts.

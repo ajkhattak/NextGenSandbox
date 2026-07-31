@@ -5,8 +5,8 @@
 # https://ajkhattak.github.io/NextGenSandbox/configuration/
 
 general:
-  input_dir: "<path_to_input_directory>"
-  output_dir: "<path_to_output_directory>"
+  input_dir: "<path/to/input/directory>"
+  output_dir: "<path/to/output/directory>"
   resource_layout: gage  # gage or resource
   gages:
     option: ids  # ids, file, or gpkg
@@ -14,28 +14,27 @@ general:
 
     # Use this instead of ids when option is file.
     # file:
-    #   path: "<path_to>/gages.csv"
+    #   path: "<path/to/file>/gages.csv"
     #   column: gage_id
 
     # Use this instead of ids when option is gpkg.
     # gpkg:
-    #   dir: "<path_to_geopackages>"
-    #   pattern: "gage_"
+    #   dir: "/path/to/gpkg/*_<gage_id>_*.gpkg"
     #   select: ["01308000"]
 
 subsetting:
   hydrofabric:
     version: "2.2"
-    gpkg_path: "<path_to>/conus_nextgen.gpkg"
+    gpkg_path: "<path/to>/conus_nextgen.gpkg"
     compute_divide_attributes: true
   dem:
     # Omit input_file to use the default DEM source.
-    # input_file: "<path_to>/dem.vrt"
+    # input_file: "<path/to/dem>/dem.vrt"
     output_dir: dem
     aggregate_factor: 3
   vegetation:
     enabled: false
-    # nlcd_path: "<path_to>/Annual_NLCD_LndCov_2021_CU_C1V1.tif"
+    # nlcd_path: "<path/to>/Annual_NLCD_LndCov_2021_CU_C1V1.tif"
     # classification_method: fraction  # fraction or majority
   gages: all  # all, one gage ID, or a list
 
@@ -51,19 +50,19 @@ forcings:
 
   # Use an existing file or external directory instead of the default location.
   # A single .nc file is supported when only one gage is selected.
-  # forcing_dir: "<path_to_forcing>/<gage_id>/forcing.nc"
+  # forcing_dir: "<path/to/forcing>/<gage_id>/forcing.nc"
 
 observations: {}
   # streamflow:
   #   layout: point
-  #   path: "<path_to_observations>/<gage_id>_<variable>.parquet"
+  #   path: "<path/to/observations>/<gage_id>_<variable>.parquet"
   #   time_column: value_time
   #   value_column: value
   #   units: "m3/sec"
 
   # ET:
   #   layout: distributed
-  #   path: "<path_to_observations>/<gage_id>_<variable>.parquet"
+  #   path: "<path/to/observations>/<gage_id>_<variable>.parquet"
   #   time_column: value_time
   #   units: "mm/d"
   #   simulated: ACTUAL_ET
@@ -100,7 +99,7 @@ formulation:
   #       repo_name: cfe
   #       calib_params_block: cfex_params
   #       calib_params_file: cfe-x.yaml
-  #       library_file: "<path_to_model_library>"
+  #       library_file: "<path/to/model/library>"
 
   ensemble:
     enabled: false
@@ -136,7 +135,7 @@ simulation:
       # Validation periods may also be selected from a CSV file.
       # - name: water_year_split
       #   source: file
-      #   file: "<path_to>/year_tasks.csv"
+      #   file: "<path/to>/year_tasks.csv"
       #   year_type: water_year
       #   year_column: year
       #   task_column: task_type
@@ -145,7 +144,7 @@ simulation:
       #   evaluation: "1 year"
 
   # Required for task_type: restart.
-  # restart_dir: "<path_to_restart>/<gage_id>"
+  # restart_dir: "<path/to/restart>/<gage_id>"
 
   outputs:
     divide_variables: {}

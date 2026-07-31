@@ -187,6 +187,54 @@ class TestContextForcing(unittest.TestCase):
                 ],
             )
 
+    def test_custom_gpkg_template_is_used_by_context(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp) / "external"
+            directory.mkdir()
+            first = directory / "hydrofabric_v2_01308000_final.gpkg"
+            second = directory / "hydrofabric_v2_03366500_final.gpkg"
+            first.touch()
+            second.touch()
+
+            ctx = object.__new__(SandboxContext)
+            ctx.sandbox_config = {
+                "general": {
+                    "gages": {
+                        "option": "gpkg",
+                        "gpkg": {
+                            "dir": str(
+                                directory
+                                / "hydrofabric_v2_<gage_id>_*.gpkg"
+                            ),
+                        },
+                    },
+                }
+            }
+            ctx.gage_ids = ["03366500", "01308000"]
+
+            ctx.load_gpkg_dirs()
+
+            self.assertEqual(ctx.gpkg_dirs, [second, first])
+            self.assertEqual(ctx._resource_gage_id(second), "03366500")
+
+    def test_custom_gpkg_id_renders_forcing_filename(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            gpkg = directory / "hydrofabric_v2_50147800_final.gpkg"
+            forcing = directory / "aorc_50147800.nc"
+            gpkg.touch()
+            forcing.touch()
+
+            ctx = self._context_for_pattern(
+                directory / "aorc_<gage_id>.nc"
+            )
+            ctx.gpkg_dirs = [gpkg]
+            ctx._gpkg_gage_ids = {gpkg: "50147800"}
+
+            ctx.prepare_forcing_files()
+
+            self.assertEqual(ctx.forcing_files, [str(forcing)])
+
 
 if __name__ == "__main__":
     unittest.main()

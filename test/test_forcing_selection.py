@@ -60,6 +60,31 @@ class TestForcingSelection(unittest.TestCase):
 
                 self.assertEqual(processor.load_gage_ids(), [second, first])
 
+    def test_custom_gpkg_template_is_used_for_forcing_selection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp) / "external"
+            directory.mkdir()
+            first = directory / "hf_v2_01308000_final.gpkg"
+            second = directory / "hf_v2_03366500_final.gpkg"
+            first.touch()
+            second.touch()
+
+            processor = object.__new__(ForcingProcessor)
+            processor.config = {
+                "general": {
+                    "gages": {
+                        "option": "gpkg",
+                        "gpkg": {
+                            "dir": str(directory / "hf_v2_<gage_id>_*.gpkg"),
+                        },
+                    },
+                }
+            }
+            processor.selected_gages = ["03366500", "01308000"]
+
+            self.assertEqual(processor.load_gage_ids(), [second, first])
+            self.assertEqual(processor._resource_gage_id(second), "03366500")
+
 
 if __name__ == "__main__":
     unittest.main()

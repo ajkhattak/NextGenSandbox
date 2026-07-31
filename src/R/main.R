@@ -106,7 +106,6 @@ load_subset_config <- function(runtime) {
       ),
       gpkg = list(
         dir = subset_gages$gpkg$dir,
-        pattern = subset_gages$gpkg$pattern,
         select = subset_gages$gpkg$select
       )
     ),
@@ -128,6 +127,15 @@ resolve_subset_gages <- function(general_gages, subset_gages, input_dir, resourc
     stop("general$gages$option must be defined. OPTIONS: ids | file | gpkg")
   }
 
+  if (!is.null(general_gages$gpkg$pattern)) {
+    stop(paste(
+      "general$gages$gpkg$pattern is no longer supported.",
+      "Put the filename template in general$gages$gpkg$dir and use",
+      "<gage_id> for the gage ID, for example:",
+      "/path/to/*_<gage_id>_*.gpkg"
+    ))
+  }
+
   full_gages <- list(
     option = option,
     ids = general_gages$ids,
@@ -141,7 +149,6 @@ resolve_subset_gages <- function(general_gages, subset_gages, input_dir, resourc
         input_dir,
         resource_layout
       ),
-      pattern = ifelse(is.null(general_gages$gpkg$pattern), "gage_", general_gages$gpkg$pattern),
       select = general_gages$gpkg$select
     )
   )
@@ -200,7 +207,7 @@ resolve_subset_gages <- function(general_gages, subset_gages, input_dir, resourc
 
 resolve_general_gpkg_dir <- function(gpkg_dir, input_dir, resource_layout) {
   if (!is.null(gpkg_dir) && trimws(gpkg_dir) != "") {
-    return(gpkg_dir)
+    return(path.expand(gpkg_dir))
   }
 
   if (is.null(input_dir) || trimws(input_dir) == "") {
@@ -301,42 +308,77 @@ load_gage_ids_from_file <- function(config) {
 }
 
 load_gpkg_files <- function(config) {
-  gpkg_dir <- config$gages$gpkg$dir
-  pattern <- config$gages$gpkg$pattern
+  gpkg_source <- config$gages$gpkg$dir
   selected_gpkgs <- config$gages$gpkg$select
 
-  if (dir.exists(gpkg_dir)) {
-    gage_files <- list.files(gpkg_dir, full.names = TRUE, pattern = pattern)
+  if (grepl("<gage_id>", gpkg_source, fixed = TRUE)) {
+    if (lengths(regmatches(gpkg_source, gregexpr("<gage_id>", gpkg_source, fixed = TRUE))) != 1) {
+      stop("general$gages$gpkg$dir may contain <gage_id> only once")
+    }
+    if (!grepl("\\.gpkg$", gpkg_source, ignore.case = TRUE)) {
+      stop("A general$gages$gpkg$dir template containing <gage_id> must resolve to .gpkg files")
+    }
+    gage_files <- Sys.glob(gsub("<gage_id>", "*", gpkg_source, fixed = TRUE))
+    gage_files <- gage_files[grepl("\\.gpkg$", gage_files, ignore.case = TRUE)]
+  } else if (
+    grepl("*", gpkg_source, fixed = TRUE) ||
+    grepl("?", gpkg_source, fixed = TRUE) ||
+    grepl("[", gpkg_source, fixed = TRUE)
+  ) {
+    stop("A wildcard general$gages$gpkg$dir must include <gage_id>")
+  } else if (dir.exists(gpkg_source)) {
+    gage_files <- list.files(
+      gpkg_source,
+      full.names = TRUE,
+      pattern = "\\.gpkg$",
+      ignore.case = TRUE
+    )
     if (length(gage_files) == 0 && identical(config$resource_layout, "gage")) {
-      candidate_dirs <- list.dirs(gpkg_dir, recursive = FALSE, full.names = TRUE)
+      candidate_dirs <- list.dirs(gpkg_source, recursive = FALSE, full.names = TRUE)
       gage_files <- unlist(lapply(candidate_dirs, function(candidate_dir) {
         candidate_files <- c(
-          list.files(file.path(candidate_dir, "hydrofabric"), full.names = TRUE, pattern = pattern),
-          list.files(file.path(candidate_dir, "data"), full.names = TRUE, pattern = pattern),
-          list.files(candidate_dir, full.names = TRUE, pattern = pattern)
+          list.files(file.path(candidate_dir, "hydrofabric"), full.names = TRUE, pattern = "\\.gpkg$"),
+          list.files(file.path(candidate_dir, "data"), full.names = TRUE, pattern = "\\.gpkg$"),
+          list.files(candidate_dir, full.names = TRUE, pattern = "\\.gpkg$")
         )
         candidate_files[grepl("\\.gpkg$", candidate_files)]
       }))
     }
-  } else if (file.exists(gpkg_dir)) {
-    gage_files <- gpkg_dir
+  } else if (file.exists(gpkg_source)) {
+    gage_files <- gpkg_source
   } else {
-    stop("gpkg_dir does not exist")
+    stop(sprintf("general$gages$gpkg$dir does not exist: %s", gpkg_source))
+  }
+
+  gage_files <- sort(unique(gage_files))
+  if (length(gage_files) == 0) {
+    stop(sprintf("No geopackage files found using: %s", gpkg_source))
+  }
+
+  gage_ids <- vapply(
+    gage_files,
+    subsetting_gpkg_id,
+    character(1),
+    gpkg_template = gpkg_source
+  )
+  duplicate_ids <- unique(gage_ids[duplicated(gage_ids)])
+  if (length(duplicate_ids) > 0) {
+    stop(sprintf(
+      "Multiple geopackages resolved for the same gage(s): %s",
+      toString(duplicate_ids)
+    ))
   }
 
   if (!is.null(selected_gpkgs)) {
-    selected_pattern <- paste(selected_gpkgs, collapse = "|")
-    matches <- grep(selected_pattern, gage_files, value = TRUE)
-
-    if (length(matches) == 0) {
+    selected_gpkgs <- as.character(selected_gpkgs)
+    missing <- setdiff(selected_gpkgs, gage_ids)
+    if (length(missing) > 0) {
       stop(glue::glue(
-        "None of the selected gage files were found.\n",
-        "Selected: {toString(selected_gpkgs)}\n",
-        "Available: {toString(basename(gage_files))}"
+        "Geopackages are missing for requested gages: {toString(missing)}.\n",
+        "Source: {gpkg_source}"
       ))
     }
-
-    gage_files <- matches
+    gage_files <- gage_files[match(selected_gpkgs, gage_ids)]
   }
 
   gage_files
@@ -357,7 +399,12 @@ resolve_subset_work <- function(config) {
   stopifnot(length(gage_files) > 0)
 
   list(
-    gage_ids = vapply(gage_files, subsetting_gpkg_id, character(1)),
+    gage_ids = vapply(
+      gage_files,
+      subsetting_gpkg_id,
+      character(1),
+      gpkg_template = config$gages$gpkg$dir
+    ),
     gage_files = gage_files
   )
 }

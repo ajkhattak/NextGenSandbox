@@ -150,10 +150,14 @@ general:
   gages:
     option: gpkg
     gpkg:
-      dir: "/path/to/gpkgs"
-      pattern: "gage_"
+      dir: "/path/to/gpkgs/*_<gage_id>_*.gpkg"
       select: ["50147800"]
 ```
+
+With `option: gpkg`, the explicit path may live outside `input_dir` and does
+not need to follow the project resource layout. The `<gage_id>` placeholder
+identifies the gage-specific portion of a custom filename. Each selected gage
+must resolve to exactly one geopackage.
 
 Workflow steps can then filter this project set with simple selectors such as
 `gages: all`, `gages: "50147800"`, or `gages: ["50147800", "03366500"]`.

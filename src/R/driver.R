@@ -190,7 +190,10 @@ ProcessGPKG <- function(gfile, config) {
   # vector containing IDs of failed (for some reason) basins
   cats_failed <- numeric(0)
 
-  id <- subsetting_gpkg_id(gfile)
+  id <- subsetting_gpkg_id(
+    gfile,
+    gpkg_template = config$gages$gpkg$dir
+  )
 
   gpkg_file = subset_gpkg_path(id, config, basename(gfile))
   cat_dir = subsetting_work_dir(id, config)

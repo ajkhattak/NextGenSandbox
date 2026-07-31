@@ -4,7 +4,11 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.python.gages import load_general_gages, resolve_step_gages
+from src.python.gages import (
+    load_general_gages,
+    load_gpkg_resources,
+    resolve_step_gages,
+)
 
 
 class TestGageSelection(unittest.TestCase):
@@ -41,18 +45,28 @@ class TestGageSelection(unittest.TestCase):
             self.assertEqual(load_general_gages(config), ["01308000", "03366500"])
 
     def test_general_gages_from_gpkg_select(self):
-        config = {
-            "general": {
-                "gages": {
-                    "option": "gpkg",
-                    "gpkg": {
-                        "select": ["01308000", "03366500"],
+        with tempfile.TemporaryDirectory() as tmp:
+            hydrofabric = Path(tmp) / "hydrofabric"
+            hydrofabric.mkdir()
+            (hydrofabric / "gage_01308000.gpkg").touch()
+            (hydrofabric / "gage_03366500.gpkg").touch()
+            config = {
+                "general": {
+                    "input_dir": tmp,
+                    "resource_layout": "resource",
+                    "gages": {
+                        "option": "gpkg",
+                        "gpkg": {
+                            "select": ["01308000", "03366500"],
+                        },
                     },
                 }
             }
-        }
 
-        self.assertEqual(load_general_gages(config), ["01308000", "03366500"])
+            self.assertEqual(
+                load_general_gages(config),
+                ["01308000", "03366500"],
+            )
 
     def test_general_gages_from_resource_layout_gpkg_default_dir(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -67,9 +81,7 @@ class TestGageSelection(unittest.TestCase):
                     "resource_layout": "resource",
                     "gages": {
                         "option": "gpkg",
-                        "gpkg": {
-                            "pattern": "gage_",
-                        },
+                        "gpkg": {},
                     },
                 }
             }
@@ -90,9 +102,7 @@ class TestGageSelection(unittest.TestCase):
                     "resource_layout": "resource",
                     "gages": {
                         "option": "gpkg",
-                        "gpkg": {
-                            "pattern": "gage_",
-                        },
+                        "gpkg": {},
                     },
                 }
             }
@@ -111,9 +121,7 @@ class TestGageSelection(unittest.TestCase):
                     "resource_layout": "resource",
                     "gages": {
                         "option": "gpkg",
-                        "gpkg": {
-                            "pattern": "gage_",
-                        },
+                        "gpkg": {},
                     },
                 }
             }
@@ -133,9 +141,7 @@ class TestGageSelection(unittest.TestCase):
                     "resource_layout": "resource",
                     "gages": {
                         "option": "gpkg",
-                        "gpkg": {
-                            "pattern": "gage_",
-                        },
+                        "gpkg": {},
                     },
                 }
             }
@@ -156,14 +162,112 @@ class TestGageSelection(unittest.TestCase):
                     "resource_layout": "gage",
                     "gages": {
                         "option": "gpkg",
-                        "gpkg": {
-                            "pattern": "gage_",
-                        },
+                        "gpkg": {},
                     },
                 }
             }
 
             self.assertEqual(load_general_gages(config), ["01308000", "03366500"])
+
+    def test_custom_gpkg_template_extracts_id_from_placeholder_position(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp) / "external hydrofabrics"
+            directory.mkdir()
+            first = directory / "hf_v2_01308000_release_2026.gpkg"
+            second = directory / "hf_v2_1234567890_release_2026.gpkg"
+            first.touch()
+            second.touch()
+
+            config = {
+                "general": {
+                    "gages": {
+                        "option": "gpkg",
+                        "gpkg": {
+                            "dir": str(directory / "hf_v2_<gage_id>_*.gpkg"),
+                        },
+                    },
+                }
+            }
+
+            self.assertEqual(
+                load_gpkg_resources(config),
+                {
+                    "01308000": first,
+                    "1234567890": second,
+                },
+            )
+
+    def test_custom_gpkg_template_preserves_selected_order(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            first = directory / "custom_01308000_file.gpkg"
+            second = directory / "custom_03366500_file.gpkg"
+            first.touch()
+            second.touch()
+
+            config = {
+                "general": {
+                    "gages": {
+                        "option": "gpkg",
+                        "gpkg": {
+                            "dir": str(directory / "custom_<gage_id>_*.gpkg"),
+                        },
+                    },
+                }
+            }
+
+            self.assertEqual(
+                load_gpkg_resources(config, ["03366500", "01308000"]),
+                {
+                    "03366500": second,
+                    "01308000": first,
+                },
+            )
+
+    def test_custom_gpkg_template_rejects_duplicate_gage_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            (directory / "custom_01308000_a.gpkg").touch()
+            (directory / "custom_01308000_b.gpkg").touch()
+            config = {
+                "general": {
+                    "gages": {
+                        "option": "gpkg",
+                        "gpkg": {
+                            "dir": str(directory / "custom_<gage_id>_*.gpkg"),
+                        },
+                    },
+                }
+            }
+
+            with self.assertRaisesRegex(ValueError, "Multiple geopackages"):
+                load_gpkg_resources(config)
+
+    def test_custom_gpkg_wildcard_requires_gage_placeholder(self):
+        config = {
+            "general": {
+                "gages": {
+                    "option": "gpkg",
+                    "gpkg": {"dir": "/tmp/custom_*.gpkg"},
+                },
+            }
+        }
+
+        with self.assertRaisesRegex(ValueError, "must include <gage_id>"):
+            load_gpkg_resources(config)
+
+    def test_gpkg_pattern_is_rejected(self):
+        config = {
+            "general": {
+                "gages": {
+                    "option": "gpkg",
+                    "gpkg": {"pattern": "gage_"},
+                },
+            }
+        }
+
+        with self.assertRaisesRegex(ValueError, "pattern is no longer supported"):
+            load_general_gages(config)
 
     def test_step_gages_default_to_project_gages(self):
         self.assertEqual(

@@ -6,14 +6,48 @@ subsetting_failure_dir <- function(output_dir) {
   file.path(output_dir, SUBSETTING_FAILURE_DIR)
 }
 
-subsetting_gpkg_id <- function(gpkg_file) {
-  id <- sub(".*_(.*?)\\..*", "\\1", basename(gpkg_file))
-
-  if (is.na(id)) {
-    id <- "11111111"
+subsetting_gpkg_id <- function(gpkg_file, gpkg_template = NULL) {
+  if (!is.null(gpkg_template) && grepl("<gage_id>", gpkg_template, fixed = TRUE)) {
+    marker <- "NEXTGENSANDBOXGAGEID"
+    template_regex <- glob2rx(
+      gsub("<gage_id>", marker, gpkg_template, fixed = TRUE)
+    )
+    template_regex <- sub(
+      marker,
+      "(?<![0-9])([0-9]{12}|[0-9]{10}|[0-9]{8})(?![0-9])",
+      template_regex,
+      fixed = TRUE
+    )
+    matched <- regmatches(
+      gpkg_file,
+      regexec(template_regex, gpkg_file, perl = TRUE)
+    )[[1]]
+    if (length(matched) == 2) {
+      return(as.character(matched[2]))
+    }
+    stop(sprintf(
+      "Geopackage does not match general$gages$gpkg$dir template: %s",
+      gpkg_file
+    ))
   }
 
-  as.character(id)
+  numeric_tokens <- regmatches(
+    basename(gpkg_file),
+    gregexpr("[0-9]+", basename(gpkg_file))
+  )[[1]]
+  valid_tokens <- numeric_tokens[nchar(numeric_tokens) %in% c(8, 10, 12)]
+  if (length(numeric_tokens) != 1 || length(valid_tokens) != 1) {
+    stop(sprintf(
+      paste(
+        "Cannot infer a USGS gage ID from geopackage '%s'.",
+        "Its filename must contain exactly one numeric gage ID with 8, 10,",
+        "or 12 digits, or general$gages$gpkg$dir must use <gage_id>."
+      ),
+      basename(gpkg_file)
+    ))
+  }
+
+  as.character(valid_tokens[1])
 }
 
 subset_failure_dirs <- function(output_dir, gage_ids = NULL) {

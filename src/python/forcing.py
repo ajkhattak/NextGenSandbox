@@ -13,7 +13,11 @@ from src.python.forcing_files import (
     select_netcdf_forcing_file,
     select_source_netcdf_forcing_file,
 )
-from src.python.gages import load_general_gages, resolve_step_gages
+from src.python.gages import (
+    load_general_gages,
+    load_gpkg_resources,
+    resolve_step_gages,
+)
 from src.python.resource_paths import (
     find_gpkg_file,
     has_gage_placeholder,
@@ -83,17 +87,22 @@ class ForcingProcessor:
 
         failed = False
 
-        for gpkg in self.gpkg_dirs:
+        for gage_id, gpkg in zip(
+            self.selected_gages,
+            self.gpkg_dirs,
+            strict=True,
+        ):
             print (f"Processing gage: {gpkg}")
-            result = self.forcing_generate_catchment(gpkg)
+            result = self.forcing_generate_catchment(gpkg, gage_id=gage_id)
             if result:
                 failed = True
 
         return failed
 
 
-    def forcing_generate_catchment(self, resource):
+    def forcing_generate_catchment(self, resource, gage_id=None):
         resource = Path(resource)
+        gage_id = gage_id or self._resource_gage_id(resource)
         work_dir = resource.parent if resource.is_file() else resource
         os.chdir(work_dir)
 
@@ -105,7 +114,7 @@ class ForcingProcessor:
 
         fdir = self.forcing_dir
         if has_gage_placeholder(self.forcing_dir):
-            fdir = render_gage_path(self.forcing_dir, resource_id(resource))
+            fdir = render_gage_path(self.forcing_dir, gage_id)
 
         forcing_config = self.write_forcing_input_files(forcing_dir=fdir)
 
@@ -155,6 +164,24 @@ class ForcingProcessor:
         return False
 
     def load_gage_ids(self):
+        gages_config = getattr(self, "config", {}).get("general", {}).get(
+            "gages",
+            {},
+        )
+        if str(gages_config.get("option", "")).lower() == "gpkg":
+            resources = load_gpkg_resources(
+                self.config,
+                selected_gages=self.selected_gages,
+            )
+            self._gpkg_gage_ids = {
+                Path(resource): gage_id
+                for gage_id, resource in resources.items()
+            }
+            selected_resources = list(resources.values())
+            print("Selected geopackage resources:", selected_resources)
+            return selected_resources
+
+        self._gpkg_gage_ids = {}
         input_dir = Path(self.input_dir)
         if not input_dir.is_dir():
             raise FileNotFoundError(
@@ -201,6 +228,12 @@ class ForcingProcessor:
         print("Selected gage directories:", selected_dirs)
 
         return selected_dirs
+
+    def _resource_gage_id(self, resource):
+        configured_id = getattr(self, "_gpkg_gage_ids", {}).get(Path(resource))
+        if configured_id:
+            return configured_id
+        return resource_id(resource)
 
     def write_forcing_input_files(self, forcing_dir):
 

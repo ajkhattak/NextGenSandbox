@@ -243,6 +243,7 @@ class Runner:
             evaluation_time      = eval_time,
             num_procs            = self.num_procs,
             ngen_cal_type        = ngen_cal_type,
+            gage_id              = id,
             state_dir            = restart_dir if mode == "restart" else o_dir,
         )
 

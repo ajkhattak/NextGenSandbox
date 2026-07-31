@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import fnmatch
+import glob
+import os
 import re
 from pathlib import Path
 
@@ -12,6 +15,7 @@ from src.python.resource_paths import (
 )
 
 SUPPORTED_GAGE_ID_LENGTHS = (8, 10, 12)
+GAGE_ID_PLACEHOLDER = "<gage_id>"
 
 
 def load_general_gages(config: dict) -> list[str]:
@@ -33,16 +37,7 @@ def load_general_gages(config: dict) -> list[str]:
             "general.gages.file",
         )
     if option == "gpkg":
-        gpkg_config = general_gages.get("gpkg") or {}
-        selected = gpkg_config.get("select")
-        if selected is not None:
-            return _normalize_gage_list(selected, "general.gages.gpkg.select")
-        return _gage_ids_from_gpkg_resources(
-            gpkg_config.get("dir"),
-            gpkg_config.get("pattern", "gage_"),
-            input_dir=general.get("input_dir"),
-            resource_layout=general.get("resource_layout", "gage"),
-        )
+        return list(load_gpkg_resources(config))
 
     raise ValueError("general.gages.option must be one of: ids, file, gpkg")
 
@@ -106,16 +101,30 @@ def _load_gages_from_file(path, column: str, field_name: str) -> list[str]:
     return [str(value) for value in df[column].dropna().tolist()]
 
 
-def _gage_ids_from_gpkg_resources(
-    directory,
-    pattern: str,
-    *,
-    input_dir,
-    resource_layout: str,
-) -> list[str]:
-    if directory:
-        directory = Path(directory)
+def load_gpkg_resources(
+    config: dict,
+    selected_gages: list[str] | None = None,
+) -> dict[str, Path]:
+    """Resolve option: gpkg into an ordered gage ID to file mapping."""
+    general = config.get("general") or {}
+    general_gages = general.get("gages") or {}
+    if str(general_gages.get("option", "")).lower() != "gpkg":
+        raise ValueError("load_gpkg_resources requires general.gages.option: gpkg")
+
+    gpkg_config = general_gages.get("gpkg") or {}
+    if "pattern" in gpkg_config:
+        raise ValueError(
+            "general.gages.gpkg.pattern is no longer supported. Put the "
+            "filename pattern in general.gages.gpkg.dir and use <gage_id> "
+            "for the gage ID, for example: /path/to/*_<gage_id>_*.gpkg"
+        )
+
+    path_spec = gpkg_config.get("dir")
+    resource_layout = general.get("resource_layout", "gage")
+    if path_spec:
+        resources = _discover_gpkg_path_spec(path_spec, resource_layout)
     else:
+        input_dir = general.get("input_dir")
         if not input_dir:
             raise ValueError(
                 "general.input_dir must be provided when general.gages.gpkg.dir "
@@ -127,23 +136,118 @@ def _gage_ids_from_gpkg_resources(
             if resource_layout == "resource"
             else input_dir
         )
+        resources = _discover_gpkg_directory(directory, resource_layout)
 
-    if directory.is_file():
-        files = [directory]
-    elif directory.is_dir():
-        files = _discover_gpkg_files(directory, pattern, resource_layout)
-        if not files:
-            files = _discover_gpkg_files(directory, "", resource_layout)
-    else:
+    resources_by_gage: dict[str, Path] = {}
+    duplicate_gages: dict[str, list[Path]] = {}
+    for gage_id, path in resources:
+        if gage_id in resources_by_gage:
+            duplicate_gages.setdefault(
+                gage_id,
+                [resources_by_gage[gage_id]],
+            ).append(path)
+        else:
+            resources_by_gage[gage_id] = path
+
+    if duplicate_gages:
+        details = "; ".join(
+            f"{gage_id}: {', '.join(str(path) for path in paths)}"
+            for gage_id, paths in sorted(duplicate_gages.items())
+        )
+        raise ValueError(f"Multiple geopackages resolved for the same gage: {details}")
+
+    if not resources_by_gage:
+        location = path_spec or directory
+        raise FileNotFoundError(f"No geopackage files found using {location}")
+
+    requested = selected_gages
+    if requested is None and gpkg_config.get("select") is not None:
+        requested = _normalize_gage_list(
+            gpkg_config.get("select"),
+            "general.gages.gpkg.select",
+        )
+
+    if requested is None:
+        return resources_by_gage
+
+    missing = [gage_id for gage_id in requested if gage_id not in resources_by_gage]
+    if missing:
+        source = path_spec or directory
+        raise FileNotFoundError(
+            "Geopackages are missing for requested gages: "
+            f"{', '.join(missing)}. Source: {source}"
+        )
+
+    return {gage_id: resources_by_gage[gage_id] for gage_id in requested}
+
+
+def _discover_gpkg_path_spec(
+    path_spec: str | Path,
+    resource_layout: str,
+) -> list[tuple[str, Path]]:
+    expanded = os.path.expandvars(os.path.expanduser(str(path_spec)))
+    placeholder_count = expanded.count(GAGE_ID_PLACEHOLDER)
+    if placeholder_count > 1:
+        raise ValueError(
+            "general.gages.gpkg.dir may contain <gage_id> only once"
+        )
+
+    if placeholder_count == 1:
+        if not expanded.lower().endswith(".gpkg"):
+            raise ValueError(
+                "A general.gages.gpkg.dir template containing <gage_id> must "
+                "resolve to .gpkg files"
+            )
+        glob_pattern = expanded.replace(GAGE_ID_PLACEHOLDER, "*")
+        candidates = [
+            Path(path)
+            for path in sorted(glob.glob(glob_pattern, recursive=True))
+            if Path(path).is_file() and Path(path).suffix.lower() == ".gpkg"
+        ]
+        matcher = _gpkg_template_regex(expanded)
+        resources = []
+        for path in candidates:
+            match = matcher.fullmatch(str(path))
+            if match:
+                resources.append((match.group("gage_id"), path))
+        return resources
+
+    path = Path(expanded)
+    if path.is_file():
+        if path.suffix.lower() != ".gpkg":
+            raise ValueError(f"Geopackage file must end in .gpkg: {path}")
+        return [(_gage_id_from_gpkg_filename(path), path)]
+    if path.is_dir():
+        return _discover_gpkg_directory(path, resource_layout)
+    if glob.has_magic(expanded):
+        raise ValueError(
+            "A wildcard general.gages.gpkg.dir must include <gage_id> so "
+            "Sandbox can reliably associate each file with its gage"
+        )
+    raise FileNotFoundError(f"general.gages.gpkg.dir not found: {path}")
+
+
+def _discover_gpkg_directory(
+    directory: Path,
+    resource_layout: str,
+) -> list[tuple[str, Path]]:
+    if not directory.is_dir():
         raise FileNotFoundError(f"general.gages.gpkg.dir not found: {directory}")
 
-    ids = []
-    for path in files:
-        ids.append(_gage_id_from_gpkg_filename(path))
-    if not ids:
-        raise ValueError(f"No gage IDs could be inferred from {directory}")
-    return ids
+    files = _discover_gpkg_files(directory, resource_layout)
+    return [(_gage_id_from_gpkg_filename(path), path) for path in files]
 
+
+def _gpkg_template_regex(path_template: str) -> re.Pattern[str]:
+    marker = "__NEXTGEN_SANDBOX_GAGE_ID__"
+    translated = fnmatch.translate(
+        path_template.replace(GAGE_ID_PLACEHOLDER, marker)
+    )
+    supported = "|".join(
+        rf"\d{{{length}}}" for length in sorted(SUPPORTED_GAGE_ID_LENGTHS, reverse=True)
+    )
+    capture = rf"(?P<gage_id>(?<!\d)(?:{supported})(?!\d))"
+    return re.compile(translated.replace(marker, capture))
 
 def _gage_id_from_gpkg_filename(path: Path) -> str:
     numeric_tokens = re.findall(r"\d+", path.stem)
@@ -164,8 +268,8 @@ def _gage_id_from_gpkg_filename(path: Path) -> str:
     return valid_tokens[0]
 
 
-def _discover_gpkg_files(directory: Path, pattern: str, resource_layout: str) -> list[Path]:
-    direct_files = sorted(directory.glob(f"*{pattern}*.gpkg"))
+def _discover_gpkg_files(directory: Path, resource_layout: str) -> list[Path]:
+    direct_files = sorted(directory.glob("*.gpkg"))
     if direct_files:
         return direct_files
 
