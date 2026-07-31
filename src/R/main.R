@@ -230,28 +230,30 @@ validate_subset_config <- function(config) {
     ))
   }
 
-  dem_input_file <- config$dem$input_file
-  if (is.null(dem_input_file)) {
-    config$dem$input_file <- DEFAULT_DEM_INPUT_FILE
-  } else if (trimws(dem_input_file) == "") {
-    stop(paste(
-      "Invalid input: 'subsetting$dem$input_file' was provided but is empty.",
-      "",
-      "Because 'subsetting$hydrofabric$compute_divide_attributes' defaults to TRUE,",
-      "the workflow needs a DEM to compute derived divide attributes.",
-      "",
-      "Choose one:",
-      "  - remove 'subsetting$dem$input_file' to use the default S3 DEM",
-      "  - provide a valid DEM path or URL",
-      "  - set 'subsetting$hydrofabric$compute_divide_attributes: FALSE' to only subset geopackages",
-      sep = "\n"
-    ))
-  }
+  if (config$hydrofabric$compute_divide_attributes) {
+    dem_input_file <- config$dem$input_file
+    if (is.null(dem_input_file)) {
+      config$dem$input_file <- DEFAULT_DEM_INPUT_FILE
+    } else if (trimws(dem_input_file) == "") {
+      stop(paste(
+        "Invalid input: 'subsetting$dem$input_file' was provided but is empty.",
+        "",
+        "Because 'subsetting$hydrofabric$compute_divide_attributes' is TRUE,",
+        "the workflow needs a DEM to compute derived divide attributes.",
+        "",
+        "Choose one:",
+        "  - remove 'subsetting$dem$input_file' to use the default S3 DEM",
+        "  - provide a valid DEM path or URL",
+        "  - set 'subsetting$hydrofabric$compute_divide_attributes: FALSE' to only subset geopackages",
+        sep = "\n"
+      ))
+    }
 
-  config$dem$aggregate_factor <- validate_positive_integer(
-    config$dem$aggregate_factor,
-    "subsetting$dem$aggregate_factor"
-  )
+    config$dem$aggregate_factor <- validate_positive_integer(
+      config$dem$aggregate_factor,
+      "subsetting$dem$aggregate_factor"
+    )
+  }
 
   option <- config$gages$option
   if (is.null(option)) {
