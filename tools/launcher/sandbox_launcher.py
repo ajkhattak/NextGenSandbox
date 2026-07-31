@@ -42,6 +42,22 @@ class LauncherContext:
     assignment_summary: dict[str, dict[str, int]]
 
 
+@dataclass(frozen=True)
+class ExperimentProgress:
+    configured: bool
+    current_iteration: int | None = None
+    objective_value: float | None = None
+    checkpoint_file: Path | None = None
+
+    @property
+    def started(self) -> bool:
+        return self.current_iteration is not None
+
+    @property
+    def checkpoint_available(self) -> bool:
+        return self.checkpoint_file is not None
+
+
 def load_yaml(path: Path) -> dict[str, Any]:
     with path.open("r") as file:
         data = yaml.safe_load(file) or {}
@@ -533,10 +549,15 @@ def parse_best_params(path: Path) -> tuple[int, float]:
     return int(float(value(lines[0]))), round(float(value(lines[2])), 3)
 
 
-def get_current_iteration(metadata_index_dir: Path, gage_id: str, *, status: bool = False) -> tuple[int, float]:
+def get_experiment_progress(
+    metadata_index_dir: Path,
+    gage_id: str,
+    *,
+    status: bool = False,
+) -> ExperimentProgress:
     metadata = read_metadata_index_file(metadata_index_dir, gage_id)
     if metadata is None:
-        return 0, -999.0
+        return ExperimentProgress(configured=False)
 
     best_param_files = sorted(
         Path(metadata["output_dir"]).glob("*_worker/best_params.txt"),
@@ -546,10 +567,24 @@ def get_current_iteration(metadata_index_dir: Path, gage_id: str, *, status: boo
 
     if not best_param_files:
         if not status:
-            print(f"INFO: [{gage_id}] No best_params.txt found; assuming iteration 0")
-        return 0, -999.0
+            print(f"INFO: [{gage_id}] Calibration has not started.")
+        return ExperimentProgress(configured=True)
 
-    return parse_best_params(best_param_files[0])
+    best_params = best_param_files[0]
+    current_iteration, objective_value = parse_best_params(best_params)
+    state_files = sorted(
+        best_params.parent.glob("*_parameter_df_state.parquet"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    checkpoint_file = state_files[0] if state_files else None
+
+    return ExperimentProgress(
+        configured=True,
+        current_iteration=current_iteration,
+        objective_value=objective_value,
+        checkpoint_file=checkpoint_file,
+    )
 
 
 def get_num_cpus(metadata_index_dir: Path, gage_id: str) -> int:
@@ -592,6 +627,27 @@ def build_slurm_submit_command(
     ]
 
 
+def select_experiment_config(
+    paths: dict[str, Path],
+    progress: ExperimentProgress,
+    max_iter: int,
+) -> Path:
+    if not progress.started:
+        return paths["sandbox_main"]
+
+    if not progress.checkpoint_available:
+        raise RuntimeError(
+            "Calibration progress was found, but its worker directory has no "
+            "*_parameter_df_state.parquet checkpoint. The launcher cannot "
+            "restart or validate this experiment safely."
+        )
+
+    if progress.current_iteration < max_iter:
+        return paths["sandbox_restart"]
+
+    return paths["sandbox_validation"]
+
+
 def run_experiment(
     ctx: LauncherContext,
     model_dir: str,
@@ -599,7 +655,7 @@ def run_experiment(
     job_name: str,
     exp_config_dir: Path,
     metadata_index_dir: Path,
-    current_iter: int,
+    progress: ExperimentProgress,
     delay_seconds: int,
     *,
     use_slurm: bool,
@@ -607,14 +663,9 @@ def run_experiment(
 ) -> None:
     paths = generated_config_paths(exp_config_dir, gage_id)
     max_iter = get_max_iter(exp_config_dir, gage_id)
-    if max_iter == 0 and current_iter == 0:
+    if max_iter == 0 and not progress.configured:
         max_iter = 1
-    if current_iter == 0:
-        sandbox_file = paths["sandbox_main"]
-    elif current_iter < max_iter:
-        sandbox_file = paths["sandbox_restart"]
-    else:
-        sandbox_file = paths["sandbox_validation"]
+    sandbox_file = select_experiment_config(paths, progress, max_iter)
 
     if check_validation_exists(metadata_index_dir, gage_id):
         return
@@ -653,7 +704,7 @@ def local_worker(args: tuple[Any, ...]) -> None:
         job_name,
         exp_config_dir,
         metadata_index_dir,
-        current_iter,
+        progress,
         delay_seconds,
         dryrun,
     ) = args
@@ -664,7 +715,7 @@ def local_worker(args: tuple[Any, ...]) -> None:
         job_name,
         exp_config_dir,
         metadata_index_dir,
-        current_iter,
+        progress,
         delay_seconds,
         use_slurm=False,
         dryrun=dryrun,
@@ -681,10 +732,24 @@ def check_status(ctx: LauncherContext) -> None:
         for formulation_name, _ in get_formulations_for_gage(ctx, gage_id):
             model_dir = model_name_to_dir(formulation_name)
             exp_config_dir, metadata_index_dir = experiment_dirs(ctx, model_dir)
-            current_iter, obj_value = get_current_iteration(metadata_index_dir, gage_id, status=True)
+            progress = get_experiment_progress(
+                metadata_index_dir,
+                gage_id,
+                status=True,
+            )
             max_iter = get_max_iter(exp_config_dir, gage_id)
             validation_exists = check_validation_exists(metadata_index_dir, gage_id, status=True)
             valid_flag = "YES" if validation_exists else "NO"
+            current_iter = (
+                str(progress.current_iteration)
+                if progress.current_iteration is not None
+                else "-"
+            )
+            obj_value = (
+                str(progress.objective_value)
+                if progress.objective_value is not None
+                else "-"
+            )
             status_text = f"{current_iter} | {max_iter} | {obj_value}"
             print(f"{gage_id:<12} {formulation_name:<24} {status_text:<24} {valid_flag:<10}")
 
@@ -714,10 +779,14 @@ def launcher_exit(incomplete_exists: bool) -> None:
 
 def is_experiment_complete(ctx: LauncherContext, gage_id: str, model_dir: str) -> bool:
     exp_config_dir, metadata_index_dir = experiment_dirs(ctx, model_dir)
-    current_iter, _ = get_current_iteration(metadata_index_dir, gage_id, status=True)
+    progress = get_experiment_progress(metadata_index_dir, gage_id, status=True)
     max_iter = get_max_iter(exp_config_dir, gage_id)
     validation_exists = check_validation_exists(metadata_index_dir, gage_id, status=True)
-    return current_iter >= max_iter and validation_exists
+    return (
+        progress.started
+        and progress.current_iteration >= max_iter
+        and validation_exists
+    )
 
 
 def get_running_slurm_jobs() -> set[str]:
@@ -759,8 +828,8 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
                 print(f"[{gage_id}] Job '{job_name}' is already running or pending. Skipping.")
                 continue
 
-            current_iter, _ = get_current_iteration(metadata_index_dir, gage_id)
-            if current_iter == 0:
+            progress = get_experiment_progress(metadata_index_dir, gage_id)
+            if not progress.configured:
                 print(f"[{gage_id}] Setup step; generating configs.")
                 generate_config_files_for_gage(
                     ctx,
@@ -772,6 +841,11 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
                     metadata_index_dir,
                     dryrun=dryrun,
                 )
+                if not dryrun:
+                    progress = get_experiment_progress(
+                        metadata_index_dir,
+                        gage_id,
+                    )
 
             incomplete_exists = True
             delay_seconds = index * ctx.startup_delay_seconds
@@ -784,7 +858,7 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
                     job_name,
                     exp_config_dir,
                     metadata_index_dir,
-                    current_iter,
+                    progress,
                     delay_seconds,
                     use_slurm=True,
                     dryrun=dryrun,
@@ -797,7 +871,7 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
                     job_name,
                     exp_config_dir,
                     metadata_index_dir,
-                    current_iter,
+                    progress,
                     delay_seconds,
                     use_slurm=False,
                     dryrun=True,
@@ -811,7 +885,7 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
                         job_name,
                         exp_config_dir,
                         metadata_index_dir,
-                        current_iter,
+                        progress,
                         delay_seconds,
                         dryrun,
                     )

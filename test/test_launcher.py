@@ -22,6 +22,17 @@ launcher = load_launcher_module()
 
 
 class TestLauncherAssignment(unittest.TestCase):
+    @staticmethod
+    def _write_launcher_metadata(
+        metadata_index_dir: Path,
+        gage_id: str,
+        output_dir: Path,
+    ) -> None:
+        metadata_index_dir.mkdir(parents=True, exist_ok=True)
+        (metadata_index_dir / f"run_{gage_id}.yml").write_text(
+            yaml.safe_dump({"output_dir": str(output_dir)})
+        )
+
     def test_group_assignments_merge_for_repeated_gage(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -183,6 +194,90 @@ class TestLauncherAssignment(unittest.TestCase):
         self.assertIn("--ntasks-per-node=4", command)
         self.assertIn("--cpus-per-task=1", command)
         self.assertNotIn("--cpus-per-task=4", command)
+
+    def test_unconfigured_experiment_has_no_iteration(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            progress = launcher.get_experiment_progress(
+                Path(tmp) / "metadata",
+                "01109403",
+            )
+
+            self.assertFalse(progress.configured)
+            self.assertFalse(progress.started)
+            self.assertIsNone(progress.current_iteration)
+
+    def test_configured_experiment_is_distinct_from_started_iteration_zero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            metadata_dir = root / "metadata"
+            output_dir = root / "output"
+            output_dir.mkdir()
+            self._write_launcher_metadata(
+                metadata_dir,
+                "01109403",
+                output_dir,
+            )
+
+            configured = launcher.get_experiment_progress(
+                metadata_dir,
+                "01109403",
+                status=True,
+            )
+            self.assertTrue(configured.configured)
+            self.assertFalse(configured.started)
+
+            worker_dir = output_dir / "202607180225_ngen_test_worker"
+            worker_dir.mkdir()
+            (worker_dir / "best_params.txt").write_text("0\n0\n0.75\n")
+            checkpoint = (
+                worker_dir
+                / "ngen_cal_nex-1_parameter_df_state.parquet"
+            )
+            checkpoint.touch()
+
+            started = launcher.get_experiment_progress(
+                metadata_dir,
+                "01109403",
+                status=True,
+            )
+            self.assertTrue(started.configured)
+            self.assertTrue(started.started)
+            self.assertEqual(started.current_iteration, 0)
+            self.assertEqual(started.objective_value, 0.75)
+            self.assertEqual(started.checkpoint_file, checkpoint)
+
+    def test_iteration_zero_checkpoint_selects_restart_config(self):
+        paths = {
+            "sandbox_main": Path("/tmp/main.yaml"),
+            "sandbox_restart": Path("/tmp/restart.yaml"),
+            "sandbox_validation": Path("/tmp/validation.yaml"),
+        }
+        progress = launcher.ExperimentProgress(
+            configured=True,
+            current_iteration=0,
+            objective_value=0.75,
+            checkpoint_file=Path("/tmp/state_parameter_df_state.parquet"),
+        )
+
+        self.assertEqual(
+            launcher.select_experiment_config(paths, progress, max_iter=100),
+            paths["sandbox_restart"],
+        )
+
+    def test_started_experiment_without_checkpoint_is_rejected(self):
+        paths = {
+            "sandbox_main": Path("/tmp/main.yaml"),
+            "sandbox_restart": Path("/tmp/restart.yaml"),
+            "sandbox_validation": Path("/tmp/validation.yaml"),
+        }
+        progress = launcher.ExperimentProgress(
+            configured=True,
+            current_iteration=0,
+            objective_value=0.75,
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "has no.*checkpoint"):
+            launcher.select_experiment_config(paths, progress, max_iter=100)
 
 
 if __name__ == "__main__":
