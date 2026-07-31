@@ -2,6 +2,8 @@
 
 Formulations may omit `T-ROUTE` because the workflow appends it automatically.
 All other model components must match a registered formulation.
+Formulations marked *not yet tested* are registered and accepted by the
+workflow but have not completed the project's full formulation test sequence.
 
 ## CFE
 
@@ -32,12 +34,15 @@ CASAM is an LGAR-based, catchment-scale rainfall-runoff model.
 
 - `NOM, CASAM, T-ROUTE`
 - `PET, CASAM, T-ROUTE`
-- `SNOW17, PET, CASAM, T-ROUTE` *(not tested yet)*
-- `NOM, CASAM, SMP, SFT, T-ROUTE` *(not tested yet)*
+- `SNOW17, PET, CASAM, T-ROUTE` *(not yet tested)*
+- `NOM, CASAM, SMP, SFT, T-ROUTE` *(not yet tested)*
 
-## SAC-SMA
+## SAC-SMA (`SACSMA`)
 
-- `SNOW17, PET, SAC-SMA`
+Use `SACSMA` as the formulation component name. `SAC-SMA` is the model's
+display name and repository name.
+
+- `SNOW17, PET, SACSMA, T-ROUTE`
 
 ## Machine-Learning Models
 
