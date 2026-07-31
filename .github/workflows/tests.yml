@@ -1,0 +1,58 @@
+name: Python Tests
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - "docs/**"
+      - "mkdocs.yml"
+      - "docs/requirements.txt"
+      - ".github/workflows/documentation.yml"
+  pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "mkdocs.yml"
+      - "docs/requirements.txt"
+      - ".github/workflows/documentation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    env:
+      MPLCONFIGDIR: ${{ runner.temp }}/matplotlib
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Initialize ngen-cal submodule
+        run: git submodule update --init --recursive extern/ngen-cal
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            extern/ngen-cal/python/ngen_init_config/pyproject.toml
+            extern/ngen-cal/python/ngen_conf/pyproject.toml
+            extern/ngen-cal/python/ngen_cal/pyproject.toml
+            plugins/ngen_cal_plugins/setup.cfg
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[test]"
+          python -m pip install "extern/ngen-cal/python/ngen_init_config[all]"
+          python -m pip install extern/ngen-cal/python/ngen_conf
+          python -m pip install "extern/ngen-cal/python/ngen_cal[netcdf,pso]"
+          python -m pip install -e plugins/ngen_cal_plugins
+
+      - name: Run Python unit tests
+        run: python -m unittest discover -s test -p "test_*.py"

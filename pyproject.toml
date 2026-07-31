@@ -38,7 +38,7 @@ test = [
 [project.urls]
 Homepage = "https://github.com/ajkhattak/NextGenSandbox"
 Repository = "https://github.com/ajkhattak/NextGenSandbox"
-Documentation = "https://github.com/ajkhattak/NextGenSandbox/tree/main/doc"
+Documentation = "https://ajkhattak.github.io/NextGenSandbox/"
 Issues = "https://github.com/ajkhattak/NextGenSandbox/issues"
 
 
