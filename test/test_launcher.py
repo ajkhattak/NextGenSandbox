@@ -150,7 +150,13 @@ class TestLauncherAssignment(unittest.TestCase):
             )
             self.assertEqual(
                 set(paths),
-                {"sandbox_main", "sandbox_restart", "sandbox_validation"},
+                {
+                    "sandbox_main",
+                    "sandbox_restart",
+                    "sandbox_pso_warm_start",
+                    "pso_warm_start_settings",
+                    "sandbox_validation",
+                },
             )
             restart = yaml.safe_load(paths["sandbox_restart"].read_text())
             self.assertEqual(
@@ -243,6 +249,7 @@ class TestLauncherAssignment(unittest.TestCase):
             self.assertTrue(started.configured)
             self.assertTrue(started.started)
             self.assertEqual(started.current_iteration, 0)
+            self.assertEqual(started.completed_iterations, 0)
             self.assertEqual(started.objective_value, 0.75)
             self.assertEqual(started.checkpoint_file, checkpoint)
 
@@ -278,6 +285,160 @@ class TestLauncherAssignment(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "has no.*checkpoint"):
             launcher.select_experiment_config(paths, progress, max_iter=100)
+
+    def test_pso_progress_uses_global_best_checkpoint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            metadata_dir = root / "metadata"
+            output_dir = root / "output"
+            output_dir.mkdir()
+            sandbox_config = root / "sandbox_config.yaml"
+            sandbox_config.write_text(
+                yaml.safe_dump(
+                    {
+                        "calibration": {
+                            "optimizer": {
+                                "algorithm": "pso",
+                            }
+                        }
+                    }
+                )
+            )
+            metadata_dir.mkdir()
+            (metadata_dir / "run_01109403.yml").write_text(
+                yaml.safe_dump(
+                    {
+                        "output_dir": str(output_dir),
+                        "sandbox_config": str(sandbox_config),
+                    }
+                )
+            )
+
+            particle_dir = output_dir / "202607180225_ngen_particle_worker"
+            particle_dir.mkdir()
+            (particle_dir / "best_params.txt").write_text("39\n39\n9.0\n")
+            (particle_dir / "particle_parameter_df_state.parquet").touch()
+
+            global_best_dir = output_dir / "pso_global_best"
+            global_best_dir.mkdir()
+            (global_best_dir / "best_params.txt").write_text("12\n12\n0.25\n")
+            global_checkpoint = (
+                global_best_dir
+                / "global_parameter_df_state.parquet"
+            )
+            global_checkpoint.touch()
+            (output_dir / "pso_progress.json").write_text(
+                '{"completed_generations": 40}'
+            )
+
+            progress = launcher.get_experiment_progress(
+                metadata_dir,
+                "01109403",
+                status=True,
+            )
+
+            self.assertEqual(progress.algorithm, "pso")
+            self.assertEqual(progress.current_iteration, 12)
+            self.assertEqual(progress.completed_iterations, 40)
+            self.assertEqual(progress.objective_value, 0.25)
+            self.assertEqual(progress.checkpoint_file, global_checkpoint)
+
+            paths = {
+                "sandbox_main": Path("/tmp/main.yaml"),
+                "sandbox_restart": Path("/tmp/restart.yaml"),
+                "sandbox_validation": Path("/tmp/validation.yaml"),
+            }
+            self.assertEqual(
+                launcher.select_experiment_config(paths, progress, max_iter=40),
+                paths["sandbox_validation"],
+            )
+
+    def test_incomplete_pso_warm_starts_from_global_best(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = launcher.generated_config_paths(root / "configs", "01109403")
+            paths["sandbox_main"].parent.mkdir(parents=True)
+
+            source_settings = root / "pso.yaml"
+            source_settings.write_text(
+                yaml.safe_dump(
+                    {
+                        "particles": 8,
+                        "initialization": {
+                            "nearby_fraction": 0.25,
+                            "noise_fraction": 0.1,
+                        },
+                    },
+                    sort_keys=False,
+                )
+            )
+            paths["sandbox_main"].write_text(
+                yaml.safe_dump(
+                    {
+                        "calibration": {
+                            "optimizer": {
+                                "algorithm": "pso",
+                                "iterations": 40,
+                                "settings_file": str(source_settings),
+                            }
+                        },
+                        "simulation": {
+                            "task_type": "calibration",
+                        },
+                    },
+                    sort_keys=False,
+                )
+            )
+
+            checkpoint = (
+                root
+                / "output"
+                / "pso_global_best"
+                / "state_parameter_df_state.parquet"
+            )
+            checkpoint.parent.mkdir(parents=True)
+            checkpoint.touch()
+            (checkpoint.parent / "best_params.txt").write_text("9\n9\n0.25\n")
+            progress = launcher.ExperimentProgress(
+                configured=True,
+                current_iteration=9,
+                completed_iterations=10,
+                objective_value=0.25,
+                checkpoint_file=checkpoint,
+                algorithm="pso",
+            )
+
+            selected = launcher.select_experiment_config(
+                paths,
+                progress,
+                max_iter=40,
+            )
+
+            self.assertEqual(selected, paths["sandbox_pso_warm_start"])
+            warm_config = yaml.safe_load(selected.read_text())
+            self.assertEqual(
+                warm_config["simulation"]["task_type"],
+                "calibration",
+            )
+            self.assertEqual(
+                warm_config["calibration"]["optimizer"]["iterations"],
+                40,
+            )
+            self.assertEqual(
+                warm_config["calibration"]["optimizer"]["settings_file"],
+                str(paths["pso_warm_start_settings"].resolve()),
+            )
+            warm_settings = yaml.safe_load(
+                paths["pso_warm_start_settings"].read_text()
+            )
+            self.assertEqual(
+                warm_settings["initialization"]["best_path"],
+                str(checkpoint.resolve()),
+            )
+            self.assertNotIn(
+                "best_path",
+                yaml.safe_load(source_settings.read_text())["initialization"],
+            )
 
 
 if __name__ == "__main__":

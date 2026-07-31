@@ -152,6 +152,13 @@ from the calibration parameter blocks.
 fraction of each parameter range. Remaining particles are initialized randomly
 within bounds.
 
+When the Sandbox Launcher finds an incomplete PSO run, it creates a
+per-experiment copy of the PSO settings, sets `initialization.best_path` to the
+saved state under `pso_global_best`, and starts a new swarm for the full
+configured iteration count. This is a warm start from the best parameter
+vector, not an exact continuation of particle positions, velocities, and
+personal-best histories. The shared PSO settings file is not modified.
+
 `particle_reset` is optional and is disabled when omitted. It can reinitialize
 particles whose personal-best cost has not improved for `patience` consecutive
 generations:

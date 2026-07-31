@@ -4,6 +4,7 @@ import argparse
 import csv
 import copy
 import getpass
+import json
 import multiprocessing
 import os
 import re
@@ -46,8 +47,10 @@ class LauncherContext:
 class ExperimentProgress:
     configured: bool
     current_iteration: int | None = None
+    completed_iterations: int | None = None
     objective_value: float | None = None
     checkpoint_file: Path | None = None
+    algorithm: str | None = None
 
     @property
     def started(self) -> bool:
@@ -441,6 +444,12 @@ def generated_config_paths(exp_config_dir: Path, gage_id: str) -> dict[str, Path
     return {
         "sandbox_main": gage_dir / f"sandbox_config_{gage_id}.yaml",
         "sandbox_restart": gage_dir / f"sandbox_config_{gage_id}_restart.yaml",
+        "sandbox_pso_warm_start": (
+            gage_dir / f"sandbox_config_{gage_id}_pso_warm_start.yaml"
+        ),
+        "pso_warm_start_settings": (
+            gage_dir / f"pso_settings_{gage_id}_warm_start.yaml"
+        ),
         "sandbox_validation": gage_dir / f"sandbox_config_{gage_id}_validation.yaml",
     }
 
@@ -549,6 +558,47 @@ def parse_best_params(path: Path) -> tuple[int, float]:
     return int(float(value(lines[0]))), round(float(value(lines[2])), 3)
 
 
+def calibration_algorithm(metadata: dict[str, Any]) -> str | None:
+    sandbox_config = metadata.get("sandbox_config")
+    if not sandbox_config:
+        return None
+
+    config_path = Path(sandbox_config)
+    if not config_path.is_file():
+        return None
+
+    config = load_yaml(config_path)
+    algorithm = (
+        (config.get("calibration") or {})
+        .get("optimizer", {})
+        .get("algorithm")
+    )
+    return str(algorithm).lower() if algorithm else None
+
+
+def pso_best_params_files(output_dir: Path) -> list[Path]:
+    candidates = [output_dir / "pso_global_best" / "best_params.txt"]
+    candidates.extend(
+        worker_dir / "pso_global_best" / "best_params.txt"
+        for worker_dir in sorted(output_dir.glob("*_worker"))
+    )
+    return [path for path in candidates if path.is_file()]
+
+
+def pso_completed_generations(output_dir: Path, current_iteration: int) -> int:
+    progress_file = output_dir / "pso_progress.json"
+    if not progress_file.is_file():
+        return current_iteration + 1
+
+    progress = json.loads(progress_file.read_text())
+    completed = progress.get("completed_generations")
+    if isinstance(completed, bool) or not isinstance(completed, int) or completed < 0:
+        raise ValueError(
+            f"Invalid completed_generations in PSO progress file: {progress_file}"
+        )
+    return completed
+
+
 def get_experiment_progress(
     metadata_index_dir: Path,
     gage_id: str,
@@ -559,8 +609,17 @@ def get_experiment_progress(
     if metadata is None:
         return ExperimentProgress(configured=False)
 
+    output_dir = Path(metadata["output_dir"])
+    algorithm = calibration_algorithm(metadata)
+    pso_files = pso_best_params_files(output_dir)
+    if algorithm == "pso" or (algorithm is None and pso_files):
+        algorithm = "pso"
+        best_param_files = pso_files
+    else:
+        best_param_files = list(output_dir.glob("*_worker/best_params.txt"))
+
     best_param_files = sorted(
-        Path(metadata["output_dir"]).glob("*_worker/best_params.txt"),
+        best_param_files,
         key=lambda path: path.stat().st_mtime,
         reverse=True,
     )
@@ -568,7 +627,7 @@ def get_experiment_progress(
     if not best_param_files:
         if not status:
             print(f"INFO: [{gage_id}] Calibration has not started.")
-        return ExperimentProgress(configured=True)
+        return ExperimentProgress(configured=True, algorithm=algorithm)
 
     best_params = best_param_files[0]
     current_iteration, objective_value = parse_best_params(best_params)
@@ -578,12 +637,19 @@ def get_experiment_progress(
         reverse=True,
     )
     checkpoint_file = state_files[0] if state_files else None
+    completed_iterations = (
+        pso_completed_generations(output_dir, current_iteration)
+        if algorithm == "pso"
+        else current_iteration
+    )
 
     return ExperimentProgress(
         configured=True,
         current_iteration=current_iteration,
+        completed_iterations=completed_iterations,
         objective_value=objective_value,
         checkpoint_file=checkpoint_file,
+        algorithm=algorithm,
     )
 
 
@@ -592,6 +658,63 @@ def get_num_cpus(metadata_index_dir: Path, gage_id: str) -> int:
     if metadata is None:
         return 1
     return int(metadata.get("num_cpus", 1))
+
+
+def prepare_pso_warm_start_config(
+    paths: dict[str, Path],
+    checkpoint_file: Path,
+) -> Path:
+    sandbox_config = load_yaml(paths["sandbox_main"])
+    calibration = sandbox_config.get("calibration") or {}
+    optimizer = calibration.get("optimizer") or {}
+    if str(optimizer.get("algorithm", "")).strip().lower() != "pso":
+        raise ValueError(
+            "Cannot prepare a PSO warm start from a non-PSO sandbox config: "
+            f"{paths['sandbox_main']}"
+        )
+
+    settings_value = optimizer.get("settings_file")
+    if settings_value:
+        settings_file = Path(settings_value).expanduser()
+        if not settings_file.is_absolute():
+            settings_file = (
+                paths["sandbox_main"].resolve().parent / settings_file
+            ).resolve()
+    else:
+        settings_file = REPO_ROOT / "configs" / "optimizers" / "pso.yaml"
+
+    settings = load_yaml(settings_file)
+    initialization = settings.setdefault("initialization", {})
+    if not isinstance(initialization, dict):
+        raise TypeError(
+            f"PSO initialization must be a mapping in {settings_file}"
+        )
+    initialization["best_path"] = str(checkpoint_file.resolve())
+
+    warm_settings_file = paths["pso_warm_start_settings"]
+    warm_settings_file.parent.mkdir(parents=True, exist_ok=True)
+    with warm_settings_file.open("w") as file:
+        yaml.safe_dump(settings, file, default_flow_style=False, sort_keys=False)
+
+    optimizer["settings_file"] = str(warm_settings_file.resolve())
+    simulation = sandbox_config.setdefault("simulation", {})
+    simulation["task_type"] = "calibration"
+    simulation.pop("restart_dir", None)
+
+    warm_config_file = paths["sandbox_pso_warm_start"]
+    with warm_config_file.open("w") as file:
+        yaml.safe_dump(
+            sandbox_config,
+            file,
+            default_flow_style=False,
+            sort_keys=False,
+        )
+
+    print(
+        "INFO: Starting a new PSO swarm from the previous global-best "
+        f"parameters in {checkpoint_file}."
+    )
+    return warm_config_file
 
 
 def check_validation_exists(metadata_index_dir: Path, gage_id: str, *, status: bool = False) -> bool:
@@ -642,7 +765,17 @@ def select_experiment_config(
             "restart or validate this experiment safely."
         )
 
-    if progress.current_iteration < max_iter:
+    completed_iterations = (
+        progress.completed_iterations
+        if progress.completed_iterations is not None
+        else progress.current_iteration
+    )
+    if completed_iterations < max_iter:
+        if progress.algorithm == "pso":
+            return prepare_pso_warm_start_config(
+                paths,
+                progress.checkpoint_file,
+            )
         return paths["sandbox_restart"]
 
     return paths["sandbox_validation"]
@@ -741,8 +874,8 @@ def check_status(ctx: LauncherContext) -> None:
             validation_exists = check_validation_exists(metadata_index_dir, gage_id, status=True)
             valid_flag = "YES" if validation_exists else "NO"
             current_iter = (
-                str(progress.current_iteration)
-                if progress.current_iteration is not None
+                str(progress.completed_iterations)
+                if progress.completed_iterations is not None
                 else "-"
             )
             obj_value = (
@@ -784,7 +917,11 @@ def is_experiment_complete(ctx: LauncherContext, gage_id: str, model_dir: str) -
     validation_exists = check_validation_exists(metadata_index_dir, gage_id, status=True)
     return (
         progress.started
-        and progress.current_iteration >= max_iter
+        and (
+            progress.completed_iterations
+            if progress.completed_iterations is not None
+            else progress.current_iteration
+        ) >= max_iter
         and validation_exists
     )
 

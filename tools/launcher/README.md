@@ -10,7 +10,7 @@ The launcher supports:
 - SLURM execution for HPC systems
 - local multiprocessing for small tests
 - per-gage/per-formulation config generation
-- automatic calibration restart selection
+- automatic DDS restart and PSO global-best warm-start selection
 - validation after calibration iterations are complete
 - status checks across all configured experiments
 
