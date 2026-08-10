@@ -55,19 +55,20 @@ forcings:
 observations: {}
   # streamflow:
   #   layout: point
-  #   path: "<path/to/observations>/<gage_id>_<variable>.parquet"
+  #   path: "<path/to/observations>/streamflow/*<gage_id>*.parquet"
   #   time_column: value_time
   #   value_column: value
   #   units: "m3/sec"
 
   # ET:
-  #   layout: distributed
-  #   path: "<path/to/observations>/<gage_id>_<variable>.parquet"
+  #   layout: lumped
+  #   path: "<path/to/observations>/ET/*<gage_id>*.parquet"
   #   time_column: value_time
+  #   value_column: value
   #   units: "mm/d"
   #   simulated: ACTUAL_ET
 
-  # Long-format distributed observations also require:
+  # Distributed observations use layout: distributed. Long format requires:
   #   id_column: divide_id
   #   value_column: value
 

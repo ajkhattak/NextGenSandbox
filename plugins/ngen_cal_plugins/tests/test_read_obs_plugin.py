@@ -199,6 +199,51 @@ class TestReadObservedData(unittest.TestCase):
                 [2.5, 3.5],
             )
 
+    def test_lumped_et_does_not_require_hydrofabric_divide_ids(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            et_path = root / "ET_daily_average.csv"
+            pd.DataFrame(
+                {
+                    "Time": [
+                        "2020-01-01 00:00:00+00:00",
+                        "2020-01-02 00:00:00+00:00",
+                    ],
+                    "values": [1.5, 2.5],
+                }
+            ).to_csv(et_path, index=False)
+            config = SimpleNamespace(
+                plugin_settings={
+                    "read_obs_data": {
+                        "ET": {
+                            "layout": "lumped",
+                            "path": str(et_path),
+                            "time_column": "Time",
+                            "value_column": "values",
+                            "units": "mm/d",
+                        }
+                    }
+                },
+                hydrofabric=None,
+            )
+            plugin = ReadObservedData()
+
+            observations = plugin.ngen_cal_model_observations(
+                nexus=SimpleNamespace(),
+                start_time=pd.Timestamp("2020-01-01"),
+                end_time=pd.Timestamp("2020-01-02"),
+                simulation_interval=pd.Timedelta(hours=1),
+            )
+            plugin.ngen_cal_model_configure(config)
+
+            self.assertEqual(
+                observations.xs("ET", level="variable").tolist(),
+                [1.5, 2.5],
+            )
+            self.assertIsNone(
+                observations.index.get_level_values("value_time").tz
+            )
+
     def test_combines_streamflow_and_area_weighted_et(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

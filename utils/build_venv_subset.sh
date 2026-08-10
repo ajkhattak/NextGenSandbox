@@ -65,8 +65,10 @@ EOF
 fi
 
 export CONDA_NO_PLUGINS=true
-#export CONDA_SOLVER=classic # required for macOS
-#CONDA_SOLVER=libmamba # already the mamba default
+# Disabling plugins also disables Conda's libmamba solver plugin. Use Conda's
+# built-in solver for bootstrap operations; the subset environment itself is
+# solved with the standalone mamba executable below.
+export CONDA_SOLVER=classic
 export CONDARC="${SANDBOX_CONDARC:-$SANDBOX_BUILD_DIR/condarc}"
 
 mkdir -p "$(dirname "$CONDARC")"

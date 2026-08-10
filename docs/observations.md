@@ -17,27 +17,39 @@ USGS.
 observations:
   streamflow:
     layout: point
-    path: "/path/to/observations/gage_<gage_id>_streamflow.parquet"
+    path: "/path/to/observations/streamflow/*<gage_id>*.parquet"
     time_column: value_time
     value_column: value
     units: "m3/sec"
 
   ET:
-    layout: distributed
-    path: "/path/to/observations/gage_<gage_id>_ET.parquet"
+    layout: lumped
+    path: "/path/to/observations/ET/*<gage_id>*.parquet"
     time_column: value_time
+    value_column: value
     units: "m/d"
     simulated: ACTUAL_ET
 ```
 
 Multiple observation types, such as streamflow and ET, may be loaded together.
-`path` supports `<gage_id>` and `<variable>` placeholders.
+`path` supports `<gage_id>` and `<variable>` placeholders. Ordinary `*`
+wildcards may be used around them to accommodate arbitrary filename prefixes
+and suffixes. A wildcard path must include `<gage_id>` and must match exactly
+one file for each observation variable and gage.
+
+Observation timestamps are interpreted in UTC. Timezone-aware values are
+converted to UTC, then stored without timezone metadata to match NextGen and
+ngen-cal simulation timestamps. Timezone-naive values are treated as UTC.
 
 ## Layouts
 
-`layout: point` describes one value per timestamp. This is the usual streamflow
-case: a time column and a value column, optionally filtered by gage ID if the
-file contains multiple gages.
+`layout: point` describes one value per timestamp at a location. This is the
+usual streamflow case: a time column and a value column.
+
+`layout: lumped` describes one value per timestamp that has already been
+aggregated over the basin, such as basin-average daily ET. It requires
+`value_column` and does not compare columns with hydrofabric divide IDs or
+perform additional area weighting.
 
 `layout: distributed` describes one value per timestamp and sub-basin.
 Distributed CSV or Parquet files may use either layout:

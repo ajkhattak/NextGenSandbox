@@ -28,6 +28,7 @@ nav:
   - Resources:
       - Directory Layout: directory_layout.md
       - Forcing Data: forcing.md
+      - OpenET Data: openet.md
       - Workflow Schematic: schematic.md
   - Models:
       - Formulations: formulations.md

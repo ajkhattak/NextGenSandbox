@@ -1,3 +1,5 @@
+import glob
+import os
 from pathlib import Path
 
 import pandas as pd
@@ -6,7 +8,7 @@ import pandas as pd
 class ObservationLoader:
     """Read and normalize local CSV or Parquet observation datasets."""
 
-    SUPPORTED_LAYOUTS = {"point", "distributed"}
+    SUPPORTED_LAYOUTS = {"distributed", "lumped", "point"}
 
     def __init__(self, observations, config_dir):
         self.observations = observations
@@ -91,7 +93,7 @@ class ObservationLoader:
         required = [config["time_column"]]
         layout = config["layout"].lower()
 
-        if layout == "point":
+        if layout in {"lumped", "point"}:
             required.append(config["value_column"])
         elif config.get("id_column"):
             required.extend([config["id_column"], config["value_column"]])
@@ -141,12 +143,12 @@ class ObservationLoader:
                 "observations.streamflow.units must be 'm3/s' or 'm3/sec'"
             )
 
-        if layout == "point":
+        if layout in {"lumped", "point"}:
             value_column = config.get("value_column")
             if not isinstance(value_column, str) or not value_column.strip():
                 raise ValueError(
                     f"observations.{name}.value_column must be provided "
-                    "for point observations"
+                    f"for {layout} observations"
                 )
 
         # For wide-format distributed observations, no id_column or value_column is needed:
@@ -185,17 +187,24 @@ class ObservationLoader:
                     f"'{time_column}'"
                 )
 
-        dataframe[time_column] = pd.to_datetime(dataframe[time_column])
+        # NextGen and ngen-cal use UTC but generally represent timestamps
+        # without timezone metadata. Convert aware and naive inputs to the
+        # same UTC-naive representation before slicing or combining data.
+        dataframe[time_column] = (
+            pd.to_datetime(dataframe[time_column], utc=True)
+            .dt.tz_localize(None)
+        )
 
-        if config["layout"].lower() == "point":
+        if config["layout"].lower() in {"lumped", "point"}:
             return self._load_point(name, config, path, dataframe)
 
         return self._load_distributed(name, config, path, dataframe)
 
     def resolve_path(self, name, path_template, gage_id):
         """Resolve a configured path template to an absolute observation file."""
+        raw_template = str(path_template)
         template = (
-            str(path_template)
+            raw_template
             .replace("<gage_id>", "{gage_id}")
             .replace("<variable>", "{variable}")
         )
@@ -209,10 +218,39 @@ class ObservationLoader:
                 f"Unsupported observations.{name}.path placeholder: {exc.args[0]}"
             ) from exc
 
-        path = Path(rendered).expanduser()
+        rendered = os.path.expandvars(os.path.expanduser(rendered))
+        path = Path(rendered)
         if not path.is_absolute():
             path = self.config_dir / path
-        path = path.resolve()
+
+        rendered = str(path)
+        if glob.has_magic(rendered):
+            if "<gage_id>" not in raw_template:
+                raise ValueError(
+                    f"Wildcard observations.{name}.path must include "
+                    "<gage_id> so each file can be associated with its gage"
+                )
+            matches = [
+                Path(match).resolve()
+                for match in sorted(glob.glob(rendered, recursive=True))
+                if Path(match).is_file()
+                and Path(match).suffix.lower() in {".csv", ".parquet", ".pq"}
+            ]
+            if not matches:
+                raise FileNotFoundError(
+                    f"No observation file found for {name}, gage {gage_id}, "
+                    f"using pattern: {rendered}"
+                )
+            if len(matches) > 1:
+                raise ValueError(
+                    f"Multiple observation files found for {name}, gage "
+                    f"{gage_id}, using pattern {rendered}: "
+                    f"{', '.join(str(match) for match in matches)}. "
+                    "The path must match exactly one file per variable and gage."
+                )
+            path = matches[0]
+        else:
+            path = path.resolve()
 
         self._validate_path(name, path, gage_id)
         return path

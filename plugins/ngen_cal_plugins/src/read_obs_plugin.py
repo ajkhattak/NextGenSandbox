@@ -141,6 +141,8 @@ class ReadObservedData:
                 f"{', '.join(empty)}"
             )
 
+        start_time = self._to_utc_naive(start_time)
+        end_time = self._to_utc_naive(end_time)
         common_start = max(
             start_time,
             *(data.index.min() for data in observations.values()),
@@ -167,6 +169,13 @@ class ReadObservedData:
             )
 
         return self._combine_variables(observations, "obs_flow")
+
+    @staticmethod
+    def _to_utc_naive(value) -> pd.Timestamp:
+        timestamp = pd.Timestamp(value)
+        if timestamp.tzinfo is not None:
+            timestamp = timestamp.tz_convert("UTC").tz_localize(None)
+        return timestamp
 
     @staticmethod
     def _combine_variables(series_by_variable, series_name):
@@ -198,7 +207,9 @@ class ReadObservedData:
         if columns.empty:
             raise ValueError(
                 f"Distributed {name} observations do not match hydrofabric "
-                "divide IDs"
+                "divide IDs. If the file already contains one basin-level "
+                "value per timestamp, use layout: lumped and provide "
+                "value_column instead."
             )
 
         values = dataframe[columns]
@@ -244,7 +255,7 @@ class ReadObservedData:
                 )
 
             series = dataframe.set_index(time_column)[value_column]
-            series.index = pd.to_datetime(series.index)
+            series.index = pd.to_datetime(series.index, utc=True).tz_localize(None)
             values[divide_id] = series
 
         distributed = pd.DataFrame(values).sort_index()

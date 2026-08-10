@@ -249,7 +249,7 @@ Observation paths can use placeholders:
 ```yaml
 observations:
   streamflow:
-    path: "/path/to/streamflow/gage_<gage_id>_hourly_<variable>.csv"
+    path: "/path/to/streamflow/*<gage_id>*.csv"
 ```
 
 ## Common Alternatives

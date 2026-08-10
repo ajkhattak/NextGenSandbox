@@ -208,10 +208,10 @@ Multiple variables, such as streamflow and ET, may be configured together.
 
 | Field | Meaning |
 |---|---|
-| `<variable>.layout` | Observation layout: `point` or `distributed`. |
-| `<variable>.path` | CSV or Parquet path. Supports `<gage_id>` and `<variable>` placeholders. |
+| `<variable>.layout` | Observation layout: `point` for a location series, `lumped` for an already aggregated basin series, or `distributed` for sub-basin values. |
+| `<variable>.path` | CSV or Parquet path. Supports `<gage_id>`, `<variable>`, and surrounding `*` wildcards, for example `/path/to/observations/ET/*<gage_id>*.parquet`. A wildcard path must match exactly one file per variable and gage. |
 | `<variable>.time_column` | Timestamp column. |
-| `<variable>.value_column` | Value column for point or long-format distributed data. |
+| `<variable>.value_column` | Value column for point, basin, or long-format distributed data. |
 | `<variable>.id_column` | Divide ID column for long-format distributed data. |
 | `<variable>.units` | Observation units. Required for local observations. |
 | `<variable>.simulated` | Divide output variable corresponding to the observation. |

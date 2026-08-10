@@ -121,7 +121,7 @@ class TestObservationLoader(unittest.TestCase):
                     "cat-1": [1.0, 2.0],
                     "cat-2": [3.0, 4.0],
                 }
-            ).to_parquet(root / "gage_12345678_ET.parquet", index=False)
+            ).to_parquet(root / "openet-gage_12345678-daily.parquet", index=False)
 
             observations = {
                 "streamflow": {
@@ -133,7 +133,7 @@ class TestObservationLoader(unittest.TestCase):
                 },
                 "ET": {
                     "layout": "distributed",
-                    "path": str(root / "gage_<gage_id>_<variable>.parquet"),
+                    "path": str(root / "*<gage_id>*daily.parquet"),
                     "time_column": "value_time",
                     "units": "mm/h",
                 },
@@ -156,6 +156,56 @@ class TestObservationLoader(unittest.TestCase):
             self.assertIsInstance(et, pd.DataFrame)
             self.assertEqual(et.columns.tolist(), ["cat-1", "cat-2"])
             self.assertEqual(et.loc[pd.Timestamp("2020-01-01 01:00:00"), "cat-2"], 4.0)
+
+    def test_loads_wide_distributed_csv_from_wildcard_path(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            path = root / "openet-12345678-daily.csv"
+            pd.DataFrame(
+                {
+                    "value_time": ["2020-01-01", "2020-01-02"],
+                    "cat-1": [1.0, 2.0],
+                    "cat-2": [3.0, 4.0],
+                }
+            ).to_csv(path, index=False)
+
+            observations = {
+                "ET": {
+                    "layout": "distributed",
+                    "path": str(root / "*<gage_id>*.csv"),
+                    "time_column": "value_time",
+                    "units": "mm/d",
+                }
+            }
+
+            loaded = ObservationLoader(observations, root).load(["12345678"])
+
+            self.assertEqual(
+                loaded["ET"]["12345678"].loc[
+                    pd.Timestamp("2020-01-02"), "cat-2"
+                ],
+                4.0,
+            )
+
+    def test_rejects_ambiguous_observation_wildcard(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            for prefix in ("first", "second"):
+                pd.DataFrame(
+                    {"value_time": ["2020-01-01"], "cat-1": [1.0]}
+                ).to_csv(root / f"{prefix}-12345678.csv", index=False)
+
+            observations = {
+                "ET": {
+                    "layout": "distributed",
+                    "path": str(root / "*<gage_id>*.csv"),
+                    "time_column": "value_time",
+                    "units": "mm/d",
+                }
+            }
+
+            with self.assertRaisesRegex(ValueError, "Multiple observation files"):
+                ObservationLoader(observations, root).validate(["12345678"])
 
     def test_loads_long_distributed_observations(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -245,6 +295,36 @@ class TestObservationLoader(unittest.TestCase):
                 loaded["streamflow"]["12345678"].tolist(),
                 [10.0, 11.0],
             )
+
+    def test_loads_lumped_observations_without_divide_ids(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            path = root / "ET_gage-12345678_daily_average.csv"
+            pd.DataFrame(
+                {
+                    "Time": [
+                        "2020-01-01 00:00:00+00:00",
+                        "2020-01-02 00:00:00+00:00",
+                    ],
+                    "values": [1.5, 2.5],
+                }
+            ).to_csv(path, index=False)
+
+            observations = {
+                "ET": {
+                    "layout": "lumped",
+                    "path": str(root / "*<gage_id>*.csv"),
+                    "time_column": "Time",
+                    "value_column": "values",
+                    "units": "mm/d",
+                }
+            }
+
+            loaded = ObservationLoader(observations, root).load(["12345678"])
+
+            self.assertEqual(loaded["ET"]["12345678"].tolist(), [1.5, 2.5])
+            self.assertEqual(loaded["ET"]["12345678"].name, "ET")
+            self.assertIsNone(loaded["ET"]["12345678"].index.tz)
 
     def test_validates_without_loading_observation_values(self):
         with tempfile.TemporaryDirectory() as temp_dir:
