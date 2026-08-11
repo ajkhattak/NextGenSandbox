@@ -116,6 +116,17 @@ summarize_sandbox_build()
 #####################################################
 build_sandbox()
 {
+    SANDBOX_ENV_FILE="$SANDBOX_DIR/utils/venv/venv_sandbox.yaml"
+    if [ "$(uname -s)" = "Linux" ]; then
+        SANDBOX_ENV_FILE="$SANDBOX_DIR/utils/venv/venv_sandbox.linux.yaml"
+    fi
+
+    if [ ! -f "$SANDBOX_ENV_FILE" ]; then
+        echo "ERROR: Sandbox environment definition not found: $SANDBOX_ENV_FILE" >&2
+        return 1
+    fi
+
+    echo "Sandbox environment definition: $SANDBOX_ENV_FILE"
 
     # FIND PYTHON >= 3.11
     for cmd in python3 python; do
@@ -157,10 +168,10 @@ build_sandbox()
         ############################################
 	if [ ! -d "$SANDBOX_ENV" ]; then
             echo "Creating sandbox environment at $SANDBOX_ENV"
-            $SOLVER env create -y -p "$SANDBOX_ENV" -f utils/venv/venv_sandbox.yaml
+            "$SOLVER" env create -y -p "$SANDBOX_ENV" -f "$SANDBOX_ENV_FILE"
         else
             echo "Updating sandbox environment at $SANDBOX_ENV"
-            $SOLVER env update -p "$SANDBOX_ENV" -f utils/venv/venv_sandbox.yaml
+            "$SOLVER" env update -p "$SANDBOX_ENV" -f "$SANDBOX_ENV_FILE"
         fi
 
 	conda activate "$SANDBOX_ENV"

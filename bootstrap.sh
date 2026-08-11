@@ -468,6 +468,42 @@ run_check() {
             echo "           Run: $activate_command"
             add_recommendation "Run: $activate_command"
         fi
+
+        if [ "$os_name" = "Linux" ] && [ -d "$sandbox_env/conda-meta" ]; then
+            local sandbox_gcc_major=""
+            sandbox_gcc_major="$("$sandbox_env/bin/python" - "$sandbox_env" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+metadata = sorted(
+    (Path(sys.argv[1]) / "conda-meta").glob(
+        "gxx_impl_linux-64-*.json"
+    )
+)
+if metadata:
+    print(str(json.loads(metadata[-1].read_text())["version"]).split(".", 1)[0])
+PY
+)"
+            if [ -n "$sandbox_gcc_major" ]; then
+                status_ok "Sandbox Linux C++ runtime is pinned to GCC $sandbox_gcc_major.x"
+                if command -v g++ >/dev/null 2>&1; then
+                    local system_gcc_major
+                    system_gcc_major="$(g++ -dumpfullversion -dumpversion | cut -d. -f1)"
+                    if [ "$system_gcc_major" = "$sandbox_gcc_major" ]; then
+                        status_ok "Loaded C++ compiler matches Sandbox GCC $sandbox_gcc_major.x"
+                    else
+                        status_warn "Loaded C++ compiler is GCC $system_gcc_major.x; Sandbox expects GCC $sandbox_gcc_major.x"
+                        echo "           Load matching GCC, MPI, and NetCDF modules before building ngen/models."
+                        add_recommendation "Load a GCC $sandbox_gcc_major module stack before ./bootstrap.sh --ngen --models --troute"
+                    fi
+                fi
+            else
+                status_fail "Sandbox Linux environment is missing its pinned GCC toolchain"
+                echo "           Rebuild: ./bootstrap.sh --sandbox"
+                add_recommendation "Rebuild the Linux Sandbox environment: ./bootstrap.sh --sandbox"
+            fi
+        fi
     else
         status_fail "Sandbox Python env not found: $sandbox_env"
         echo "           Run: ./bootstrap.sh --sandbox"

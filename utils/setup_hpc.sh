@@ -24,7 +24,11 @@ export CXX=$(which g++)
 
 # Modify this
 export NETCDF_ROOT=/apps/spack-2024-12/linux-rocky9-x86_64/gcc-11.4.1/netcdf-fortran-4.6.1-rxwle72kj3anm4uess3ixiqg7ezgq4vk
-export LIBRARY_PATH=$LD_LIBRARY_PATH
+
+# Do not copy LD_LIBRARY_PATH into LIBRARY_PATH. Runtime module paths may
+# contain libraries from several compiler families and should not influence
+# link-time library selection.
+unset LIBRARY_PATH
 
 # Download boost using
 # wget https://boostorg.jfrog.io/artifactory/main/release/1.88.0/source/boost_1_88_0.tar.gz

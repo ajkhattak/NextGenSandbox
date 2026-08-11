@@ -1,0 +1,21 @@
+name: sandbox
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - numpy=1.26.4
+  - numba=0.63
+  - llvmlite
+  - pycares=4.11.0
+
+  # Keep compiled Python dependencies compatible with the GCC 11 module
+  # stack used to build ngen, BMI models, MPI, and NetCDF on supported HPCs.
+  - gcc_impl_linux-64=11.*
+  - gxx_impl_linux-64=11.*
+  - libgcc-ng=11.*
+  - libstdcxx-ng=11.*
+
+  - pip
+  - pip:
+    - wheel
+    - setuptools>=64,<69
