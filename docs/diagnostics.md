@@ -156,6 +156,45 @@ Fix after activating the Sandbox environment:
 If only one component is missing, run the matching flag, such as
 `./bootstrap.sh --troute`.
 
+## Linux C++ Runtime Or Compiler Mismatch
+
+Symptoms when starting ngen may include:
+
+```text
+version `GLIBCXX_3.4.30' not found
+version `CXXABI_1.3.15' not found
+```
+
+This means compiled Conda libraries require a newer C++ runtime than the one
+selected from the HPC compiler modules. Current conda-forge Python and NumPy
+builds cannot be solved against the older GCC 11 runtime. Sandbox therefore
+keeps the compiler, MPI, NetCDF, and UDUNITS module paths and applies Conda's
+newer, backward-compatible C++ runtime only to ngen and ngen-cal child
+processes.
+
+Confirm the runtime and other shared dependencies with:
+
+```bash
+./bootstrap.sh --check
+```
+
+If a failed environment build used the short-lived GCC 11-pinned environment
+definition, update the repository, remove the incomplete environment, and
+rebuild it:
+
+```bash
+sandbox_env_path="$SANDBOX_ENV"
+conda deactivate
+conda env remove -p "$sandbox_env_path"
+./bootstrap.sh --sandbox
+conda activate "$SANDBOX_ENV"
+./bootstrap.sh --check
+```
+
+Do not globally override `PATH`, `LD_LIBRARY_PATH`, or `LD_PRELOAD` in a shell
+startup file. Sandbox scopes the required runtime paths to processes it starts,
+so unrelated HPC applications retain their module environment.
+
 ## Git Submodules Not Initialized
 
 Symptom:

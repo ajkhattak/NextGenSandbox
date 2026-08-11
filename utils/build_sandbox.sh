@@ -117,9 +117,6 @@ summarize_sandbox_build()
 build_sandbox()
 {
     SANDBOX_ENV_FILE="$SANDBOX_DIR/utils/venv/venv_sandbox.yaml"
-    if [ "$(uname -s)" = "Linux" ]; then
-        SANDBOX_ENV_FILE="$SANDBOX_DIR/utils/venv/venv_sandbox.linux.yaml"
-    fi
 
     if [ ! -f "$SANDBOX_ENV_FILE" ]; then
         echo "ERROR: Sandbox environment definition not found: $SANDBOX_ENV_FILE" >&2

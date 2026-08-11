@@ -63,6 +63,11 @@ been built yet.
 ./bootstrap.sh --sandbox
 ```
 
+On Linux, current conda-forge Python packages may use a newer C++ runtime than
+the compiler modules used for ngen, MPI, and NetCDF. Sandbox keeps the HPC
+module paths intact and selects the Conda C++ runtime only for ngen processes
+that it launches; no global library-path changes are required.
+
 Activate the environment using the method available on your system:
 
 ```bash
@@ -97,7 +102,8 @@ Rscript "$SANDBOX_DIR/src/R/install_load_libs.R" --install
 
 ### 4. Build ngen, models, and t-route
 
-Keep the Sandbox Python environment active, then run:
+Keep the Sandbox Python environment active. On Linux/HPC, first load a
+consistent compiler, MPI, and NetCDF module stack. Then run:
 
 ```bash
 ./bootstrap.sh --ngen --models --troute
