@@ -682,6 +682,18 @@ class ConfigurationCalib:
             df_new["model"]["plugin_settings"]["composite_objective"] = {
                 "metrics": self.ctx.calibration_objective_metrics,
             }
+        evaluation_selection = getattr(
+            self.ctx,
+            "calib_eval_selection",
+            None,
+        )
+        if (
+            self.ngen_cal_type in {"calibration", "restart"}
+            and evaluation_selection
+        ):
+            df_new["model"]["plugin_settings"]["objective_evaluation"] = (
+                evaluation_selection
+            )
         self.configure_observations(
             df_new["model"],
             self.gage_id,

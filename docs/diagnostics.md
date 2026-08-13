@@ -195,6 +195,26 @@ Do not globally override `PATH`, `LD_LIBRARY_PATH`, or `LD_PRELOAD` in a shell
 startup file. Sandbox scopes the required runtime paths to processes it starts,
 so unrelated HPC applications retain their module environment.
 
+## MPI Compiler Variables Are Not Set
+
+`./bootstrap.sh --check` reports the C, C++, and Fortran compilers used behind
+the loaded MPI wrappers. Before building ngen and its models, select those
+wrappers explicitly:
+
+```bash
+export CC="$(command -v mpicc)"
+export CXX="$(command -v mpicxx)"
+export FC="$(command -v mpifort)"
+export F90="$FC"
+./bootstrap.sh --check
+```
+
+If the check says the existing ngen CMake compilers use a different compiler
+family, rebuild the compiled components with
+`./bootstrap.sh --ngen --models --troute --clean`. Preserve any `LIBRARY_PATH`
+set by the loaded compiler and NetCDF modules because t-route uses it while
+linking native extensions. Do not replace it with `LD_LIBRARY_PATH`.
+
 ## Git Submodules Not Initialized
 
 Symptom:

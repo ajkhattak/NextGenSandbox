@@ -31,7 +31,9 @@ STREAMFLOW_ONLY_METRICS = {
     "nonzero_low_flow_log_mae",
 }
 COMPOSITE_OBJECTIVE_ENV = "NGEN_CAL_COMPOSITE_OBJECTIVE"
+OBJECTIVE_EVALUATION_ENV = "NGEN_CAL_OBJECTIVE_EVALUATION"
 _composite_metric_weights: dict[str, float] | None = None
+_objective_evaluation: dict[str, object] | None = None
 
 
 def kge_multi_variable(
@@ -122,6 +124,43 @@ def configure_composite_objective(metric_weights: dict[str, float]) -> None:
     # Spawned PSO workers import this module afresh. Environment inheritance
     # carries the same validated recipe into each worker process.
     os.environ[COMPOSITE_OBJECTIVE_ENV] = json.dumps(validated)
+
+
+def configure_objective_evaluation(settings: dict | None) -> None:
+    """Configure optional calendar- or water-year objective filtering."""
+    global _objective_evaluation
+
+    if settings is None:
+        _objective_evaluation = None
+        os.environ.pop(OBJECTIVE_EVALUATION_ENV, None)
+        return
+    if not isinstance(settings, dict):
+        raise TypeError("objective_evaluation must be a mapping")
+
+    unknown = sorted(set(settings) - {"years", "year_type"})
+    if unknown:
+        raise ValueError(
+            "objective_evaluation contains unsupported field(s): "
+            + ", ".join(unknown)
+        )
+    years = settings.get("years")
+    if not isinstance(years, list) or not years:
+        raise ValueError("objective_evaluation.years must be a non-empty list")
+    if any(isinstance(year, bool) or not isinstance(year, int) for year in years):
+        raise TypeError("objective_evaluation.years must contain integers")
+
+    year_type = settings.get("year_type", "calendar_year")
+    if year_type not in {"calendar_year", "water_year"}:
+        raise ValueError(
+            "objective_evaluation.year_type must be one of: "
+            "calendar_year, water_year"
+        )
+
+    _objective_evaluation = {
+        "years": sorted(set(years)),
+        "year_type": year_type,
+    }
+    os.environ[OBJECTIVE_EVALUATION_ENV] = json.dumps(_objective_evaluation)
 
 
 def composite_objective(
@@ -285,11 +324,48 @@ def _aligned_pairs(observed, simulated, variable):
         axis=1,
         join="inner",
     ).dropna()
+    pairs = _select_evaluation_years(pairs, variable)
     if pairs.empty:
         raise ValueError(
             f"No aligned observed and simulated values for {variable}"
         )
     return pairs
+
+
+def _select_evaluation_years(pairs, variable):
+    settings = _configured_objective_evaluation()
+    if settings is None:
+        return pairs
+
+    try:
+        timestamps = pd.DatetimeIndex(pairs.index)
+    except (TypeError, ValueError) as exc:
+        raise TypeError(
+            "Selected-year objective evaluation requires a datetime index"
+        ) from exc
+
+    years = timestamps.year
+    if settings["year_type"] == "water_year":
+        years = years + (timestamps.month >= 10).astype(int)
+    selected = pairs.loc[np.isin(years, settings["years"])]
+    if selected.empty:
+        requested = ", ".join(str(year) for year in settings["years"])
+        raise ValueError(
+            f"No aligned observed and simulated values for {variable} in "
+            f"selected {settings['year_type']} years: {requested}"
+        )
+    return selected
+
+
+def _configured_objective_evaluation():
+    if _objective_evaluation is not None:
+        return _objective_evaluation
+
+    encoded = os.environ.get(OBJECTIVE_EVALUATION_ENV)
+    if not encoded:
+        return None
+    configure_objective_evaluation(json.loads(encoded))
+    return _objective_evaluation
 
 
 def _metric_loss(observed, simulated, metric, metric_name, variable):

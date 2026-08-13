@@ -17,18 +17,20 @@ module load cmake/3.30.2
 module load sqlite
 module load udunits
 
-export FC=$(which gfortran)
-export F90=$(which gfortran)
-export CC=$(which gcc)
-export CXX=$(which g++)
+# Use the wrappers from the loaded OpenMPI module. They invoke the compiler
+# family with which that OpenMPI installation was built.
+export CC="$(command -v mpicc)"
+export CXX="$(command -v mpicxx)"
+export FC="$(command -v mpifort)"
+export F90="$FC"
 
 # Modify this
 export NETCDF_ROOT=/apps/spack-2024-12/linux-rocky9-x86_64/gcc-11.4.1/netcdf-fortran-4.6.1-rxwle72kj3anm4uess3ixiqg7ezgq4vk
 
-# Do not copy LD_LIBRARY_PATH into LIBRARY_PATH. Runtime module paths may
-# contain libraries from several compiler families and should not influence
-# link-time library selection.
-unset LIBRARY_PATH
+# Preserve LIBRARY_PATH entries supplied by the compiler and NetCDF modules.
+# t-route uses native extension link steps that rely on these paths. Do not
+# replace LIBRARY_PATH with LD_LIBRARY_PATH; the latter may contain unrelated
+# runtime libraries from other compiler stacks.
 
 # Download boost using
 # wget https://boostorg.jfrog.io/artifactory/main/release/1.88.0/source/boost_1_88_0.tar.gz

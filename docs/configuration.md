@@ -349,8 +349,8 @@ fields:
 | `name` | Validation name used in generated files and `run_index.yml`. |
 | `start` | Simulation start. A date without a time defaults to `00:00:00`. |
 | `spinup` | Duration before model evaluation, such as `12 months`, `30 days`, or `0 h`. Use `month` or `months`, not `m`, for months. |
-| `evaluation` | Model evaluation duration after spinup. |
-| `end` | Optional inclusive simulation end. When provided, it overrides `evaluation`. |
+| `evaluation` | Model evaluation duration after spinup. For calibration, it may instead select complete calendar or water years. |
+| `end` | Optional inclusive simulation end. It overrides the duration form of `evaluation` and is required when selecting years. |
 
 Example:
 
@@ -371,6 +371,36 @@ simulation:
 
 Sandbox assumes hourly model timesteps when converting durations to inclusive
 end timestamps.
+
+#### Selected calibration evaluation years
+
+Calibration can run continuously over a long period while calculating its
+objective from selected, noncontiguous years only:
+
+```yaml
+simulation:
+  task_type: calibration
+  time:
+    calibration:
+      start: "2009-10-01"
+      spinup: "12 months"
+      end: "2020-09-30 23:00:00"
+      evaluation:
+        years: [2011, 2014, 2018, 2020]
+        year_type: water_year
+```
+
+The model still runs continuously through the unselected years so its states
+remain physically continuous. Sandbox pools all aligned observed and simulated
+values from the selected years and calculates the objective once; unselected
+years do not contribute to the objective.
+
+`year_type` may be `water_year` or `calendar_year` and defaults to
+`calendar_year`. Water year 2011 spans October 1, 2010 through September 30,
+2011. An explicit `end` is required, and every selected year must be fully
+contained in the post-spinup calibration evaluation interval. Selected-year
+evaluation supports the bundled `kge`, `nse`, and `nnse` objectives and weighted
+metric mappings.
 
 Required periods depend on `task_type`:
 

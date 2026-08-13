@@ -37,6 +37,10 @@ The bundled efficiency metrics calculate `1 - metric` per variable. A
 multi-variable objective combines the variable losses with an L2 norm. All
 objectives are minimized by ngen-cal.
 
+The calibration period may evaluate selected noncontiguous calendar or water
+years while retaining a continuous simulation. See
+[Selected calibration evaluation years](configuration.md#selected-calibration-evaluation-years).
+
 ## Weighted Objectives
 
 Use a metric-to-weight mapping to construct an objective:

@@ -118,6 +118,7 @@ recommendation_priority() {
         *"--sandbox"*) echo 20 ;;
         *"conda activate"*|*"bin/activate"*) echo 25 ;;
         *"--subset"*|*"Install R packages"*) echo 30 ;;
+        *"Set MPI compiler wrappers"*) echo 35 ;;
         *"--ngen"*) echo 40 ;;
         *"--models"*) echo 50 ;;
         *"--troute"*) echo 60 ;;
@@ -139,7 +140,7 @@ print_recommended_next_steps() {
         return
     fi
 
-    for priority in 5 10 20 25 30 40 50 60 70 80; do
+    for priority in 5 10 20 25 30 35 40 50 60 70 80; do
         for recommendation in "${RECOMMENDED_NEXT_STEPS[@]}"; do
             recommendation_order="$(recommendation_priority "$recommendation")"
             if [ "$recommendation_order" -eq "$priority" ]; then
@@ -238,6 +239,85 @@ check_python_version() {
         status_fail "Python >= 3.11 not found in PATH"
         add_recommendation "Install Python >= 3.11, then rerun: ./bootstrap.sh --check"
     fi
+}
+
+mpi_wrapper_backend() {
+    local wrapper="$1"
+    local backend=""
+
+    if backend=$("$wrapper" --showme:command 2>/dev/null) && [ -n "$backend" ]; then
+        printf "%s\n" "$backend"
+        return
+    fi
+
+    if backend=$("$wrapper" -show 2>/dev/null) && [ -n "$backend" ]; then
+        printf "%s\n" "${backend%% *}"
+        return
+    fi
+
+    printf "%s\n" "<unable to determine>"
+}
+
+check_compiler_variable() {
+    local variable="$1"
+    local recommended_wrapper="$2"
+    local value="${!variable:-}"
+
+    if [ -z "$value" ]; then
+        status_warn "$variable is not set; recommended for MPI builds: $recommended_wrapper"
+        return 1
+    fi
+
+    if command -v "$value" >/dev/null 2>&1; then
+        status_ok "$variable: $value -> $(command -v "$value")"
+        return 0
+    fi
+
+    status_fail "$variable points to a command that is not available: $value"
+    return 1
+}
+
+cmake_cache_value() {
+    local cache_file="$1"
+    local key="$2"
+
+    sed -n "s/^${key}:[^=]*=//p" "$cache_file" | head -n 1
+}
+
+compiler_family() {
+    local command_text="$1"
+    local executable="${command_text%% *}"
+    local name="${executable##*/}"
+
+    case "$name" in
+        mpicc|mpicxx|mpic++|mpifort|mpif90)
+            compiler_family "$(mpi_wrapper_backend "$executable")"
+            ;;
+        clang++*) printf "%s\n" "clang++" ;;
+        clang*) printf "%s\n" "clang" ;;
+        g++*|c++*) printf "%s\n" "g++" ;;
+        gcc*) printf "%s\n" "gcc" ;;
+        gfortran*) printf "%s\n" "gfortran" ;;
+        *) printf "%s\n" "$name" ;;
+    esac
+}
+
+check_compiler_matches_mpi() {
+    local variable="$1"
+    local wrapper_backend="$2"
+    local value="${!variable:-}"
+
+    if [ -z "$value" ] || [ -z "$wrapper_backend" ] \
+        || [ "$wrapper_backend" = "<unable to determine>" ]; then
+        return 0
+    fi
+
+    if [ "$(compiler_family "$value")" != "$(compiler_family "$wrapper_backend")" ]; then
+        status_warn "$variable uses $(compiler_family "$value"), but its MPI wrapper uses $(compiler_family "$wrapper_backend")"
+        return 1
+    fi
+
+    return 0
 }
 
 check_python_import() {
@@ -432,6 +512,91 @@ run_check() {
         status_ok "Rscript: $(command -v Rscript)"
     else
         status_warn "Rscript not found in PATH; this is OK if using the subset conda env"
+    fi
+    echo ""
+
+    echo "Build Toolchain"
+    local mpi_c=""
+    local mpi_cxx=""
+    local mpi_fortran=""
+    local mpi_c_backend=""
+    local mpi_cxx_backend=""
+    local mpi_fortran_backend=""
+    mpi_c="$(command -v mpicc 2>/dev/null || true)"
+    mpi_cxx="$(command -v mpicxx 2>/dev/null || command -v mpic++ 2>/dev/null || true)"
+    mpi_fortran="$(command -v mpifort 2>/dev/null || command -v mpif90 2>/dev/null || true)"
+
+    if [ -n "$mpi_c" ]; then
+        mpi_c_backend="$(mpi_wrapper_backend "$mpi_c")"
+        status_ok "MPI C wrapper: $mpi_c -> $mpi_c_backend"
+    else
+        status_fail "MPI C wrapper 'mpicc' not found"
+    fi
+    if [ -n "$mpi_cxx" ]; then
+        mpi_cxx_backend="$(mpi_wrapper_backend "$mpi_cxx")"
+        status_ok "MPI C++ wrapper: $mpi_cxx -> $mpi_cxx_backend"
+    else
+        status_fail "MPI C++ wrapper 'mpicxx' or 'mpic++' not found"
+    fi
+    if [ -n "$mpi_fortran" ]; then
+        mpi_fortran_backend="$(mpi_wrapper_backend "$mpi_fortran")"
+        status_ok "MPI Fortran wrapper: $mpi_fortran -> $mpi_fortran_backend"
+    else
+        status_fail "MPI Fortran wrapper 'mpifort' or 'mpif90' not found"
+    fi
+
+    local compiler_settings_ok=1
+    check_compiler_variable "CC" "${mpi_c:-mpicc}" || compiler_settings_ok=0
+    check_compiler_variable "CXX" "${mpi_cxx:-mpicxx}" || compiler_settings_ok=0
+    check_compiler_variable "FC" "${mpi_fortran:-mpifort}" || compiler_settings_ok=0
+    if [ -n "${F90:-}" ]; then
+        check_compiler_variable "F90" "\$FC" || compiler_settings_ok=0
+    else
+        status_warn "F90 is not set; recommended: export F90=\"\$FC\""
+        compiler_settings_ok=0
+    fi
+    check_compiler_matches_mpi "CC" "$mpi_c_backend" || compiler_settings_ok=0
+    check_compiler_matches_mpi "CXX" "$mpi_cxx_backend" || compiler_settings_ok=0
+    check_compiler_matches_mpi "FC" "$mpi_fortran_backend" || compiler_settings_ok=0
+    if [ "$compiler_settings_ok" -eq 0 ]; then
+        echo "           Before building ngen/models, set:"
+        echo "             export CC=\"${mpi_c:-\$(command -v mpicc)}\""
+        echo "             export CXX=\"${mpi_cxx:-\$(command -v mpicxx)}\""
+        echo "             export FC=\"${mpi_fortran:-\$(command -v mpifort)}\""
+        echo '             export F90="$FC"'
+        add_recommendation "Set MPI compiler wrappers (CC, CXX, FC, and F90) before building ngen/models"
+    fi
+
+    local cmake_cache="$ngen_dir/cmake_build/CMakeCache.txt"
+    if [ -f "$cmake_cache" ]; then
+        local cached_compiler=""
+        local wrapper_backend=""
+        local toolchain_mismatch=0
+        for compiler_key in CMAKE_C_COMPILER CMAKE_CXX_COMPILER CMAKE_Fortran_COMPILER; do
+            cached_compiler="$(cmake_cache_value "$cmake_cache" "$compiler_key")"
+            if [ -n "$cached_compiler" ]; then
+                status_ok "ngen $compiler_key: $cached_compiler"
+                case "$compiler_key" in
+                    CMAKE_C_COMPILER) wrapper_backend="$mpi_c_backend" ;;
+                    CMAKE_CXX_COMPILER) wrapper_backend="$mpi_cxx_backend" ;;
+                    CMAKE_Fortran_COMPILER) wrapper_backend="$mpi_fortran_backend" ;;
+                esac
+                if [ -n "$wrapper_backend" ] \
+                    && [ "$wrapper_backend" != "<unable to determine>" ] \
+                    && [ "$(compiler_family "$cached_compiler")" != "$(compiler_family "$wrapper_backend")" ]; then
+                    status_warn "$compiler_key uses $(compiler_family "$cached_compiler"), but its MPI wrapper uses $(compiler_family "$wrapper_backend")"
+                    toolchain_mismatch=1
+                fi
+            else
+                status_warn "ngen build does not record $compiler_key"
+            fi
+        done
+        if [ "$toolchain_mismatch" -ne 0 ]; then
+            echo "           Rebuild the compiled components after exporting the MPI wrappers shown above."
+            add_recommendation "Rebuild ngen/models with the MPI compiler wrappers: ./bootstrap.sh --ngen --models --troute --clean"
+        fi
+    else
+        status_warn "ngen CMake compiler record not found; ngen has not been configured yet"
     fi
     echo ""
 

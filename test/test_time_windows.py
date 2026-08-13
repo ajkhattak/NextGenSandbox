@@ -186,6 +186,94 @@ class TestSimulationTimeWindows(unittest.TestCase):
         self.assertEqual(context.simulation_time["end_time"], "2020-08-01 04:00:00")
         self.assertEqual(context.calib_eval_time["end_time"], "2020-08-01 04:00:00")
 
+    def test_selects_noncontiguous_water_years_for_calibration_evaluation(self):
+        context = SandboxContext.__new__(SandboxContext)
+        context.formulation = ""
+        context.project_gages = ["01109403"]
+        context.sandbox_config = {
+            "simulation": {
+                "task_type": "calibration",
+                "gages": "01109403",
+                "time": {
+                    "calibration": {
+                        "start": "2009-10-01",
+                        "spinup": "12 months",
+                        "end": "2020-09-30 23:00:00",
+                        "evaluation": {
+                            "years": [2011, 2014, 2018, 2020],
+                            "year_type": "water_year",
+                        },
+                    },
+                },
+            }
+        }
+
+        context.load_simulation_config()
+
+        self.assertEqual(
+            context.calib_eval_time,
+            {
+                "start_time": "2010-10-01 00:00:00",
+                "end_time": "2020-09-30 23:00:00",
+            },
+        )
+        self.assertEqual(
+            context.calib_eval_selection,
+            {
+                "years": [2011, 2014, 2018, 2020],
+                "year_type": "water_year",
+            },
+        )
+
+    def test_selected_year_evaluation_requires_explicit_end(self):
+        context = SandboxContext.__new__(SandboxContext)
+        context.formulation = ""
+        context.project_gages = ["01109403"]
+        context.sandbox_config = {
+            "simulation": {
+                "task_type": "calibration",
+                "gages": "01109403",
+                "time": {
+                    "calibration": {
+                        "start": "2009-10-01",
+                        "spinup": "12 months",
+                        "evaluation": {
+                            "years": [2011],
+                            "year_type": "water_year",
+                        },
+                    },
+                },
+            }
+        }
+
+        with self.assertRaisesRegex(ValueError, "end is required"):
+            context.load_simulation_config()
+
+    def test_rejects_selected_year_outside_post_spinup_interval(self):
+        context = SandboxContext.__new__(SandboxContext)
+        context.formulation = ""
+        context.project_gages = ["01109403"]
+        context.sandbox_config = {
+            "simulation": {
+                "task_type": "calibration",
+                "gages": "01109403",
+                "time": {
+                    "calibration": {
+                        "start": "2009-10-01",
+                        "spinup": "12 months",
+                        "end": "2020-09-30 23:00:00",
+                        "evaluation": {
+                            "years": [2010, 2011],
+                            "year_type": "water_year",
+                        },
+                    },
+                },
+            }
+        }
+
+        with self.assertRaisesRegex(ValueError, "outside years: 2010"):
+            context.load_simulation_config()
+
     def test_date_only_timestamps_default_to_midnight(self):
         context = SandboxContext.__new__(SandboxContext)
         context.formulation = ""

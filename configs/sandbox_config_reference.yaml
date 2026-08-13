@@ -126,6 +126,13 @@ simulation:
       evaluation: "1 year"
       # end: "2018-08-01 04:00:00"
 
+      # To evaluate only selected complete years, replace the duration above
+      # with the mapping below and provide an explicit end:
+      # end: "2020-09-30 23:00:00"
+      # evaluation:
+      #   years: [2017, 2019, 2020]
+      #   year_type: water_year  # water_year or calendar_year
+
     validations:
       - name: validation
         start: "2018-10-01 00:00:00"

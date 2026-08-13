@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from ngen.cal import hookimpl
 
-from ngen_cal_plugins.objectives import configure_composite_objective
+from ngen_cal_plugins.objectives import (
+    configure_composite_objective,
+    configure_objective_evaluation,
+)
 
 
 class ConfigureObjective:
@@ -10,6 +13,9 @@ class ConfigureObjective:
 
     @hookimpl
     def ngen_cal_model_configure(self, config) -> None:
+        configure_objective_evaluation(
+            config.plugin_settings.get("objective_evaluation")
+        )
         settings = config.plugin_settings.get("composite_objective")
         if settings is None:
             return

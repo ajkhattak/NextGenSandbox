@@ -68,9 +68,11 @@ def normalize_simulation_time_config(dsim, task_type, config_dir=None):
         calibration = resolve_time_period(
             time_config["calibration"],
             "simulation.time.calibration",
+            allow_selected_years=True,
         )
         dsim["calibration_time"] = calibration["simulation_time"]
         dsim["calib_eval_time"] = calibration["evaluation_time"]
+        dsim["calib_eval_selection"] = calibration.get("evaluation_selection")
 
         if task_type == "calibvalid":
             validations = resolve_validation_periods(time_config, config_dir=config_dir)
@@ -207,7 +209,7 @@ def year_label(year, year_type):
     return f"{prefix}{year}"
 
 
-def resolve_time_period(period, name):
+def resolve_time_period(period, name, allow_selected_years=False):
     if not isinstance(period, dict):
         raise TypeError(f"{name} must be a YAML dictionary/object")
 
@@ -221,12 +223,29 @@ def resolve_time_period(period, name):
     start = parse_timestamp(period["start"], f"{name}.start")
     spinup = parse_duration(period["spinup"], f"{name}.spinup")
     eval_start = start + spinup
+    evaluation_selection = None
+    evaluation = period.get("evaluation")
+
+    if isinstance(evaluation, dict):
+        if not allow_selected_years:
+            raise TypeError(f"{name}.evaluation must be a duration string")
+        if "end" not in period or period["end"] is None:
+            raise ValueError(
+                f"{name}.end is required when evaluation selects years"
+            )
+        evaluation_selection = normalize_year_selection(
+            evaluation,
+            f"{name}.evaluation",
+        )
 
     if "end" in period and period["end"] is not None:
         end = parse_timestamp(period["end"], f"{name}.end")
     else:
-        evaluation = parse_duration(period["evaluation"], f"{name}.evaluation")
-        end = eval_start + evaluation - NGEN_TIMESTEP
+        evaluation_duration = parse_duration(
+            evaluation,
+            f"{name}.evaluation",
+        )
+        end = eval_start + evaluation_duration - NGEN_TIMESTEP
 
     simulation_time = {
         "start_time": format_timestamp(start),
@@ -244,11 +263,79 @@ def resolve_time_period(period, name):
         evaluation_time,
     )
 
-    return {
+    resolved = {
         "name": period.get("name", name.rsplit(".", 1)[-1]),
         "simulation_time": simulation_time,
         "evaluation_time": evaluation_time,
     }
+    if evaluation_selection is not None:
+        validate_year_selection(
+            evaluation_selection,
+            eval_start,
+            end,
+            f"{name}.evaluation",
+        )
+        resolved["evaluation_selection"] = evaluation_selection
+    return resolved
+
+
+def normalize_year_selection(selection, name):
+    unknown = sorted(set(selection) - {"years", "year_type"})
+    if unknown:
+        raise ValueError(
+            f"{name} contains unsupported field(s): {', '.join(unknown)}"
+        )
+
+    years_value = selection.get("years")
+    if not isinstance(years_value, list) or not years_value:
+        raise ValueError(f"{name}.years must be a non-empty list")
+
+    years = []
+    for value in years_value:
+        if isinstance(value, bool):
+            raise TypeError(f"{name}.years values must be integer years")
+        try:
+            year = int(value)
+        except (TypeError, ValueError) as exc:
+            raise TypeError(
+                f"{name}.years values must be integer years"
+            ) from exc
+        if isinstance(value, float) and not value.is_integer():
+            raise TypeError(f"{name}.years values must be integer years")
+        if year < 1:
+            raise ValueError(f"{name}.years values must be positive")
+        years.append(year)
+
+    if len(set(years)) != len(years):
+        raise ValueError(f"{name}.years must not contain duplicates")
+
+    year_type = str(selection.get("year_type", "calendar_year")).lower()
+    if year_type not in {"calendar_year", "water_year"}:
+        raise ValueError(
+            f"{name}.year_type must be one of: calendar_year, water_year"
+        )
+
+    return {
+        "years": sorted(years),
+        "year_type": year_type,
+    }
+
+
+def validate_year_selection(selection, eval_start, eval_end, name):
+    outside = []
+    for year in selection["years"]:
+        year_start = start_for_year(year, selection["year_type"])
+        next_start = start_for_year(year + 1, selection["year_type"])
+        year_end = next_start - NGEN_TIMESTEP
+        if year_start < eval_start or year_end > eval_end:
+            outside.append(year)
+
+    if outside:
+        raise ValueError(
+            f"{name}.years must be complete years within the post-spinup "
+            f"calibration evaluation interval; outside years: "
+            f"{', '.join(str(year) for year in outside)}"
+        )
 
 
 def parse_timestamp(value, name):

@@ -102,8 +102,20 @@ Rscript "$SANDBOX_DIR/src/R/install_load_libs.R" --install
 
 ### 4. Build ngen, models, and t-route
 
-Keep the Sandbox Python environment active. On Linux/HPC, first load a
-consistent compiler, MPI, and NetCDF module stack. Then run:
+Keep the Sandbox Python environment active. First load a consistent compiler,
+MPI, and NetCDF toolchain. On HPC systems, these are normally environment
+modules. Then run:
+
+```bash
+export CC="$(command -v mpicc)"
+export CXX="$(command -v mpicxx)"
+export FC="$(command -v mpifort)"
+export F90="$FC"
+./bootstrap.sh --check
+```
+
+The check reports the compilers behind the MPI wrappers and warns if an
+existing ngen build was configured with a different compiler family.
 
 ```bash
 ./bootstrap.sh --ngen --models --troute

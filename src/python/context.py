@@ -207,6 +207,17 @@ class SandboxContext:
         self.calibration_random_seed = settings.random_seed
         self.calibration_objective = settings.objective
         self.calibration_objective_metrics = settings.objective_metrics
+        if (
+            getattr(self, "calib_eval_selection", None)
+            and not self.calibration_objective.startswith(
+                "ngen_cal_plugins.objectives."
+            )
+        ):
+            raise ValueError(
+                "Selected-year calibration evaluation requires a bundled "
+                "Sandbox objective (kge, nse, nnse, or a weighted metric "
+                "mapping); custom objective import paths are not supported"
+            )
         self.optimizer_settings = settings.optimizer_settings
         self.optimizer_settings_file = settings.optimizer_settings_file
 
@@ -398,6 +409,7 @@ class SandboxContext:
 
             self.simulation_time = dsim["calibration_time"]
             self.calib_eval_time  = dsim["calib_eval_time"]
+            self.calib_eval_selection = dsim.get("calib_eval_selection")
 
             if self.task_type == "calibvalid":
                 self.load_validation_periods(dsim)

@@ -30,6 +30,40 @@ class Runner:
         # Check whether `mpirun` exists on the system; if exists, then it assumes that ngen was built with MPI=ON
         self.mpirun_exists = shutil.which("mpirun") is not None
 
+    def subprocess_environment(self) -> dict[str, str]:
+        """Return an isolated environment for ngen and ngen-cal processes."""
+        run_env = os.environ.copy()
+
+        if self.os_name == "Linux":
+            sandbox_env = Path(os.environ.get("SANDBOX_ENV", sys.prefix))
+            library_dir = sandbox_env / "lib"
+            cxx_runtime = library_dir / "libstdc++.so.6"
+            if cxx_runtime.is_file():
+                run_env["LD_LIBRARY_PATH"] = self._prepend_environment_path(
+                    str(library_dir),
+                    run_env.get("LD_LIBRARY_PATH"),
+                )
+                run_env["LD_PRELOAD"] = self._prepend_environment_path(
+                    str(cxx_runtime),
+                    run_env.get("LD_PRELOAD"),
+                )
+
+        if self.os_name == "Darwin":
+            run_env["PYTHONEXECUTABLE"] = (
+                shutil.which("python") or sys.executable
+            )
+
+        return run_env
+
+    @staticmethod
+    def _prepend_environment_path(
+        value: str,
+        existing: str | None,
+    ) -> str:
+        entries = [entry for entry in (existing or "").split(os.pathsep) if entry]
+        entries = [entry for entry in entries if entry != value]
+        return os.pathsep.join([value, *entries])
+
 
     def run(self):
 
@@ -134,14 +168,12 @@ class Runner:
                     str(self.file_par),
                 ]
 
-            run_env = None
+            run_env = self.subprocess_environment()
             command_text = shlex.join(run_cmd)
             if self.os_name == "Darwin":
-                run_env = os.environ.copy()
-                python_executable = shutil.which("python") or sys.executable
-                run_env["PYTHONEXECUTABLE"] = python_executable
                 command_text = (
-                    f"PYTHONEXECUTABLE={shlex.quote(python_executable)} "
+                    "PYTHONEXECUTABLE="
+                    f"{shlex.quote(run_env['PYTHONEXECUTABLE'])} "
                     f"{command_text}"
                 )
 
@@ -336,7 +368,10 @@ class Runner:
         command_text = shlex.join(run_command)
         before_workers = self.worker_dirs(o_dir)
         if not self.ctx.dryrun:
-            result = subprocess.run(run_command)
+            result = subprocess.run(
+                run_command,
+                env=self.subprocess_environment(),
+            )
             after_workers = self.worker_dirs(o_dir)
             new_workers = after_workers - before_workers
             state_file = None

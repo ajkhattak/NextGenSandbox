@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from types import SimpleNamespace
 import tempfile
@@ -8,6 +9,45 @@ from src.python.runner import Runner
 
 
 class TestRunnerDryRun(unittest.TestCase):
+    def test_linux_runtime_is_scoped_to_spawned_processes(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            sandbox_env = Path(temp_dir) / "sandbox"
+            runtime = sandbox_env / "lib" / "libstdc++.so.6"
+            runtime.parent.mkdir(parents=True)
+            runtime.touch()
+
+            runner = Runner(SimpleNamespace())
+            runner.os_name = "Linux"
+            original_library_path = os.environ.get("LD_LIBRARY_PATH")
+            original_preload = os.environ.get("LD_PRELOAD")
+            with patch.dict(
+                os.environ,
+                {
+                    "SANDBOX_ENV": str(sandbox_env),
+                    "LD_LIBRARY_PATH": "/hpc/netcdf/lib:/hpc/gcc/lib",
+                },
+                clear=False,
+            ):
+                os.environ.pop("LD_PRELOAD", None)
+                run_env = runner.subprocess_environment()
+
+                self.assertEqual(
+                    run_env["LD_LIBRARY_PATH"].split(os.pathsep),
+                    [
+                        str(runtime.parent),
+                        "/hpc/netcdf/lib",
+                        "/hpc/gcc/lib",
+                    ],
+                )
+                self.assertEqual(run_env["LD_PRELOAD"], str(runtime))
+                self.assertNotIn("LD_PRELOAD", os.environ)
+
+            self.assertEqual(
+                os.environ.get("LD_LIBRARY_PATH"),
+                original_library_path,
+            )
+            self.assertEqual(os.environ.get("LD_PRELOAD"), original_preload)
+
     def test_calibration_run_rejects_mismatched_resource_counts(self):
         ctx = SimpleNamespace(
             formulation="CFE",
