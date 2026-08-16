@@ -19,6 +19,11 @@ BUILD_MODELS=${MODELS:-OFF}
 BUILD_TROUTE=${TROUTE:-OFF}
 BUILD_CLEAN=${CLEAN:-false}
 
+# NextGenSandbox releases build against a tested ngen revision. Update this
+# commit deliberately after the Sandbox smoke tests pass with the new version.
+readonly NGEN_REPOSITORY="https://github.com/NOAA-OWP/ngen"
+readonly NGEN_COMMIT="cdf43350f6be911dd59ba68e82ac212c6deefc14"
+
 # -------------------------------
 # Override from command-line arguments
 # Example usage: ./build_models.sh NGEN=ON MODELS=OFF TROUTE=ON
@@ -76,19 +81,51 @@ clone_or_update() {
     fi
 }
 
-build_ngen()
-{
-    pushd $SANDBOX_BUILD_DIR
+# Clone ngen or restore an existing clone to the revision tested with Sandbox.
+checkout_pinned_ngen() {
+    local dest_dir="$1"
 
-    if [ "$BUILD_CLEAN" = true ]; then
-	echo "Cleaning ngen repo"
-	rm -rf ngen
+    if [ -d "$dest_dir/.git" ]; then
+        if ! git -C "$dest_dir" diff --quiet --ignore-submodules=all \
+            || ! git -C "$dest_dir" diff --cached --quiet --ignore-submodules=all; then
+            echo "Error: The existing ngen checkout contains local changes: $dest_dir"
+            echo "Commit or preserve those changes before rebuilding ngen."
+            return 1
+        fi
+    elif [ -e "$dest_dir" ]; then
+        echo "Error: ngen destination exists but is not a Git repository: $dest_dir"
+        return 1
+    else
+        echo "Cloning pinned ngen source: $NGEN_REPOSITORY"
+        git clone --no-checkout "$NGEN_REPOSITORY" "$dest_dir" || return 1
     fi
 
-    clone_or_update "https://github.com/NOAA-OWP/ngen" "ngen"
+    if ! git -C "$dest_dir" cat-file -e "${NGEN_COMMIT}^{commit}" 2>/dev/null; then
+        echo "Fetching pinned ngen commit: $NGEN_COMMIT"
+        git -C "$dest_dir" fetch origin "$NGEN_COMMIT" || return 1
+    fi
 
-    cd ngen
-    git submodule update --init --recursive
+    echo "Checking out pinned ngen commit: $NGEN_COMMIT"
+    git -C "$dest_dir" checkout --detach "$NGEN_COMMIT" || return 1
+    git -C "$dest_dir" submodule sync --recursive || return 1
+    git -C "$dest_dir" submodule update --init --recursive || return 1
+}
+
+build_ngen()
+{
+    pushd "$SANDBOX_BUILD_DIR" >/dev/null || return 1
+
+    if [ "$BUILD_CLEAN" = true ]; then
+        echo "Cleaning ngen repo"
+        rm -rf ngen
+    fi
+
+    checkout_pinned_ngen "ngen" || {
+        popd >/dev/null || true
+        return 1
+    }
+
+    cd ngen || return 1
 
     export builddir="cmake_build"
     rm -rf ${builddir}
@@ -109,7 +146,7 @@ build_ngen()
     #make -j8 -C ${builddir}
     # run the following if ran into tests timeout issues
     cmake --build ${builddir} --target ngen -j8
-    popd
+    popd >/dev/null || return 1
 }
 
 
