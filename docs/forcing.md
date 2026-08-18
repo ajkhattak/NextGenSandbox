@@ -180,8 +180,11 @@ may match the exact base and rechunked pair; Sandbox treats them as one logical
 forcing resource. Other multiple-match combinations remain errors.
 
 `sandbox --conf`, `sandbox --dryrun`, and `sandbox --run` never rechunk forcing.
-With `rechunk: true`, they require a current prepared sibling and report that
-`sandbox --forc` must be run if it is missing or older than the source.
+With `rechunk: true`, they require a prepared sibling. A missing sibling is an
+error. If the source has a newer modification time, Sandbox issues a warning
+but continues with the existing rechunked file because file-copy order can
+change timestamps without changing content. The warning includes a standalone
+command to refresh the sibling when the source content was actually changed.
 
 If `rechunk: true`, the workflow writes a sibling file named
 `*_rechunked.nc`, so the forcing file's parent directory must be writable. Set

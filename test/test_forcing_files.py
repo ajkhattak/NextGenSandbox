@@ -84,13 +84,21 @@ class TestForcingFiles(unittest.TestCase):
             source = Path(tmp) / "forcing.nc"
             source.touch()
 
-            with self.assertRaisesRegex(FileNotFoundError, "sandbox --forc"):
+            with self.assertRaises(FileNotFoundError) as raised:
                 select_prepared_forcing_file(
                     source,
                     rechunk_enabled=True,
                 )
 
-    def test_select_prepared_forcing_rejects_stale_rechunked_file(self):
+            message = str(raised.exception)
+            self.assertIn("sandbox --forc", message)
+            self.assertIn(
+                'python "$SANDBOX_DIR/utils/python/rechunk_forcing.py"',
+                message,
+            )
+            self.assertIn(f"-i {source} --force", message)
+
+    def test_select_prepared_forcing_warns_for_newer_source_mtime(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "forcing.nc"
             rechunked = Path(tmp) / "forcing_rechunked.nc"
@@ -99,11 +107,20 @@ class TestForcingFiles(unittest.TestCase):
             os.utime(rechunked, (100, 100))
             os.utime(source, (200, 200))
 
-            with self.assertRaisesRegex(ValueError, "sandbox --forc"):
-                select_prepared_forcing_file(
+            with self.assertWarns(UserWarning) as raised:
+                result = select_prepared_forcing_file(
                     source,
                     rechunk_enabled=True,
                 )
+
+            self.assertEqual(result, rechunked)
+            message = str(raised.warning)
+            self.assertIn("copied or transferred", message)
+            self.assertIn(
+                'python "$SANDBOX_DIR/utils/python/rechunk_forcing.py"',
+                message,
+            )
+            self.assertIn(f"-i {source} --force", message)
 
     def test_custom_pattern_rejects_source_corrected_and_rechunked_matches(self):
         with tempfile.TemporaryDirectory() as tmp:

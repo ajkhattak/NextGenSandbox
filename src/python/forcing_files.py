@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import glob
 import os
+import shlex
 import subprocess
 import sys
+import warnings
 from pathlib import Path
 
 import pandas as pd
@@ -161,17 +163,28 @@ def select_prepared_forcing_file(
         return forcing_path
 
     rechunked_path = forcing_path.parent / f"{forcing_path.stem}_rechunked.nc"
+    refresh_command = (
+        'python "$SANDBOX_DIR/utils/python/rechunk_forcing.py" '
+        f"-i {shlex.quote(str(forcing_path))} --force"
+    )
     if not rechunked_path.exists():
         raise FileNotFoundError(
             f"Rechunked forcing file does not exist: {rechunked_path}. "
             "Run 'sandbox --forc -i <config>' before generating configurations "
-            "or set forcings.rechunk: false."
+            "or refresh only this existing forcing file with:\n"
+            f"  {refresh_command}\n"
+            "Alternatively, set forcings.rechunk: false."
         )
     if rechunked_path.stat().st_mtime < forcing_path.stat().st_mtime:
-        raise ValueError(
-            f"Rechunked forcing file is older than its source: {rechunked_path}. "
-            "Run 'sandbox --forc -i <config>' to refresh it before generating "
-            "configurations."
+        warnings.warn(
+            "The source forcing file has a newer modification time than its "
+            f"rechunked sibling: {rechunked_path}. This can happen when files "
+            "are copied or transferred in a different order, so Sandbox will "
+            "continue using the existing rechunked file. If the source content "
+            "was actually changed, refresh only this file with:\n"
+            f"  {refresh_command}",
+            UserWarning,
+            stacklevel=2,
         )
     return rechunked_path
 
