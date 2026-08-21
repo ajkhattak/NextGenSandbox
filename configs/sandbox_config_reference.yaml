@@ -10,6 +10,8 @@ general:
   resource_layout: gage  # gage or resource
   gages:
     option: ids  # ids, file, or gpkg
+    # Avoid per-gage USGS metadata requests during subsetting.
+    domain: conus  # conus, hi, ak, or prvi
     ids: ["01308000", "01109403"]
 
     # Use this instead of ids when option is file.

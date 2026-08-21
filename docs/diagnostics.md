@@ -249,6 +249,20 @@ Common causes:
 If `subsetting.hydrofabric.compute_divide_attributes: FALSE`, the workflow
 should only subset geopackages and should not create DEM output.
 
+If a large local-hydrofabric batch pauses during gage metadata lookup, set the
+common domain explicitly under `general.gages`, for example:
+
+```yaml
+general:
+  gages:
+    option: ids
+    domain: conus
+    ids: ["01308000", "03366500"]
+```
+
+Without this field, Sandbox queries USGS metadata to infer the domain for each
+gage. Use separate batches when gages span multiple domains.
+
 ## Forcing Download Or Network Failure
 
 Symptoms:

@@ -76,7 +76,10 @@ Each selected gage needs a geopackage before configuration generation.
 If gage-specific geopackages do not exist, download the source hydrofabric for
 your domain. CONUS hydrofabric files are available from
 [Lynker Spatial](https://www.lynker-spatial.com/data?path=hydrofabric%2Fv2.2%2F).
-Set `subsetting.hydrofabric.gpkg_path`, then run:
+NextGenSandbox supports Hydrofabric 2.2. Set
+`subsetting.hydrofabric.gpkg_path` and set `general.gages.domain` to the common
+domain of the selected gages. Providing the domain is especially important for
+large batches because it avoids one USGS metadata request per gage. Then run:
 
 ```bash
 sandbox --subset -i configs/my_project.yaml
@@ -293,7 +296,8 @@ also records a gage-specific error file under the configured resource root.
 
 After one project configuration succeeds normally, use Sandbox Launcher to
 apply configuration templates across many gages and formulations or to manage
-long calibration jobs.
+long calibration jobs. It can also expand a reference period and per-gage
+year/regime CSV into independent reference, wet, and dry calibration scenarios.
 
 Launcher uses the same `sandbox_config.yaml`, adds experiment assignments,
 creates per-gage/per-model output directories, and runs locally or submits jobs

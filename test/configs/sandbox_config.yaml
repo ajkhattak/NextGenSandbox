@@ -6,6 +6,7 @@ general:
   resource_layout: gage
   gages:
     option: ids
+    domain: conus
     ids: ["01308000"]
 
 # make sure to install yaml package using install.packages("yaml") if not installed already

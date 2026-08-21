@@ -9,6 +9,7 @@ general:
   resource_layout: gage
   gages:
     option: ids
+    domain: conus
     ids: ["01308000"]
 
 subsetting:

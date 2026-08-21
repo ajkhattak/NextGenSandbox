@@ -24,6 +24,51 @@ warn_invalid_gage_ids <- function(gage_ids) {
   }
 }
 
+normalize_gage_domain <- function(value) {
+  if (is.null(value)) {
+    return(NULL)
+  }
+  if (length(value) != 1 || is.logical(value) || is.na(value)) {
+    stop(
+      "general$gages$domain must be one of: conus, hi, ak, prvi"
+    )
+  }
+
+  domain <- tolower(trimws(as.character(value)))
+  aliases <- c(pr = "prvi", vi = "prvi")
+  if (domain %in% names(aliases)) {
+    domain <- unname(aliases[[domain]])
+  }
+
+  allowed <- c("conus", "hi", "ak", "prvi")
+  if (!nzchar(domain) || !(domain %in% allowed)) {
+    stop(sprintf(
+      paste0(
+        "Invalid general$gages$domain '%s'. ",
+        "Supported domains: %s"
+      ),
+      value,
+      toString(allowed)
+    ))
+  }
+
+  domain
+}
+
+normalize_hydrofabric_version <- function(value) {
+  version <- as.character(value)
+  if (length(version) != 1 || is.na(version) || !identical(version, "2.2")) {
+    stop(sprintf(
+      paste0(
+        "Unsupported subsetting$hydrofabric$version '%s'. ",
+        "NextGenSandbox supports Hydrofabric 2.2 only."
+      ),
+      toString(version)
+    ))
+  }
+  version
+}
+
 validate_positive_integer <- function(value, field_name) {
   if (is.null(value) || length(value) != 1 || is.logical(value)) {
     stop(sprintf(

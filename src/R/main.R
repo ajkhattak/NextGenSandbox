@@ -99,6 +99,7 @@ load_subset_config <- function(runtime) {
     ),
     gages = list(
       option = subset_gages$option,
+      domain = get_param(inputs, "general$gages$domain", NULL),
       ids = subset_gages$ids,
       file = list(
         path = subset_gages$file$path,
@@ -226,6 +227,10 @@ validate_subset_config <- function(config) {
     stop("Invalid input: 'general$input_dir' is missing or empty.")
   }
 
+  config$hydrofabric$version <- normalize_hydrofabric_version(
+    config$hydrofabric$version
+  )
+
   gpkg_path <- config$hydrofabric$gpkg_path
   if (is.null(gpkg_path) || trimws(gpkg_path) == "") {
     stop("Invalid input: 'subsetting$hydrofabric$gpkg_path' is missing or empty.")
@@ -271,6 +276,8 @@ validate_subset_config <- function(config) {
   if (!(option %in% allowed)) {
     stop(sprintf("Invalid option '%s'. Must be one of: %s", option, toString(allowed)))
   }
+
+  config$gages$domain <- normalize_gage_domain(config$gages$domain)
 
   allowed_layouts <- c("gage", "resource")
   if (!(config$resource_layout %in% allowed_layouts)) {
@@ -447,6 +454,12 @@ main <- function(args = commandArgs(trailingOnly = TRUE)) {
 
   config <- load_subset_config(runtime)
   config <- validate_subset_config(config)
+  if (!is.null(config$gages$domain)) {
+    message(sprintf(
+      "Using configured gage domain '%s'; skipping per-gage USGS domain lookup.",
+      config$gages$domain
+    ))
+  }
 
   load_subset_dependencies(config$sandbox_dir)
   source(file.path(config$sandbox_dir, "src/R/custom_functions.R"))

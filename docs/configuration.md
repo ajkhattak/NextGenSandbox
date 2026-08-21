@@ -93,6 +93,7 @@ full set of gages available to workflow steps.
 | `output_dir` | Root directory for generated configurations, realizations, simulation outputs, and calibration artifacts. |
 | `resource_layout` | Resource organization. Options: `gage` or `resource`. Use one layout consistently within a project. |
 | `gages.option` | How the project gage set is defined. Options: `ids`, `file`, or `gpkg`. |
+| `gages.domain` | Optional common hydrofabric domain for project gages: `conus`, `hi`, `ak`, or `prvi`. Set this for batch subsetting to avoid a USGS metadata request for every gage. `pr` and `vi` are accepted as aliases for `prvi`. |
 | `gages.ids` | Gage ID list used with `option: ids`. Quote IDs so leading zeros are preserved. USGS gage IDs may contain 8, 10, or 12 digits. |
 | `gages.file.path` | CSV file used with `option: file`. |
 | `gages.file.column` | CSV column containing gage IDs. |
@@ -116,6 +117,7 @@ locations, use `<gage_id>` in the path template:
 general:
   gages:
     option: gpkg
+    domain: conus
     gpkg:
       dir: "/path/to/gpkgs/hydrofabric_v2_<gage_id>_final.gpkg"
       select: ["50147800", "03366500"]  # optional
@@ -128,6 +130,12 @@ template is used throughout configuration generation, forcing preparation, and
 simulation; it does not need to follow `general.resource_layout`. Other
 characters are literal, so `_` in the template does not match `-` in a filename.
 
+For subsetting many gages from a local source geopackage, set
+`general.gages.domain`. Sandbox then uses that domain for every selected gage
+and does not contact USGS to discover state codes. When `domain` is omitted,
+Sandbox retains the per-gage USGS lookup as a fallback. Use separate projects
+when a batch spans more than one hydrofabric domain.
+
 See [directory_layout.md](./directory_layout.md) for the paths produced by the
 `gage` and `resource` layouts.
 
@@ -139,7 +147,7 @@ and vegetation attributes.
 
 | Field | Meaning |
 |---|---|
-| `hydrofabric.version` | Source hydrofabric version, such as `"2.2"`. |
+| `hydrofabric.version` | Source hydrofabric version. NextGenSandbox supports `"2.2"` only. |
 | `hydrofabric.gpkg_path` | Source hydrofabric geopackage. Its version must match `hydrofabric.version`. |
 | `hydrofabric.compute_divide_attributes` | Compute divide attributes locally. Set to `FALSE` when the source geopackage already contains the required attributes. |
 | `dem.input_file` | Optional DEM file or VRT. When omitted and divide attributes are requested, Sandbox uses its default DEM source. |

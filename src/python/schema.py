@@ -9,7 +9,7 @@ From Nels
 # cgw from WRF-Hydro NWM is in "m^3/s" which is interestingly
 # 0.005 everywhere
 # We need to rescale this to m/hr
-# Hydrofabic v2.1.1 conus areasqkm distribution is
+# A reference CONUS areasqkm distribution used for scaling is
 
    mean         14.129473
    std         166.396737

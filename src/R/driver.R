@@ -277,61 +277,42 @@ RunDriver <- function(gage_id = NULL,
       outfile <- hydrofabric_path(getwd(), glue("gage_{gage_id}.gpkg"))
     }
 
-    # Get domain info for this gage
-    state_code <- get_gage_state_code(gage_id)
-    state <- stateCd$STUSAB[which(stateCd$STATE == state_code)]
-      if (state %in% c("HI", "AK")) {
-        domain <- tolower(state)
-      } else if (state %in% c("PR", "VI")) {
-        domain <- "prvi"
-      } else {
-        domain <- "conus"
-      }
+    domain <- resolve_gage_domain(gage_id, config$gages$domain)
     
     # If the gpkg exists, use that for subsetting
     layers = c("divides", "flowpaths", "network", "nexus",
                "flowpath-attributes","divide-attributes")
     
-    if (config$hydrofabric$version == "2.2") {
-      if (file.exists(config$hydrofabric$gpkg_path)) {
-        print('USING LOCAL GPKG FILE FOR SUBSETTING')
-        hf_gpkg <- config$hydrofabric$gpkg_path
-      } else {
-        print('USING REMOTE GPKG FILE FOR SUBSETTING')
-        hf_gpkg = NULL
-      }
+    if (file.exists(config$hydrofabric$gpkg_path)) {
+      print('USING LOCAL GPKG FILE FOR SUBSETTING')
+      hf_gpkg <- config$hydrofabric$gpkg_path
+    } else {
+      print('USING REMOTE GPKG FILE FOR SUBSETTING')
+      hf_gpkg = NULL
+    }
 
-      if (domain != "conus") { # If the gage is in oCONUS, query using flowpath id
+    if (domain != "conus") { # If the gage is in oCONUS, query using flowpath id
 
-        flowpath_id <- sf::read_sf(hf_gpkg, query = glue::glue(
-          "SELECT hf_id FROM hydrolocations WHERE hl_reference || '-' || hl_link = 'Gages-{gage_id}'"
-        ))$hf_id
+      flowpath_id <- sf::read_sf(hf_gpkg, query = glue::glue(
+        "SELECT hf_id FROM hydrolocations WHERE hl_reference || '-' || hl_link = 'Gages-{gage_id}'"
+      ))$hf_id
 
-        hfsubsetR::get_subset(comid = flowpath_id,
-                              outfile = outfile,
-                              gpkg = hf_gpkg,
-                              hf_version = config$hydrofabric$version,
-                              lyrs = layers,
-                              type = 'nextgen',
-                              overwrite = TRUE)
-      } else { # If the gage is in CONUS, query using hl_uri
-        hfsubsetR::get_subset(hl_uri = glue("gages-{gage_id}"),
-                              outfile = outfile,
-                              gpkg = hf_gpkg,
-                              hf_version = config$hydrofabric$version,
-                              lyrs = layers,
-                              type = 'nextgen',
-                              overwrite = TRUE)
-      }
-    } else if (config$hydrofabric$version == "2.1.1") {
-      
-      hfsubsetR::get_subset(nldi_feature = list(featureSource="nwissite", featureID=glue("USGS-{gage_id}")),
+      hfsubsetR::get_subset(comid = flowpath_id,
                             outfile = outfile, 
+                            gpkg = hf_gpkg,
                             hf_version = config$hydrofabric$version,
-                            domain = "conus",
                             lyrs = layers,
+                            type = 'nextgen',
                             overwrite = TRUE)
-      }
+    } else { # If the gage is in CONUS, query using hl_uri
+      hfsubsetR::get_subset(hl_uri = glue("gages-{gage_id}"),
+                            outfile = outfile,
+                            gpkg = hf_gpkg,
+                            hf_version = config$hydrofabric$version,
+                            lyrs = layers,
+                            type = 'nextgen',
+                            overwrite = TRUE)
+    }
     
     time.taken <- as.numeric(Sys.time() - start.time, units = "secs") #end.time - start.time
     print (paste0("Time (geopackage) = ", time.taken))
@@ -505,11 +486,7 @@ RunDriver <- function(gage_id = NULL,
     d_attr$IVGTYP_nlcd <- divides_with_veg$IVGTYP_nlcd
   }
 
-  if (config$hydrofabric$version == "2.2") {
-    sf::st_write(d_attr, outfile,layer = "divide-attributes", append = FALSE, overwrite = TRUE)
-  } else if (config$hydrofabric$version == "2.1.1") {
-    sf::st_write(d_attr, outfile,layer = "model-attributes", append = FALSE)  
-  }
+  sf::st_write(d_attr, outfile, layer = "divide-attributes", append = FALSE, overwrite = TRUE)
   # Reproject to ensure all .gpkgs end up in Albers projection (EPSG:5070)
   reprojection_function(outfile)
 }
