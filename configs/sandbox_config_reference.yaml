@@ -85,8 +85,8 @@ calibration:
     # Build a weighted objective from multiple metrics:
     # function:
     #   kge: 0.5
-    #   log_kge: 0.3
-    #   fdc: 0.2
+    #   q10_skill: 0.3
+    #   q90_skill: 0.2
 
 formulation:
   models: "PET, CFE, T-ROUTE"

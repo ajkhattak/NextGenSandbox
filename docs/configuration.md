@@ -255,13 +255,15 @@ calibration:
   objective:
     function:
       kge: 0.5
-      log_kge: 0.3
-      nonzero_low_flow_log_mae: 0.2
+      q10_skill: 0.3
+      q90_skill: 0.2
 ```
 
-Available components are `kge`, `nse`, `nnse`, `log_kge`, `fdc`, and
-`nonzero_low_flow_log_mae`. `log_kge`, `fdc`, and
-`nonzero_low_flow_log_mae` apply only to streamflow. The FDC component
+Available components are `kge`, `nse`, `nnse`, `log_kge`, `fdc`,
+`q10_skill`, `q90_skill`, and `nonzero_low_flow_log_mae`. `log_kge`, `fdc`,
+`q10_skill`, `q90_skill`, and `nonzero_low_flow_log_mae` apply only to
+streamflow. Q10 is the flow exceeded 10% of the time, and Q90 is the flow
+exceeded 90% of the time. The FDC component
 evaluates both high-flow exceedances `(0.01, 0.05, 0.10)` and low-flow
 exceedances `(0.70, 0.90, 0.95)`. `nonzero_low_flow_log_mae` evaluates mean
 absolute log10 error only where observed streamflow is greater than `1e-6` and
@@ -391,9 +393,9 @@ simulation:
 ```
 
 The model still runs continuously through the unselected years so its states
-remain physically continuous. Sandbox pools all aligned observed and simulated
-values from the selected years and calculates the objective once; unselected
-years do not contribute to the objective.
+remain physically continuous. Sandbox combines the aligned values from all
+selected years and calculates the objective once. Unselected years do not
+contribute to the objective.
 
 `year_type` may be `water_year` or `calendar_year` and defaults to
 `calendar_year`. Water year 2011 spans October 1, 2010 through September 30,

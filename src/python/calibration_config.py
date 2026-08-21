@@ -21,6 +21,8 @@ COMPOSITE_METRICS = {
     "nnse",
     "log_kge",
     "fdc",
+    "q10_skill",
+    "q90_skill",
     "nonzero_low_flow_log_mae",
 }
 

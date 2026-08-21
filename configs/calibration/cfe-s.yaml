@@ -37,10 +37,10 @@ cfes_params:
   min: 0.0
   max: 1.0
   init: 0.1
-- name: refkdt
-  min: 0.001
-  max: 8.0
-  init: 3.0
+#- name: refkdt
+#  min: 1.0 #0.001
+#  max: 4.0 #8.0
+#  init: 2.0 #3.0
 - name: slope
   min: 0.0
   max: 1.0

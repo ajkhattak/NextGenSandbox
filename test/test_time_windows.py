@@ -225,6 +225,31 @@ class TestSimulationTimeWindows(unittest.TestCase):
             },
         )
 
+    def test_rejects_selected_year_aggregation(self):
+        context = SandboxContext.__new__(SandboxContext)
+        context.formulation = ""
+        context.project_gages = ["01109403"]
+        context.sandbox_config = {
+            "simulation": {
+                "task_type": "calibration",
+                "gages": "01109403",
+                "time": {
+                    "calibration": {
+                        "start": "2009-10-01",
+                        "spinup": "12 months",
+                        "end": "2020-09-30 23:00:00",
+                        "evaluation": {
+                            "years": [2011],
+                            "aggregation": "pooled",
+                        },
+                    },
+                },
+            }
+        }
+
+        with self.assertRaisesRegex(ValueError, "unsupported field.*aggregation"):
+            context.load_simulation_config()
+
     def test_selected_year_evaluation_requires_explicit_end(self):
         context = SandboxContext.__new__(SandboxContext)
         context.formulation = ""

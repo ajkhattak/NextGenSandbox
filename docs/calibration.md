@@ -50,8 +50,8 @@ calibration:
   objective:
     function:
       kge: 0.5
-      log_kge: 0.3
-      nonzero_low_flow_log_mae: 0.2
+      q10_skill: 0.3
+      q90_skill: 0.2
 ```
 
 The supported components are:
@@ -63,6 +63,8 @@ The supported components are:
 | `nnse` | `1 - NNSE` | Every observation variable |
 | `log_kge` | `1 - KGE(log10(values))` | Streamflow only |
 | `fdc` | Relative flow-duration-curve error | Streamflow only |
+| `q10_skill` | `1 - skill`, where skill is `1 - abs((sim Q10 - obs Q10) / obs Q10)` | Streamflow only |
+| `q90_skill` | `1 - skill`, where skill is `1 - abs((sim Q90 - obs Q90) / obs Q90)` | Streamflow only |
 | `nonzero_low_flow_log_mae` | Mean absolute error of `log10(sim) - log10(obs)` where observed positive streamflow is below its 30th percentile | Streamflow only |
 
 The weighted objective is
@@ -72,6 +74,9 @@ than zero and must sum to `1.0`.
 The FDC component uses the default high-flow exceedances
 `(0.01, 0.05, 0.10)` and low-flow exceedances `(0.70, 0.90, 0.95)`. Each FDC
 point contributes to the root-mean-square relative error.
+Q10 and Q90 use flow-exceedance notation: Q10 is the flow exceeded 10% of the
+time (the 90th percentile), while Q90 is exceeded 90% of the time (the 10th
+percentile).
 The `nonzero_low_flow_log_mae` component uses only observed streamflow greater
 than `1e-6` and below the 30th percentile of positive observed streamflow.
 

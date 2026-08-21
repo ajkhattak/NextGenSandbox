@@ -11,7 +11,7 @@ soil_params.wltsmc : null         # [m/m]
 soil_params.expon  : 1.0          # []
 soil_params.expon_secondary: 1.0  # []
 
-refkdt          : null
+refkdt          : 3.0
 max_gw_storage  : null             # [m]
 Cgw             : null             # [m h-1]
 expon           : null             # [m/m]

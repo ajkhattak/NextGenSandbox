@@ -382,8 +382,8 @@ class TestCalibrationConfig(unittest.TestCase):
                     "objective": {
                         "function": {
                             "kge": 0.5,
-                            "log_kge": 0.3,
-                            "fdc": 0.2,
+                            "q10_skill": 0.3,
+                            "q90_skill": 0.2,
                         }
                     },
                 }
@@ -398,7 +398,7 @@ class TestCalibrationConfig(unittest.TestCase):
         )
         self.assertEqual(
             settings.objective_metrics,
-            {"kge": 0.5, "log_kge": 0.3, "fdc": 0.2},
+            {"kge": 0.5, "q10_skill": 0.3, "q90_skill": 0.2},
         )
 
     def test_rejects_unknown_composite_metric(self):

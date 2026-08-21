@@ -73,8 +73,8 @@ calibration:
   objective:
     function:
       kge: 0.5
-      log_kge: 0.3
-      nonzero_low_flow_log_mae: 0.2
+      q10_skill: 0.3
+      q90_skill: 0.2
 ```
 
 When one observation type is configured, ngen-cal receives an ordinary
@@ -84,8 +84,10 @@ local observation plugin returns one series indexed by `value_time` and
 
 The bundled multi-variable objectives compute efficiency metrics independently
 for each variable and minimize the L2 norm of their losses. `log_kge`, `fdc`,
-and `nonzero_low_flow_log_mae` are streamflow-specific; `kge`, `nse`, and
-`nnse` apply to every variable. The FDC component uses default exceedances for
+`q10_skill`, `q90_skill`, and `nonzero_low_flow_log_mae` are
+streamflow-specific; `kge`, `nse`, and `nnse` apply to every variable. Q10 is
+the flow exceeded 10% of the time, and Q90 is exceeded 90% of the time. The
+FDC component uses default exceedances for
 both high flows `(0.01, 0.05, 0.10)` and low flows `(0.70, 0.90, 0.95)`.
 `nonzero_low_flow_log_mae` evaluates mean absolute log10 error only where observed
 streamflow is greater than `1e-6` and below the 30th percentile of positive

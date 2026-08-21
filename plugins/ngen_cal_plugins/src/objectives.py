@@ -17,17 +17,23 @@ NONZERO_LOW_FLOW_EXCEEDANCE = 0.7
 LOW_FLOW_EXCEEDANCES = (0.7, 0.9, 0.95)
 HIGH_FLOW_EXCEEDANCES = (0.01, 0.05, 0.1)
 FDC_EXCEEDANCES = HIGH_FLOW_EXCEEDANCES + LOW_FLOW_EXCEEDANCES
+Q10_EXCEEDANCE = 0.10
+Q90_EXCEEDANCE = 0.90
 COMPOSITE_METRICS = {
     "kge",
     "nse",
     "nnse",
     "log_kge",
     "fdc",
+    "q10_skill",
+    "q90_skill",
     "nonzero_low_flow_log_mae",
 }
 STREAMFLOW_ONLY_METRICS = {
     "log_kge",
     "fdc",
+    "q10_skill",
+    "q90_skill",
     "nonzero_low_flow_log_mae",
 }
 COMPOSITE_OBJECTIVE_ENV = "NGEN_CAL_COMPOSITE_OBJECTIVE"
@@ -127,7 +133,7 @@ def configure_composite_objective(metric_weights: dict[str, float]) -> None:
 
 
 def configure_objective_evaluation(settings: dict | None) -> None:
-    """Configure optional calendar- or water-year objective filtering."""
+    """Configure optional year filtering for objective evaluation."""
     global _objective_evaluation
 
     if settings is None:
@@ -183,19 +189,26 @@ def composite_objective(
         )
         weighted_losses = []
         for metric_name, weight in metric_weights.items():
-            if metric_name in STREAMFLOW_ONLY_METRICS and variable != "streamflow":
+            if (
+                metric_name in STREAMFLOW_ONLY_METRICS
+                and variable != "streamflow"
+            ):
                 continue
-            loss = _composite_metric_loss(metric_name, pairs, variable)
+            loss = _composite_metric_loss(
+                metric_name,
+                pairs,
+                variable,
+            )
             weighted_losses.append((weight * loss) ** 2)
 
         if weighted_losses:
-            variable_losses.append(sum(weighted_losses))
+            variable_losses.append(float(sum(weighted_losses)))
 
     if not variable_losses:
         raise ValueError(
             "The configured objective metrics do not apply to any available "
-            "observation variable. log_kge, fdc, and "
-            "nonzero_low_flow_log_mae require streamflow."
+            "observation variable. Streamflow-only objective metrics require "
+            "streamflow (a variable named 'streamflow')."
         )
     return float(np.sqrt(sum(variable_losses)))
 
@@ -285,6 +298,18 @@ def _composite_metric_loss(metric_name, pairs, variable):
             observed,
             simulated,
             FDC_EXCEEDANCES,
+        )
+    if metric_name == "q10_skill":
+        return _flow_exceedance_skill_loss(
+            observed,
+            simulated,
+            Q10_EXCEEDANCE,
+        )
+    if metric_name == "q90_skill":
+        return _flow_exceedance_skill_loss(
+            observed,
+            simulated,
+            Q90_EXCEEDANCE,
         )
     if metric_name == "nonzero_low_flow_log_mae":
         return _nonzero_low_flow_log_mae_loss(observed, simulated)
@@ -392,6 +417,25 @@ def _fdc_exceedance_loss(observed, simulated, exceedances):
     sim_quantiles = np.quantile(sim, quantiles)
     relative_error = (sim_quantiles - obs_quantiles) / obs_quantiles
     return float(np.sqrt(np.mean(relative_error ** 2)))
+
+
+def _flow_exceedance_skill_loss(observed, simulated, exceedance):
+    """Return ``1 - skill`` at one flow-exceedance probability."""
+    observed_flow = float(
+        np.quantile(
+            observed.clip(lower=LOW_FLOW_EPSILON).to_numpy(dtype=float),
+            1.0 - exceedance,
+        )
+    )
+    simulated_flow = float(
+        np.quantile(
+            simulated.clip(lower=LOW_FLOW_EPSILON).to_numpy(dtype=float),
+            1.0 - exceedance,
+        )
+    )
+    relative_error = abs(simulated_flow - observed_flow) / observed_flow
+    skill = 1.0 - relative_error
+    return abs(1.0 - skill)
 
 
 def _nonzero_low_flow_log_mae_loss(observed, simulated):
