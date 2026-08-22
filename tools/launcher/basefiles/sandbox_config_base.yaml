@@ -1,18 +1,11 @@
-# Sandbox configuration sample file
-
-general:
-  input_dir     : "/Users/ahmadjankhattak/Core/projects/synthetic_2026/inputs"
-  output_dir    : "/Users/ahmadjankhattak/Core/projects/synthetic_2026/basecase"
-  resource_layout: gage
-  gages:
-    option: ids
-    ids: []
+# Base Sandbox configuration used by the Launcher.
+# Project paths, gages, and formulation are injected from launcher_config.yaml.
 
 
 ########################################################################
 forcings : 
   format     : ".nc"
-  time       : {"start" : "2015-10-01", "end" : "2022-09-30 23:00:00"}
+  time       : {"start" : "2000-10-01", "end" : "2023-09-30 23:00:00"}
   domain     : "conus"        # options = ["conus", "HI", "PR", 'AK']
   gages      : all
 
@@ -22,24 +15,17 @@ observations: {}
 calibration:
   optimizer:
     algorithm: dds
-    iterations: 400
+    iterations: 2
     random_seed: 444
   objective:
     function: kge
 
-########################################################################
-formulation :
-  models             : ""
-  verbosity          : 0
-
 simulation :
-  task_type : "calibvalid" # calibvalid, calibration, validation, restart, control
-  gages     : []
   time:
     calibration:
       start: "2015-10-01 00:00:00"
       spinup: "12 months"
-      evaluation: "4 years"
+      evaluation: "2 years"
     validations:
       - name: validation
         start: "2020-10-01 00:00:00"
@@ -48,8 +34,8 @@ simulation :
 
   partitioning:
     mode: parallel
-    max_nexus_per_proc: 20
-    max_procs: 10
+    max_nexus_per_proc: 15
+    max_procs: 3
 
   outputs:
     metadata:

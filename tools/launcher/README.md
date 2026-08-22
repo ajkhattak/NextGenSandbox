@@ -1,55 +1,136 @@
 # Sandbox Launcher
 
-The Sandbox Launcher runs many gage/formulation experiments from one shared
-set of base configuration files. It is intended for larger calibration and
-validation campaigns where each gage/formulation run may need to resume across
-multiple scheduler submissions.
+The Sandbox Launcher expands one reusable Sandbox configuration into many
+gage, formulation, and calibration experiments. Use it after a normal
+single-gage Sandbox run works and the required hydrofabric, forcing, and
+observation resources are available.
 
-The launcher supports:
+The launcher can:
 
-- SLURM execution for HPC systems
-- local multiprocessing for small tests
-- per-gage/per-formulation config generation
-- automatic DDS restart and PSO global-best warm-start selection
-- validation after calibration iterations are complete
-- status checks across all configured experiments
+- run small campaigns locally;
+- submit independent experiments to Slurm;
+- generate a Sandbox config for every gage and experiment;
+- resume incomplete DDS calibrations or warm-start PSO from its global best;
+- run validation after calibration;
+- expand a reference period into reference, wet, and dry calibrations; and
+- report campaign status from run metadata.
 
-## Files
+## How Configuration Works
+
+The launcher always needs **two configuration files**, including for one
+gage, one formulation, and one calibration window:
+
+| File | Defines |
+|---|---|
+| `launcher_config.yaml` | The campaign: project paths, gages, experiments, assignments, execution settings, and optional regime calibration. |
+| `basefiles/sandbox_config_base.yaml` | The reusable Sandbox settings copied into every generated run: forcing, observations, optimizer, objective, simulation time, partitioning, and output settings. |
+
+`launcher_config.yaml` points to the base file through
+`templates.sandbox_config`. It does not replace the base Sandbox config, and
+the base config cannot replace the launcher config.
+
+### Where Project Paths Belong
+
+Define the paths once in `launcher_config.yaml`:
+
+```yaml
+project:
+  input_dir: "/path/to/project/inputs"
+  output_dir: "/path/to/project/outputs"
+  resource_layout: gage
+```
+
+You do **not** need to repeat `input_dir`, `output_dir`, or `resource_layout`
+in `sandbox_config_base.yaml`. The launcher injects these values into every
+generated Sandbox config. If they are present in both files, values under
+`launcher_config.yaml: project` take precedence.
+
+The launcher also injects the current gage, output directory, formulation,
+model instances, and calibration scenario. These fields do not need empty
+placeholders in the base file.
+
+## Required Files
 
 | File | Purpose |
 |---|---|
-| `launcher_config.yaml` | Preferred one-window launcher setup: project paths, templates, experiments, gages, and assignments. |
-| `models_gages_map.yaml` | Advanced/direct mapping format; optional when using `launcher_config.yaml` experiments and assignments. |
-| `basefiles/sandbox_config_base.yaml` | Base Sandbox config copied and customized per gage/formulation. |
-| `sandbox_launcher.py` | Main launcher CLI. |
-| `submit_launcher.sh` | Entry script for SLURM or local execution. |
-| `submit_gage.slurm` | SLURM worker script for one gage/formulation run. |
-| `check_status.sh` | Convenience wrapper for launcher status. |
+| `launcher_config.yaml` | Main launcher configuration; always required. |
+| `basefiles/sandbox_config_base.yaml` | Template for generated per-run Sandbox configs; always required. |
+| `sandbox_launcher.py` | Launcher command-line program. |
+| `submit_gage.slurm` | Slurm worker template used for each submitted run. |
+| `submit_launcher.sh` | Optional wrapper that selects local or Slurm execution. |
+| `check_status.sh` | Convenience wrapper for campaign status. |
+| `models_gages_map.yaml` | Optional advanced mapping format; not needed for the recommended setup. |
 
-## Setup
+## Before You Start
 
-1. Copy or edit `launcher_config.yaml`.
-2. Edit `basefiles/sandbox_config_base.yaml`.
-3. Define experiments and assignments in `launcher_config.yaml`.
-4. On SLURM systems, edit account, partition, time, memory, and module loads in
-   `submit_launcher.sh` and `submit_gage.slurm`.
+Confirm that:
 
-The base Sandbox config should use the current Sandbox configuration schema:
+1. NextGenSandbox is installed and `./bootstrap.sh --check` succeeds.
+2. A normal `sandbox --conf` and `sandbox --run` succeeds for at least one of
+   the intended gages and formulations.
+3. Hydrofabric, forcing, observations, and any trained model data already
+   exist. The launcher does not download or subset resources.
+4. `SANDBOX_ENV` is available in the shell.
+5. For Slurm, `submit_gage.slurm` contains the correct modules and site
+   settings.
+
+## Minimal Setup
+
+This example runs one formulation over two gages using one calibration
+window. Even this small case requires both launcher configuration files.
+
+### 1. Configure the Campaign
+
+Edit `tools/launcher/launcher_config.yaml`:
 
 ```yaml
-general:
-  input_dir: "/path/to/reusable/resources"
-  output_dir: "/path/to/run/outputs"
+project:
+  input_dir: "/path/to/project/inputs"
+  output_dir: "/path/to/project/outputs"
   resource_layout: gage
-  gages:
-    option: ids
-    ids: []
 
+templates:
+  sandbox_config: basefiles/sandbox_config_base.yaml
+
+submit_script: submit_gage.slurm
+
+execution:
+  num_workers: 2
+  startup_delay_seconds: 5
+
+experiments:
+  pet_cfe_s:
+    models: "PET, CFE, T-route"
+
+gages:
+  option: ids
+  ids:
+    - "02299950"
+    - "08070500"
+
+assignment:
+  default:
+    - pet_cfe_s
+```
+
+This means: run the `pet_cfe_s` experiment for both listed gages. Use
+`assignment.default: [all]` to assign every experiment to every gage.
+
+### 2. Configure the Sandbox Template
+
+Edit the file selected by `templates.sandbox_config`. The launcher supplies
+the project paths, gages, and formulation, so this file begins with settings
+that are shared by every generated run:
+
+```yaml
 forcings:
+  format: ".nc"
   time:
     start: "2015-10-01"
     end: "2022-09-30 23:00:00"
   gages: all
+
+observations: {}
 
 calibration:
   optimizer:
@@ -60,7 +141,6 @@ calibration:
     function: kge
 
 simulation:
-  gages: []
   time:
     calibration:
       start: "2015-10-01 00:00:00"
@@ -71,6 +151,10 @@ simulation:
         start: "2020-10-01 00:00:00"
         spinup: "12 months"
         evaluation: "1 year"
+  partitioning:
+    mode: parallel
+    max_nexus_per_proc: 15
+    max_procs: 3
   outputs:
     metadata:
       enabled: true
@@ -78,28 +162,154 @@ simulation:
       file: simulation_metadata.yml
 ```
 
-The launcher fills `general.gages.ids`, `simulation.gages`,
-`general.output_dir`, `formulation.models`, and optional
-`formulation.model_instances` for each generated config.
-The `simulation.outputs.metadata` block is required because the launcher uses
-`<output_dir>/<formulation>/metadata/run_<gage_id>.yml` for status checks and
-resubmission after wallclock timeouts.
+Keep `simulation.outputs.metadata.enabled: true`. The launcher uses each
+`metadata/run_<gage_id>.yml` file to detect progress, select restart behavior,
+request MPI tasks, and find validation output.
 
-## One-Window Launcher Config
+### 3. Check the Campaign
 
-The preferred setup is to define experiments, gages, and assignments in
-`launcher_config.yaml`:
+Run the read-only preflight check:
+
+```bash
+python tools/launcher/sandbox_launcher.py check \
+  --config tools/launcher/launcher_config.yaml
+```
+
+Expected result:
+
+- resolved launcher and Sandbox template paths;
+- input and output directories;
+- gage and experiment counts;
+- assignment summary;
+- calibration scenarios and selected years; and
+- `Launcher configuration looks valid.`
+
+`check` does not generate configs, create output directories, run Sandbox, or
+submit jobs.
+
+### 4. Preview the Work
+
+Preview local execution:
+
+```bash
+python tools/launcher/sandbox_launcher.py dryrun \
+  --backend local \
+  --config tools/launcher/launcher_config.yaml
+```
+
+Preview Slurm submissions:
+
+```bash
+python tools/launcher/sandbox_launcher.py dryrun \
+  --backend slurm \
+  --config tools/launcher/launcher_config.yaml
+```
+
+Expected result: one `Would generate configs` and one `Would run locally` or
+`Would submit` message for each resolved gage/experiment/scenario. `dryrun`
+does not write files, create output directories, execute Sandbox, or submit
+jobs.
+
+### 5. Run the Campaign
+
+For local execution:
+
+```bash
+python tools/launcher/sandbox_launcher.py run \
+  --backend local \
+  --config tools/launcher/launcher_config.yaml
+```
+
+For Slurm execution from a login node:
+
+```bash
+python tools/launcher/sandbox_launcher.py run \
+  --backend slurm \
+  --config tools/launcher/launcher_config.yaml
+```
+
+Local mode runs at most `execution.num_workers` experiments concurrently.
+Slurm mode generates each run config and submits `submit_gage.slurm` once per
+gage/experiment/scenario. Configure the Slurm worker before using this mode.
+
+The optional entry script selects the backend automatically:
+
+```bash
+# Local
+bash tools/launcher/submit_launcher.sh
+
+# Slurm launcher job
+sbatch tools/launcher/submit_launcher.sh
+```
+
+Set `LAUNCHER_CONFIG` when the launcher config is not the default file:
+
+```bash
+LAUNCHER_CONFIG=/path/to/launcher_config.yaml \
+  bash tools/launcher/submit_launcher.sh
+```
+
+### 6. Check Status
+
+```bash
+python tools/launcher/sandbox_launcher.py status \
+  --config tools/launcher/launcher_config.yaml
+```
+
+or:
+
+```bash
+bash tools/launcher/check_status.sh
+```
+
+Status reports calibration progress and whether validation output exists for
+each resolved run. It reads existing metadata and output files; it does not
+start work.
+
+## Generated Layout
+
+For a normal calibration campaign:
+
+```text
+<project.output_dir>/
+  <experiment>/
+    configs/
+      <gage_id>/
+        sandbox_config_<gage_id>.yaml
+        sandbox_config_<gage_id>_restart.yaml
+        sandbox_config_<gage_id>_validation.yaml
+    metadata/
+      run_<gage_id>.yml
+    <gage run output>/
+```
+
+For regime calibration, the scenario separates the generated files and run
+outputs:
+
+```text
+<project.output_dir>/
+  <experiment>/
+    ref/
+      configs/
+      metadata/
+    wet/
+      configs/
+      metadata/
+    dry/
+      configs/
+      metadata/
+```
+
+## Multiple Experiments and Groups
+
+Add experiments by name under `experiments`. Model variants belong with the
+experiment that uses them:
 
 ```yaml
-project:
-  input_dir: "/path/to/inputs"
-  output_dir: "/path/to/outputs"
-  resource_layout: gage
-
-templates:
-  sandbox_config: basefiles/sandbox_config_base.yaml
-
 experiments:
+  pet_cfe_s:
+    models: "PET, CFE, T-route"
+
   pet_cfe_x:
     models: "PET, CFE, T-route"
     model_instances:
@@ -107,8 +317,12 @@ experiments:
         - name: cfe-x
           basefile: "config_cfe-x.yaml"
           repo_name: "cfe"
-          calib_params_block: "cfex_params"
+          calib_params_block: cfex_params
+```
 
+For grouped campaigns, load gages and group names from CSV:
+
+```yaml
 gages:
   option: file
   file:
@@ -118,24 +332,13 @@ gages:
 
 assignment:
   default:
-    - all
-
+    - pet_cfe_s
   groups:
     snowy:
       - snow17_sacsma
-      - nom_cfe_s
-
     arid:
       - pet_topmodel
 ```
-
-`assignment.default: [all]` means run every experiment over every gage.
-Otherwise, list specific experiment names.
-
-When `gages.file.group_column` is configured, group-specific assignments can
-override the default. A gage may belong to more than one group either by
-appearing in multiple CSV rows or by using comma, semicolon, or pipe-separated
-group names in one cell.
 
 ```csv
 gage_id,group_name
@@ -145,72 +348,91 @@ gage_id,group_name
 08070500,non-snowy|benchmark
 ```
 
-If a gage belongs to multiple configured groups, the launcher merges the
-experiment lists and removes duplicates while preserving order. If a gage's
-group is not configured under `assignment.groups`, the gage falls back to
-`assignment.default`.
+A gage may belong to multiple groups through repeated rows or comma-,
+semicolon-, or pipe-separated group names. The launcher merges matching
+experiment assignments and removes duplicates. If none of a gage's groups
+appear under `assignment.groups`, `assignment.default` is used.
 
-## Direct Mapping Format
+## Regime Calibration
 
-For advanced use, `models_gages_map.yaml` can still define a fully resolved
-mapping. The launcher uses this file only when `launcher_config.yaml` does not
-define `experiments`, `gages`, and `assignment`.
+Regime calibration expands every assigned gage/experiment pair into three
+independent scenarios:
 
-## Check
+- `ref` evaluates all post-spinup values in the reference period;
+- `wet` evaluates only selected wet years; and
+- `dry` evaluates only selected dry years.
 
-Run a read-only configuration check before submitting jobs:
+Add this block to `launcher_config.yaml`:
 
-```bash
-python tools/launcher/sandbox_launcher.py check --config tools/launcher/launcher_config.yaml
+```yaml
+regime_calibration:
+  reference:
+    start: "2013-10-01 00:00:00"
+    end: "2024-09-30 23:00:00"
+    spinup: "12 months"
+    year_type: water_year
+
+  source:
+    file: "/path/to/clusters/<gage_id>_annual_signatures_clusters.csv"
+    year_column: Water_Year
+    regime_column: Regime
+
+  selection:
+    max_years: 5
+    order: earliest
+    regimes:
+      wet: Wet
+      dry: Dry
 ```
 
-or, from a copied launcher directory:
+The CSV contains one row per year:
 
-```bash
-python sandbox_launcher.py check --config launcher_config.yaml
+```csv
+Water_Year,Regime
+2015,Wet
+2016,Wet
+2017,Wet
+2018,Dry
 ```
 
-## Dry Run
+`<gage_id>` is replaced for each gage and is required in the source path for
+a multi-gage campaign. Only complete post-spinup years inside the reference
+window are eligible. The launcher selects up to `max_years` for each regime,
+using all available matching years when fewer exist. A regime with no
+eligible years is an error.
 
-Preview planned work without writing configs or submitting jobs:
+Wet and dry simulations begin one spinup period before the earliest selected
+year and end after the latest selected year. Intermediate years are simulated
+to keep the run continuous but do not contribute to the objective function.
 
-```bash
-python tools/launcher/sandbox_launcher.py run --backend local --dryrun
+## Slurm Resources
+
+The launcher reads generated partition metadata and requests one MPI task per
+resolved NextGen partition. Basin size may therefore produce a different task
+count for every submitted job.
+
+Optional settings in `launcher_config.yaml` override matching defaults in
+`submit_gage.slurm`:
+
+```yaml
+slurm:
+  account: project_account
+  partition: shared
+  time: "12:00:00"
+  memory: "8G"
+  mpi_tasks: auto
 ```
 
-## Run
+`mpi_tasks` currently accepts only `auto`; CPUs per MPI task remain `1`.
+Site-specific module commands still belong in `submit_gage.slurm`.
 
-Local mode:
+## Advanced Direct Mapping
 
-```bash
-bash tools/launcher/submit_launcher.sh
-```
+`models_gages_map.yaml` can provide an already-resolved `formulations` and
+`mapping` structure. The launcher uses it only when `launcher_config.yaml`
+does not contain all three recommended blocks: `experiments`, `gages`, and
+`assignment`.
 
-SLURM mode:
-
-```bash
-sbatch tools/launcher/submit_launcher.sh
-```
-
-The entry script detects whether it is running inside SLURM and selects the
-backend automatically.
-
-## Status
-
-```bash
-bash tools/launcher/check_status.sh
-```
-
-or:
-
-```bash
-python tools/launcher/sandbox_launcher.py status --config tools/launcher/launcher_config.yaml
-```
-
-## Notes
-
-- The launcher assumes hydrofabric and forcing resources already exist.
-- `SANDBOX_ENV` must point to the Sandbox Python environment.
-- Generated configs are written under `<output_dir>/<formulation_name>/configs`.
-- Status uses each run's `metadata/run_<gage_id>.yml`, `best_params.txt`, and
-  validation files under `output_sim_obs`.
+The launcher config is still required in direct-mapping mode because it
+selects project paths, the base Sandbox template, execution settings, and the
+mapping file.

@@ -92,6 +92,40 @@ class TestLauncherAssignment(unittest.TestCase):
                 "assignment.default",
             )
 
+    def test_dryrun_is_a_standalone_launcher_mode(self):
+        with patch.object(
+            sys,
+            "argv",
+            ["sandbox_launcher.py", "dryrun", "--backend", "local"],
+        ):
+            args = launcher.parse_args()
+
+        self.assertEqual(args.mode, "dryrun")
+        self.assertEqual(args.backend, "local")
+        self.assertFalse(hasattr(args, "dryrun"))
+
+    def test_dryrun_mode_previews_without_running(self):
+        context = object()
+        args = SimpleNamespace(
+            mode="dryrun",
+            backend="local",
+            config="launcher_config.yaml",
+        )
+        with (
+            patch.object(launcher, "parse_args", return_value=args),
+            patch.object(launcher, "load_context", return_value=context),
+            patch.object(launcher, "validate_context") as validate,
+            patch.object(launcher, "runner") as run,
+        ):
+            launcher.main()
+
+        validate.assert_called_once_with(context)
+        run.assert_called_once_with(
+            context,
+            use_slurm=False,
+            dryrun=True,
+        )
+
     def test_launcher_requires_metadata_index(self):
         config = {
             "general": {
@@ -107,6 +141,25 @@ class TestLauncherAssignment(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "metadata.enabled"):
             launcher.validate_base_sandbox_config(config)
 
+    def test_launcher_does_not_require_injected_placeholders(self):
+        config = {
+            "general": {
+                "input_dir": "/tmp/inputs",
+                "output_dir": "/tmp/outputs",
+            },
+            "forcings": {"gages": "all"},
+            "simulation": {
+                "outputs": {
+                    "metadata": {
+                        "enabled": True,
+                        "index_dir": "metadata",
+                    }
+                },
+            },
+        }
+
+        launcher.validate_base_sandbox_config(config)
+
     def test_generated_configs_use_only_sandbox_files(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -115,7 +168,6 @@ class TestLauncherAssignment(unittest.TestCase):
                     "general": {
                         "input_dir": "/tmp/inputs",
                         "output_dir": "/tmp/outputs",
-                        "gages": {"option": "ids", "ids": []},
                     },
                     "calibration": {
                         "optimizer": {
@@ -124,10 +176,8 @@ class TestLauncherAssignment(unittest.TestCase):
                         },
                         "objective": {"function": "kge"},
                     },
-                    "formulation": {"models": ""},
                     "simulation": {
-                        "task_type": "calibvalid",
-                        "gages": [],
+                        "time": {},
                     },
                 },
                 output_dir=root / "outputs",
@@ -169,6 +219,79 @@ class TestLauncherAssignment(unittest.TestCase):
             )
             self.assertNotIn("-j", run.call_args.args[0])
 
+    def test_regime_configs_use_scenario_output_and_calibration_window(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ctx = SimpleNamespace(
+                base_sandbox_cfg={
+                    "general": {
+                        "input_dir": "/tmp/inputs",
+                        "output_dir": "/tmp/outputs",
+                        "gages": {"option": "ids", "ids": []},
+                    },
+                    "calibration": {
+                        "optimizer": {"algorithm": "dds", "iterations": 25},
+                        "objective": {"function": "kge"},
+                    },
+                    "formulation": {"models": ""},
+                    "simulation": {
+                        "task_type": "calibvalid",
+                        "label": "old_label",
+                        "gages": [],
+                        "time": {"calibration": {}},
+                    },
+                },
+                output_dir=root / "outputs",
+                metadata_index_dir_name="metadata",
+            )
+            scenario = launcher.CalibrationScenario(
+                name="dry",
+                calibration={
+                    "start": "2016-10-01 00:00:00",
+                    "end": "2023-09-30 23:00:00",
+                    "spinup": "12 months",
+                    "evaluation": {
+                        "years": [2018, 2020, 2021, 2022, 2023],
+                        "year_type": "water_year",
+                    },
+                },
+                selected_years=(2018, 2020, 2021, 2022, 2023),
+            )
+            config_dir, metadata_dir = launcher.experiment_dirs(
+                ctx,
+                "pet_cfe",
+                scenario.name,
+            )
+
+            with patch.object(launcher.subprocess, "run"):
+                launcher.generate_config_files_for_gage(
+                    ctx,
+                    "pet_cfe",
+                    {"models": "PET, CFE, T-ROUTE"},
+                    "pet_cfe",
+                    "01109403",
+                    config_dir,
+                    metadata_dir,
+                    scenario=scenario,
+                )
+
+            paths = launcher.generated_config_paths(config_dir, "01109403")
+            generated = yaml.safe_load(paths["sandbox_main"].read_text())
+            self.assertEqual(
+                generated["general"]["output_dir"],
+                str(root / "outputs" / "pet_cfe" / "dry"),
+            )
+            self.assertEqual(
+                generated["simulation"]["time"]["calibration"],
+                scenario.calibration,
+            )
+            self.assertNotIn("label", generated["simulation"])
+            restart = yaml.safe_load(paths["sandbox_restart"].read_text())
+            self.assertEqual(
+                restart["simulation"]["restart_dir"],
+                str(root / "outputs" / "pet_cfe" / "dry" / "01109403"),
+            )
+
     def test_max_iterations_comes_from_sandbox_calibration_block(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -200,6 +323,140 @@ class TestLauncherAssignment(unittest.TestCase):
         self.assertIn("--ntasks-per-node=4", command)
         self.assertIn("--cpus-per-task=1", command)
         self.assertNotIn("--cpus-per-task=4", command)
+
+    def test_slurm_command_applies_launcher_resource_overrides(self):
+        command = launcher.build_slurm_submit_command(
+            Path("/tmp/submit_gage.slurm"),
+            Path("/tmp/sandbox_config.yaml"),
+            "pet_cfe_wet_01109403",
+            num_mpi_tasks=4,
+            delay_seconds=10,
+            slurm={
+                "account": "project123",
+                "partition": "shared",
+                "time": "12:00:00",
+                "memory": "8G",
+                "mpi_tasks": "auto",
+            },
+        )
+
+        self.assertIn("--account=project123", command)
+        self.assertIn("--partition=shared", command)
+        self.assertIn("--time=12:00:00", command)
+        self.assertIn("--mem=8G", command)
+
+    def test_regime_scenarios_select_earliest_five_complete_water_years(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "08070500_regimes.csv"
+            source.write_text(
+                "Water_Year,Regime\n"
+                "2015,Wet\n"
+                "2016,Wet\n"
+                "2017,Wet\n"
+                "2018,Dry\n"
+                "2019,Wet\n"
+                "2020,Dry\n"
+                "2021,Dry\n"
+                "2022,Dry\n"
+                "2023,Dry\n"
+                "2024,Wet\n"
+            )
+            config = {
+                "reference": {
+                    "start": "2013-10-01 00:00:00",
+                    "end": "2024-09-30 23:00:00",
+                    "spinup": "12 months",
+                    "year_type": "water_year",
+                },
+                "source": {
+                    "file": "<gage_id>_regimes.csv",
+                    "year_column": "Water_Year",
+                    "regime_column": "Regime",
+                },
+                "selection": {
+                    "max_years": 5,
+                    "order": "earliest",
+                    "regimes": {"wet": "Wet", "dry": "Dry"},
+                },
+            }
+
+            scenarios = launcher.resolve_regime_scenarios(
+                config,
+                "08070500",
+                root,
+            )
+            by_name = {scenario.name: scenario for scenario in scenarios}
+
+            self.assertEqual(set(by_name), {"ref", "wet", "dry"})
+            self.assertNotIn("evaluation", by_name["ref"].calibration)
+            self.assertEqual(
+                by_name["wet"].selected_years,
+                (2015, 2016, 2017, 2019, 2024),
+            )
+            self.assertEqual(
+                by_name["dry"].selected_years,
+                (2018, 2020, 2021, 2022, 2023),
+            )
+            self.assertEqual(
+                by_name["dry"].calibration["start"],
+                "2016-10-01 00:00:00",
+            )
+            self.assertEqual(
+                by_name["dry"].calibration["end"],
+                "2023-09-30 23:00:00",
+            )
+
+    def test_regime_scenario_uses_fewer_years_when_five_are_unavailable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "regimes.csv").write_text(
+                "year,regime\n2019,Wet\n2020,Dry\n2021,Wet\n"
+            )
+            config = {
+                "reference": {
+                    "start": "2017-10-01",
+                    "end": "2021-09-30 23:00:00",
+                    "spinup": "12 months",
+                    "year_type": "water_year",
+                },
+                "source": {
+                    "file": "regimes.csv",
+                    "year_column": "year",
+                    "regime_column": "regime",
+                },
+                "selection": {
+                    "max_years": 5,
+                    "regimes": {"wet": "Wet", "dry": "Dry"},
+                },
+            }
+
+            scenarios = launcher.resolve_regime_scenarios(
+                config,
+                "01109403",
+                root,
+            )
+            by_name = {scenario.name: scenario for scenario in scenarios}
+            self.assertEqual(by_name["wet"].selected_years, (2019, 2021))
+            self.assertEqual(by_name["dry"].selected_years, (2020,))
+
+    def test_regime_config_requires_per_gage_path_for_multiple_gages(self):
+        config = {
+            "reference": {
+                "start": "2013-10-01",
+                "end": "2024-09-30 23:00:00",
+                "spinup": "12 months",
+            },
+            "source": {"file": "regimes.csv"},
+            "selection": {"regimes": {"wet": "Wet", "dry": "Dry"}},
+        }
+        with self.assertRaisesRegex(ValueError, "must contain <gage_id>"):
+            launcher.resolve_regime_scenarios(
+                config,
+                "01109403",
+                Path("/tmp"),
+                require_gage_placeholder=True,
+            )
 
     def test_unconfigured_experiment_has_no_iteration(self):
         with tempfile.TemporaryDirectory() as tmp:

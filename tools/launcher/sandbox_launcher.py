@@ -24,6 +24,25 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from src.python.calibration_config import absolutize_optimizer_settings_file
+from src.python.time_windows import (
+    NGEN_TIMESTEP,
+    format_timestamp,
+    parse_duration,
+    parse_timestamp,
+    resolve_time_period,
+    start_for_year,
+)
+
+
+@dataclass(frozen=True)
+class CalibrationScenario:
+    name: str | None
+    calibration: dict[str, Any]
+    selected_years: tuple[int, ...] = ()
+
+    @property
+    def display_name(self) -> str:
+        return self.name or "default"
 
 
 @dataclass(frozen=True)
@@ -41,6 +60,8 @@ class LauncherContext:
     num_workers: int
     startup_delay_seconds: int
     assignment_summary: dict[str, dict[str, int]]
+    calibration_scenarios: dict[str, tuple[CalibrationScenario, ...]]
+    slurm: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -247,6 +268,321 @@ def apply_project_overrides(base_sandbox_cfg: dict[str, Any], launcher_cfg: dict
     return sandbox_cfg
 
 
+def _complete_evaluation_years(
+    reference: dict[str, Any],
+    year_type: str,
+) -> list[int]:
+    resolved = resolve_time_period(
+        reference,
+        "regime_calibration.reference",
+    )
+    evaluation = resolved["evaluation_time"]
+    eval_start = parse_timestamp(
+        evaluation["start_time"],
+        "regime_calibration.reference evaluation start",
+    )
+    eval_end = parse_timestamp(
+        evaluation["end_time"],
+        "regime_calibration.reference evaluation end",
+    )
+
+    years = []
+    for year in range(eval_start.year - 1, eval_end.year + 2):
+        year_start = start_for_year(year, year_type)
+        year_end = start_for_year(year + 1, year_type) - NGEN_TIMESTEP
+        if year_start >= eval_start and year_end <= eval_end:
+            years.append(year)
+
+    if not years:
+        raise ValueError(
+            "regime_calibration.reference has no complete post-spinup "
+            f"{year_type.replace('_', ' ')}s available for calibration"
+        )
+    return years
+
+
+def _load_regime_years(
+    source_file: Path,
+    year_column: str,
+    regime_column: str,
+) -> dict[int, str]:
+    if not source_file.is_file():
+        raise FileNotFoundError(f"Regime source file not found: {source_file}")
+
+    rows: dict[int, str] = {}
+    with source_file.open(newline="", encoding="utf-8-sig") as file:
+        reader = csv.DictReader(file)
+        fields = reader.fieldnames or []
+        missing = [
+            column
+            for column in (year_column, regime_column)
+            if column not in fields
+        ]
+        if missing:
+            raise ValueError(
+                f"Regime source file {source_file} is missing column(s): "
+                f"{', '.join(missing)}"
+            )
+
+        for line_number, row in enumerate(reader, start=2):
+            year_text = str(row.get(year_column, "")).strip()
+            regime = str(row.get(regime_column, "")).strip()
+            if not year_text and not regime:
+                continue
+            try:
+                year = int(year_text)
+            except ValueError as exc:
+                raise ValueError(
+                    f"Invalid year {year_text!r} in {source_file} line "
+                    f"{line_number}"
+                ) from exc
+            if not regime:
+                raise ValueError(
+                    f"Missing regime in {source_file} line {line_number}"
+                )
+            if year in rows:
+                raise ValueError(
+                    f"Duplicate year {year} in regime source file {source_file}"
+                )
+            rows[year] = regime
+    return rows
+
+
+def resolve_regime_scenarios(
+    regime_config: dict[str, Any],
+    gage_id: str,
+    launcher_dir: Path,
+    *,
+    require_gage_placeholder: bool = False,
+) -> tuple[CalibrationScenario, ...]:
+    if not isinstance(regime_config, dict):
+        raise TypeError("regime_calibration must be a YAML dictionary/object")
+
+    reference = regime_config.get("reference")
+    source = regime_config.get("source")
+    selection = regime_config.get("selection")
+    if not isinstance(reference, dict):
+        raise TypeError(
+            "regime_calibration.reference must be a YAML dictionary/object"
+        )
+    if not isinstance(source, dict):
+        raise TypeError(
+            "regime_calibration.source must be a YAML dictionary/object"
+        )
+    if not isinstance(selection, dict):
+        raise TypeError(
+            "regime_calibration.selection must be a YAML dictionary/object"
+        )
+
+    unknown_reference = sorted(
+        set(reference) - {"start", "end", "spinup", "year_type"}
+    )
+    if unknown_reference:
+        raise ValueError(
+            "regime_calibration.reference contains unsupported field(s): "
+            f"{', '.join(unknown_reference)}"
+        )
+    for field in ("start", "end", "spinup"):
+        if field not in reference:
+            raise ValueError(f"regime_calibration.reference.{field} is required")
+
+    year_type = str(reference.get("year_type", "water_year")).strip().lower()
+    if year_type not in {"water_year", "calendar_year"}:
+        raise ValueError(
+            "regime_calibration.reference.year_type must be one of: "
+            "water_year, calendar_year"
+        )
+
+    source_pattern = source.get("file")
+    if not isinstance(source_pattern, str) or not source_pattern.strip():
+        raise ValueError("regime_calibration.source.file must be a non-empty path")
+    if require_gage_placeholder and "<gage_id>" not in source_pattern:
+        raise ValueError(
+            "regime_calibration.source.file must contain <gage_id> when the "
+            "launcher includes multiple gages"
+        )
+    source_file = resolve_path(
+        launcher_dir,
+        source_pattern.replace("<gage_id>", gage_id),
+    )
+    year_column = str(source.get("year_column", "Water_Year")).strip()
+    regime_column = str(source.get("regime_column", "Regime")).strip()
+
+    order = str(selection.get("order", "earliest")).strip().lower()
+    if order != "earliest":
+        raise ValueError(
+            "regime_calibration.selection.order currently supports only: earliest"
+        )
+    max_years = selection.get("max_years", 5)
+    if isinstance(max_years, bool) or not isinstance(max_years, int) or max_years < 1:
+        raise ValueError(
+            "regime_calibration.selection.max_years must be a positive integer"
+        )
+    regimes = selection.get("regimes")
+    if not isinstance(regimes, dict) or not regimes:
+        raise ValueError(
+            "regime_calibration.selection.regimes must be a non-empty mapping"
+        )
+    if "ref" in regimes:
+        raise ValueError(
+            "'ref' is reserved for the reference calibration scenario"
+        )
+
+    normalized_regimes: dict[str, str] = {}
+    source_labels: dict[str, str] = {}
+    for scenario_name, source_label in regimes.items():
+        safe_name = model_name_to_dir(str(scenario_name))
+        if not safe_name or safe_name != str(scenario_name).strip().lower():
+            raise ValueError(
+                "regime_calibration.selection.regimes keys must use lowercase "
+                "letters, numbers, periods, underscores, or hyphens"
+            )
+        if safe_name == "ref":
+            raise ValueError(
+                "'ref' is reserved for the reference calibration scenario"
+            )
+        if safe_name in normalized_regimes:
+            raise ValueError(f"Duplicate regime scenario name: {safe_name}")
+        label = str(source_label).strip()
+        if not label:
+            raise ValueError(
+                f"Regime scenario '{safe_name}' must map to a non-empty CSV label"
+            )
+        folded_label = label.casefold()
+        if folded_label in source_labels:
+            raise ValueError(
+                f"Regime CSV label {label!r} is assigned to more than one scenario"
+            )
+        normalized_regimes[safe_name] = folded_label
+        source_labels[folded_label] = safe_name
+
+    reference_period = {
+        "start": reference["start"],
+        "end": reference["end"],
+        "spinup": reference["spinup"],
+    }
+    eligible_years = _complete_evaluation_years(reference_period, year_type)
+    rows = _load_regime_years(source_file, year_column, regime_column)
+    missing_years = [year for year in eligible_years if year not in rows]
+    if missing_years:
+        raise ValueError(
+            f"Regime source file {source_file} is missing eligible year(s): "
+            f"{', '.join(str(year) for year in missing_years)}"
+        )
+    unknown_labels = sorted(
+        {
+            rows[year]
+            for year in eligible_years
+            if rows[year].casefold() not in source_labels
+        }
+    )
+    if unknown_labels:
+        raise ValueError(
+            f"Regime source file {source_file} contains unconfigured label(s) "
+            f"within the reference period: {', '.join(unknown_labels)}"
+        )
+    spinup = parse_duration(
+        reference["spinup"],
+        "regime_calibration.reference.spinup",
+    )
+
+    reference_start = parse_timestamp(
+        reference["start"],
+        "regime_calibration.reference.start",
+    )
+    reference_end = parse_timestamp(
+        reference["end"],
+        "regime_calibration.reference.end",
+    )
+    scenarios = [
+        CalibrationScenario(
+            name="ref",
+            calibration={
+                "start": format_timestamp(reference_start),
+                "end": format_timestamp(reference_end),
+                "spinup": reference["spinup"],
+            },
+        )
+    ]
+
+    for scenario_name, label in normalized_regimes.items():
+        selected = [
+            year
+            for year in eligible_years
+            if rows[year].casefold() == label
+        ][:max_years]
+        if not selected:
+            raise ValueError(
+                f"Regime scenario '{scenario_name}' has no matching complete "
+                f"{year_type.replace('_', ' ')}s for gage {gage_id} in "
+                f"{source_file}"
+            )
+
+        first_year_start = start_for_year(selected[0], year_type)
+        simulation_start = first_year_start - spinup
+        simulation_end = (
+            start_for_year(selected[-1] + 1, year_type) - NGEN_TIMESTEP
+        )
+        calibration = {
+            "start": format_timestamp(simulation_start),
+            "end": format_timestamp(simulation_end),
+            "spinup": reference["spinup"],
+            "evaluation": {
+                "years": selected,
+                "year_type": year_type,
+            },
+        }
+        resolve_time_period(
+            calibration,
+            f"regime_calibration.{scenario_name}",
+            allow_selected_years=True,
+        )
+        scenarios.append(
+            CalibrationScenario(
+                name=str(scenario_name),
+                calibration=calibration,
+                selected_years=tuple(selected),
+            )
+        )
+
+    return tuple(scenarios)
+
+
+def resolve_calibration_scenarios(
+    launcher_cfg: dict[str, Any],
+    map_cfg: dict[str, Any],
+    base_sandbox_cfg: dict[str, Any],
+    launcher_dir: Path,
+) -> dict[str, tuple[CalibrationScenario, ...]]:
+    gage_ids = list(map_cfg["mapping"])
+    regime_config = launcher_cfg.get("regime_calibration")
+    if regime_config is None:
+        calibration = (
+            base_sandbox_cfg.get("simulation", {})
+            .get("time", {})
+            .get("calibration")
+        )
+        if not isinstance(calibration, dict):
+            raise ValueError(
+                "Base sandbox config must define simulation.time.calibration"
+            )
+        scenario = CalibrationScenario(
+            name=None,
+            calibration=copy.deepcopy(calibration),
+        )
+        return {gage_id: (scenario,) for gage_id in gage_ids}
+
+    return {
+        gage_id: resolve_regime_scenarios(
+            regime_config,
+            gage_id,
+            launcher_dir,
+            require_gage_placeholder=len(gage_ids) > 1,
+        )
+        for gage_id in gage_ids
+    }
+
+
 def load_context(config_file: Path) -> LauncherContext:
     config_file = config_file.expanduser()
     if not config_file.is_absolute():
@@ -307,6 +643,15 @@ def load_context(config_file: Path) -> LauncherContext:
         .get("metadata", {})
     )
     metadata_index_dir_name = metadata.get("index_dir", "metadata")
+    calibration_scenarios = resolve_calibration_scenarios(
+        launcher_cfg,
+        map_cfg,
+        base_sandbox_cfg,
+        launcher_dir,
+    )
+    slurm = launcher_cfg.get("slurm") or {}
+    if not isinstance(slurm, dict):
+        raise TypeError("slurm must be a YAML dictionary/object")
 
     return LauncherContext(
         launcher_dir=launcher_dir,
@@ -327,6 +672,8 @@ def load_context(config_file: Path) -> LauncherContext:
             )
         ),
         assignment_summary=assignment_summary,
+        calibration_scenarios=calibration_scenarios,
+        slurm=slurm,
     )
 
 
@@ -347,12 +694,12 @@ def validate_base_sandbox_config(config: dict[str, Any]) -> None:
             "simulation.outputs.metadata"
         )
     if "input_dir" not in general or "output_dir" not in general:
-        raise ValueError("Base sandbox config must define general.input_dir and general.output_dir")
-    if "models" not in (config.get("formulation") or {}):
-        raise ValueError("Base sandbox config must define formulation.models")
-    if "gages" not in simulation:
-        raise ValueError("Base sandbox config must define simulation.gages")
-
+        raise ValueError(
+            "Project paths are missing. Define project.input_dir and "
+            "project.output_dir in launcher_config.yaml (recommended), or "
+            "define general.input_dir and general.output_dir in the base "
+            "Sandbox config."
+        )
     metadata = simulation.get("outputs", {}).get("metadata", {})
     if not metadata.get("enabled"):
         raise ValueError(
@@ -410,6 +757,15 @@ def validate_context(ctx: LauncherContext) -> None:
         raise FileNotFoundError(f"SLURM submit script not found: {ctx.submit_script}")
     if ctx.num_workers < 1:
         raise ValueError("num_workers must be greater than or equal to 1")
+    unknown_slurm = sorted(
+        set(ctx.slurm) - {"account", "partition", "time", "memory", "mpi_tasks"}
+    )
+    if unknown_slurm:
+        raise ValueError(
+            f"slurm contains unsupported field(s): {', '.join(unknown_slurm)}"
+        )
+    if "mpi_tasks" in ctx.slurm and ctx.slurm["mpi_tasks"] != "auto":
+        raise ValueError("slurm.mpi_tasks must be: auto")
     validate_base_sandbox_config(ctx.base_sandbox_cfg)
     validate_mapping_config(ctx.map_cfg)
 
@@ -434,8 +790,30 @@ def get_formulations_for_gage(ctx: LauncherContext, gage_id: str) -> list[tuple[
     return [(name, formulations[name]) for name in names]
 
 
-def experiment_dirs(ctx: LauncherContext, model_dir: str) -> tuple[Path, Path]:
+def get_calibration_scenarios(
+    ctx: LauncherContext,
+    gage_id: str,
+) -> tuple[CalibrationScenario, ...]:
+    return ctx.calibration_scenarios[gage_id]
+
+
+def experiment_output_dir(
+    ctx: LauncherContext,
+    model_dir: str,
+    scenario_name: str | None = None,
+) -> Path:
     model_output_dir = ctx.output_dir / model_dir
+    if scenario_name:
+        model_output_dir = model_output_dir / scenario_name
+    return model_output_dir
+
+
+def experiment_dirs(
+    ctx: LauncherContext,
+    model_dir: str,
+    scenario_name: str | None = None,
+) -> tuple[Path, Path]:
+    model_output_dir = experiment_output_dir(ctx, model_dir, scenario_name)
     return model_output_dir / "configs", model_output_dir / ctx.metadata_index_dir_name
 
 
@@ -463,30 +841,43 @@ def generate_config_files_for_gage(
     exp_config_dir: Path,
     metadata_index_dir: Path,
     *,
+    scenario: CalibrationScenario | None = None,
     dryrun: bool = False,
 ) -> None:
     sandbox_cfg = copy.deepcopy(ctx.base_sandbox_cfg)
+    scenario_name = scenario.name if scenario else None
+    output_dir = experiment_output_dir(ctx, model_dir, scenario_name)
 
-    sandbox_cfg["general"]["output_dir"] = str(ctx.output_dir / model_dir)
-    sandbox_cfg["general"]["gages"] = {
+    general = sandbox_cfg.setdefault("general", {})
+    general["output_dir"] = str(output_dir)
+    general["gages"] = {
         "option": "ids",
         "ids": [gage_id],
     }
-    sandbox_cfg["formulation"]["models"] = formulation_spec["models"]
+    formulation = sandbox_cfg.setdefault("formulation", {})
+    formulation["models"] = formulation_spec["models"]
     if "model_instances" in formulation_spec:
-        sandbox_cfg["formulation"]["model_instances"] = copy.deepcopy(
+        formulation["model_instances"] = copy.deepcopy(
             formulation_spec["model_instances"]
         )
     else:
-        sandbox_cfg["formulation"].pop("model_instances", None)
-    sandbox_cfg["simulation"]["gages"] = [gage_id]
-    sandbox_cfg["simulation"]["task_type"] = "calibration"
+        formulation.pop("model_instances", None)
+    simulation = sandbox_cfg.setdefault("simulation", {})
+    simulation["gages"] = [gage_id]
+    simulation["task_type"] = "calibration"
+    if scenario is not None:
+        simulation.setdefault("time", {})["calibration"] = (
+            copy.deepcopy(scenario.calibration)
+        )
+    if scenario_name:
+        simulation.pop("label", None)
 
     paths = generated_config_paths(exp_config_dir, gage_id)
 
     if dryrun:
         print(
-            f"[DRYRUN] Would generate configs for {gage_id} / {formulation_name}: "
+            f"[DRYRUN] Would generate configs for {gage_id} / "
+            f"{formulation_name} / {scenario.display_name if scenario else 'default'}: "
             f"{paths['sandbox_main']}"
         )
         return
@@ -506,7 +897,7 @@ def generate_config_files_for_gage(
         else gage_id
     )
     sandbox_restart_cfg["simulation"]["restart_dir"] = str(
-        ctx.output_dir / model_dir / output_name
+        output_dir / output_name
     )
     with paths["sandbox_restart"].open("w") as file:
         yaml.safe_dump(
@@ -737,17 +1128,34 @@ def build_slurm_submit_command(
     job_name: str,
     num_mpi_tasks: int,
     delay_seconds: int,
+    slurm: dict[str, Any] | None = None,
 ) -> list[str]:
-    return [
+    command = [
         "sbatch",
         "--cpus-per-task=1",
         f"--ntasks-per-node={num_mpi_tasks}",
         f"--job-name={job_name}",
-        "--export=ALL,"
-        f"SANDBOX_FILE={sandbox_file},"
-        f"START_DELAY={delay_seconds}",
-        str(submit_script),
     ]
+    slurm = slurm or {}
+    option_names = {
+        "account": "account",
+        "partition": "partition",
+        "time": "time",
+        "memory": "mem",
+    }
+    for config_name, option_name in option_names.items():
+        value = slurm.get(config_name)
+        if value is not None and str(value).strip():
+            command.append(f"--{option_name}={value}")
+    command.extend(
+        [
+            "--export=ALL,"
+            f"SANDBOX_FILE={sandbox_file},"
+            f"START_DELAY={delay_seconds}",
+            str(submit_script),
+        ]
+    )
+    return command
 
 
 def select_experiment_config(
@@ -811,8 +1219,12 @@ def run_experiment(
             job_name,
             num_mpi_tasks,
             delay_seconds,
+            ctx.slurm,
         )
-        print(f"[{gage_id}] Submitting: {' '.join(cmd)}")
+        if dryrun:
+            print(f"[DRYRUN] [{gage_id}] Would submit: {' '.join(cmd)}")
+        else:
+            print(f"[{gage_id}] Submitting: {' '.join(cmd)}")
     else:
         cmd = [
             "sandbox",
@@ -820,12 +1232,16 @@ def run_experiment(
             "-i",
             str(sandbox_file),
         ]
-        print(f"[{gage_id}] Running locally: {' '.join(cmd)}")
+        if dryrun:
+            print(f"[DRYRUN] [{gage_id}] Would run locally: {' '.join(cmd)}")
+        else:
+            print(f"[{gage_id}] Running locally: {' '.join(cmd)}")
 
     if dryrun:
         return
 
-    time.sleep(delay_seconds)
+    if not use_slurm:
+        time.sleep(delay_seconds)
     subprocess.run(cmd, check=True)
 
 
@@ -857,34 +1273,50 @@ def local_worker(args: tuple[Any, ...]) -> None:
 
 def check_status(ctx: LauncherContext) -> None:
     print("\n============================ STATUS REPORT ==============================")
-    header = f"{'Gage':<12} {'Formulation':<24} {'Calib (cur|max|obj)':<24} {'Validation':<10}"
+    header = (
+        f"{'Gage':<12} {'Formulation':<24} {'Scenario':<12} "
+        f"{'Calib (cur|max|obj)':<24} {'Validation':<10}"
+    )
     print(header)
     print("-" * len(header))
 
     for gage_id in ctx.map_cfg["mapping"]:
         for formulation_name, _ in get_formulations_for_gage(ctx, gage_id):
             model_dir = model_name_to_dir(formulation_name)
-            exp_config_dir, metadata_index_dir = experiment_dirs(ctx, model_dir)
-            progress = get_experiment_progress(
-                metadata_index_dir,
-                gage_id,
-                status=True,
-            )
-            max_iter = get_max_iter(exp_config_dir, gage_id)
-            validation_exists = check_validation_exists(metadata_index_dir, gage_id, status=True)
-            valid_flag = "YES" if validation_exists else "NO"
-            current_iter = (
-                str(progress.completed_iterations)
-                if progress.completed_iterations is not None
-                else "-"
-            )
-            obj_value = (
-                str(progress.objective_value)
-                if progress.objective_value is not None
-                else "-"
-            )
-            status_text = f"{current_iter} | {max_iter} | {obj_value}"
-            print(f"{gage_id:<12} {formulation_name:<24} {status_text:<24} {valid_flag:<10}")
+            for scenario in get_calibration_scenarios(ctx, gage_id):
+                exp_config_dir, metadata_index_dir = experiment_dirs(
+                    ctx,
+                    model_dir,
+                    scenario.name,
+                )
+                progress = get_experiment_progress(
+                    metadata_index_dir,
+                    gage_id,
+                    status=True,
+                )
+                max_iter = get_max_iter(exp_config_dir, gage_id)
+                validation_exists = check_validation_exists(
+                    metadata_index_dir,
+                    gage_id,
+                    status=True,
+                )
+                valid_flag = "YES" if validation_exists else "NO"
+                current_iter = (
+                    str(progress.completed_iterations)
+                    if progress.completed_iterations is not None
+                    else "-"
+                )
+                obj_value = (
+                    str(progress.objective_value)
+                    if progress.objective_value is not None
+                    else "-"
+                )
+                status_text = f"{current_iter} | {max_iter} | {obj_value}"
+                print(
+                    f"{gage_id:<12} {formulation_name:<24} "
+                    f"{scenario.display_name:<12} {status_text:<24} "
+                    f"{valid_flag:<10}"
+                )
 
     print("-" * len(header))
     print("======================== STATUS REPORT COMPLETE =========================")
@@ -910,8 +1342,17 @@ def launcher_exit(incomplete_exists: bool) -> None:
     sys.exit(0)
 
 
-def is_experiment_complete(ctx: LauncherContext, gage_id: str, model_dir: str) -> bool:
-    exp_config_dir, metadata_index_dir = experiment_dirs(ctx, model_dir)
+def is_experiment_complete(
+    ctx: LauncherContext,
+    gage_id: str,
+    model_dir: str,
+    scenario_name: str | None = None,
+) -> bool:
+    exp_config_dir, metadata_index_dir = experiment_dirs(
+        ctx,
+        model_dir,
+        scenario_name,
+    )
     progress = get_experiment_progress(metadata_index_dir, gage_id, status=True)
     max_iter = get_max_iter(exp_config_dir, gage_id)
     validation_exists = check_validation_exists(metadata_index_dir, gage_id, status=True)
@@ -954,68 +1395,64 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
             )
 
             model_dir = model_name_to_dir(formulation_name)
-            job_name = f"{model_dir}_{gage_id}"
-            exp_config_dir, metadata_index_dir = experiment_dirs(ctx, model_dir)
-
-            if is_experiment_complete(ctx, gage_id, model_dir):
-                print(f"[{gage_id}] Experiment '{job_name}' already completed. Skipping.")
-                continue
-
-            if job_name in running_jobs:
-                print(f"[{gage_id}] Job '{job_name}' is already running or pending. Skipping.")
-                continue
-
-            progress = get_experiment_progress(metadata_index_dir, gage_id)
-            if not progress.configured:
-                print(f"[{gage_id}] Setup step; generating configs.")
-                generate_config_files_for_gage(
+            scenarios = get_calibration_scenarios(ctx, gage_id)
+            for scenario_index, scenario in enumerate(scenarios):
+                scenario_suffix = f"_{scenario.name}" if scenario.name else ""
+                job_name = f"{model_dir}{scenario_suffix}_{gage_id}"
+                exp_config_dir, metadata_index_dir = experiment_dirs(
                     ctx,
-                    formulation_name,
-                    formulation_spec,
                     model_dir,
-                    gage_id,
-                    exp_config_dir,
-                    metadata_index_dir,
-                    dryrun=dryrun,
+                    scenario.name,
                 )
-                if not dryrun:
-                    progress = get_experiment_progress(
-                        metadata_index_dir,
-                        gage_id,
+
+                if is_experiment_complete(
+                    ctx,
+                    gage_id,
+                    model_dir,
+                    scenario.name,
+                ):
+                    print(
+                        f"[{gage_id}] Experiment '{job_name}' already "
+                        "completed. Skipping."
                     )
+                    continue
 
-            incomplete_exists = True
-            delay_seconds = index * ctx.startup_delay_seconds
+                if job_name in running_jobs:
+                    print(
+                        f"[{gage_id}] Job '{job_name}' is already running "
+                        "or pending. Skipping."
+                    )
+                    continue
 
-            if use_slurm:
-                run_experiment(
-                    ctx,
-                    model_dir,
-                    gage_id,
-                    job_name,
-                    exp_config_dir,
-                    metadata_index_dir,
-                    progress,
-                    delay_seconds,
-                    use_slurm=True,
-                    dryrun=dryrun,
-                )
-            elif dryrun:
-                run_experiment(
-                    ctx,
-                    model_dir,
-                    gage_id,
-                    job_name,
-                    exp_config_dir,
-                    metadata_index_dir,
-                    progress,
-                    delay_seconds,
-                    use_slurm=False,
-                    dryrun=True,
-                )
-            else:
-                local_jobs.append(
-                    (
+                progress = get_experiment_progress(metadata_index_dir, gage_id)
+                if not progress.configured:
+                    print(
+                        f"[{gage_id}] Setup step for "
+                        f"{scenario.display_name}; generating configs."
+                    )
+                    generate_config_files_for_gage(
+                        ctx,
+                        formulation_name,
+                        formulation_spec,
+                        model_dir,
+                        gage_id,
+                        exp_config_dir,
+                        metadata_index_dir,
+                        scenario=scenario,
+                        dryrun=dryrun,
+                    )
+                    if not dryrun:
+                        progress = get_experiment_progress(
+                            metadata_index_dir,
+                            gage_id,
+                        )
+
+                incomplete_exists = True
+                delay_index = index * len(scenarios) + scenario_index
+                delay_seconds = delay_index * ctx.startup_delay_seconds
+
+                if use_slurm:
+                    run_experiment(
                         ctx,
                         model_dir,
                         gage_id,
@@ -1024,9 +1461,36 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
                         metadata_index_dir,
                         progress,
                         delay_seconds,
-                        dryrun,
+                        use_slurm=True,
+                        dryrun=dryrun,
                     )
-                )
+                elif dryrun:
+                    run_experiment(
+                        ctx,
+                        model_dir,
+                        gage_id,
+                        job_name,
+                        exp_config_dir,
+                        metadata_index_dir,
+                        progress,
+                        delay_seconds,
+                        use_slurm=False,
+                        dryrun=True,
+                    )
+                else:
+                    local_jobs.append(
+                        (
+                            ctx,
+                            model_dir,
+                            gage_id,
+                            job_name,
+                            exp_config_dir,
+                            metadata_index_dir,
+                            progress,
+                            delay_seconds,
+                            dryrun,
+                        )
+                    )
 
     if not use_slurm and local_jobs:
         max_workers = min(ctx.num_workers, multiprocessing.cpu_count())
@@ -1055,6 +1519,10 @@ def print_check_report(ctx: LauncherContext) -> None:
     print(f"Num workers     : {ctx.num_workers}")
     print(f"Mapped gages    : {len(ctx.map_cfg['mapping'])}")
     print(f"Formulations    : {len(ctx.map_cfg['formulations'])}")
+    if ctx.slurm:
+        print("Slurm settings  : " + ", ".join(
+            f"{key}={value}" for key, value in ctx.slurm.items()
+        ))
     if ctx.assignment_summary:
         print("\nResolved assignment summary")
         print("---------------------------")
@@ -1063,6 +1531,41 @@ def print_check_report(ctx: LauncherContext) -> None:
                 f"{group}: {counts['gages']} gage(s) x "
                 f"{counts['experiments']} experiment(s)"
             )
+    print("\nResolved calibration plan")
+    print("-------------------------")
+    for gage_id in ctx.map_cfg["mapping"]:
+        formulations = get_formulations_for_gage(ctx, gage_id)
+        model_dir = model_name_to_dir(formulations[0][0])
+        for scenario in get_calibration_scenarios(ctx, gage_id):
+            resolved_period = resolve_time_period(
+                scenario.calibration,
+                f"launcher plan {gage_id}.{scenario.display_name}",
+                allow_selected_years=True,
+            )
+            simulation_time = resolved_period["simulation_time"]
+            _, metadata_index_dir = experiment_dirs(
+                ctx,
+                model_dir,
+                scenario.name,
+            )
+            metadata_file = metadata_index_dir / f"run_{gage_id}.yml"
+            tasks = (
+                str(get_num_cpus(metadata_index_dir, gage_id))
+                if metadata_file.is_file()
+                else "pending config"
+            )
+            years = (
+                ",".join(str(year) for year in scenario.selected_years)
+                if scenario.selected_years
+                else "all post-spinup values"
+            )
+            print(
+                f"{gage_id} | {scenario.display_name} | "
+                f"{simulation_time['start_time']} to "
+                f"{simulation_time['end_time']} | "
+                f"years: {years} | MPI tasks: {tasks} | "
+                f"experiments: {len(formulations)}"
+            )
     print("Launcher configuration looks valid.")
 
 
@@ -1070,24 +1573,22 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run or inspect Sandbox Launcher jobs.")
     parser.add_argument(
         "mode",
-        choices=["run", "status", "check"],
-        help="Run experiments, show status, or validate launcher inputs.",
+        choices=["run", "dryrun", "status", "check"],
+        help=(
+            "Run experiments, preview execution, show status, or validate "
+            "launcher inputs."
+        ),
     )
     parser.add_argument(
         "--backend",
         choices=["slurm", "local"],
         default="slurm",
-        help="Execution backend for run mode.",
+        help="Execution backend for run and dryrun modes.",
     )
     parser.add_argument(
         "--config",
         default="launcher_config.yaml",
         help="Path to launcher_config.yaml. Defaults to tools/launcher/launcher_config.yaml.",
-    )
-    parser.add_argument(
-        "--dryrun",
-        action="store_true",
-        help="Print planned work without writing configs or submitting jobs.",
     )
     return parser.parse_args()
 
@@ -1106,7 +1607,11 @@ def main() -> None:
         check_status(ctx)
         return
 
-    runner(ctx, use_slurm=args.backend == "slurm", dryrun=args.dryrun)
+    runner(
+        ctx,
+        use_slurm=args.backend == "slurm",
+        dryrun=args.mode == "dryrun",
+    )
 
 
 if __name__ == "__main__":
