@@ -230,7 +230,9 @@ python tools/launcher/sandbox_launcher.py run \
 
 Local mode runs at most `execution.num_workers` experiments concurrently.
 Slurm mode generates each run config and submits `submit_gage.slurm` once per
-gage/experiment/scenario. Configure the Slurm worker before using this mode.
+gage/experiment/scenario. It admits jobs only within the limits configured
+under `slurm`. Configure both those limits and the Slurm worker before using
+this mode.
 
 The optional entry script selects the backend automatically:
 
@@ -411,17 +413,31 @@ The launcher reads generated partition metadata and requests one MPI task per
 resolved NextGen partition. Basin size may therefore produce a different task
 count for every submitted job.
 
-Optional settings in `launcher_config.yaml` override matching defaults in
+Each run requests one MPI task per resolved NextGen partition, but the
+launcher does not allow the campaign to consume every available cluster core.
+Both limits are required for Slurm execution. `max_active_jobs` counts this
+campaign's running plus pending worker jobs. `max_mpi_tasks` limits their
+aggregate requested CPUs. Because each MPI task uses one CPU, it acts as a
+campaign core budget.
+
+Settings in `launcher_config.yaml` also override matching defaults in
 `submit_gage.slurm`:
 
 ```yaml
 slurm:
+  max_active_jobs: 10
+  max_mpi_tasks: 64
   account: project_account
   partition: shared
   time: "12:00:00"
   memory: "8G"
   mpi_tasks: auto
 ```
+
+With these limits, no more than ten worker jobs and no more than 64 aggregate
+MPI tasks can be running or pending from this campaign. Work that does not fit
+is deferred until the launcher's next requeue cycle. A single run requiring
+more than `max_mpi_tasks` is rejected with an actionable error.
 
 `mpi_tasks` currently accepts only `auto`; CPUs per MPI task remain `1`.
 Site-specific module commands still belong in `submit_gage.slurm`.

@@ -345,6 +345,62 @@ class TestLauncherAssignment(unittest.TestCase):
         self.assertIn("--time=12:00:00", command)
         self.assertIn("--mem=8G", command)
 
+    def test_slurm_execution_requires_active_job_limit(self):
+        with self.assertRaisesRegex(ValueError, "max_active_jobs"):
+            launcher.slurm_limits({})
+
+    def test_slurm_execution_requires_mpi_task_limit(self):
+        with self.assertRaisesRegex(ValueError, "max_mpi_tasks"):
+            launcher.slurm_limits({"max_active_jobs": 4})
+
+    def test_active_slurm_jobs_include_requested_cpus(self):
+        with patch.object(
+            launcher.subprocess,
+            "check_output",
+            return_value="pet_cfe_01109403|4\npet_cfe_08070500|12\n",
+        ):
+            jobs = launcher.get_active_slurm_jobs()
+
+        self.assertEqual(
+            jobs,
+            [
+                launcher.ActiveSlurmJob("pet_cfe_01109403", 4),
+                launcher.ActiveSlurmJob("pet_cfe_08070500", 12),
+            ],
+        )
+
+    def test_slurm_job_limit_defers_submission(self):
+        reason = launcher.slurm_limit_reason(
+            active_jobs=4,
+            active_mpi_tasks=20,
+            requested_mpi_tasks=2,
+            max_active_jobs=4,
+            max_mpi_tasks=32,
+        )
+
+        self.assertIn("active-job limit", reason)
+
+    def test_slurm_mpi_task_limit_defers_submission(self):
+        reason = launcher.slurm_limit_reason(
+            active_jobs=2,
+            active_mpi_tasks=30,
+            requested_mpi_tasks=4,
+            max_active_jobs=4,
+            max_mpi_tasks=32,
+        )
+
+        self.assertIn("MPI-task limit", reason)
+
+    def test_single_run_cannot_exceed_slurm_mpi_task_limit(self):
+        with self.assertRaisesRegex(ValueError, "requires 40 MPI tasks"):
+            launcher.slurm_limit_reason(
+                active_jobs=0,
+                active_mpi_tasks=0,
+                requested_mpi_tasks=40,
+                max_active_jobs=4,
+                max_mpi_tasks=32,
+            )
+
     def test_regime_scenarios_select_earliest_five_complete_water_years(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

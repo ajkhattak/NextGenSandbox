@@ -82,6 +82,12 @@ class ExperimentProgress:
         return self.checkpoint_file is not None
 
 
+@dataclass(frozen=True)
+class ActiveSlurmJob:
+    name: str
+    num_cpus: int
+
+
 def load_yaml(path: Path) -> dict[str, Any]:
     with path.open("r") as file:
         data = yaml.safe_load(file) or {}
@@ -758,7 +764,16 @@ def validate_context(ctx: LauncherContext) -> None:
     if ctx.num_workers < 1:
         raise ValueError("num_workers must be greater than or equal to 1")
     unknown_slurm = sorted(
-        set(ctx.slurm) - {"account", "partition", "time", "memory", "mpi_tasks"}
+        set(ctx.slurm)
+        - {
+            "account",
+            "partition",
+            "time",
+            "memory",
+            "mpi_tasks",
+            "max_active_jobs",
+            "max_mpi_tasks",
+        }
     )
     if unknown_slurm:
         raise ValueError(
@@ -766,6 +781,14 @@ def validate_context(ctx: LauncherContext) -> None:
         )
     if "mpi_tasks" in ctx.slurm and ctx.slurm["mpi_tasks"] != "auto":
         raise ValueError("slurm.mpi_tasks must be: auto")
+    for field_name in ("max_active_jobs", "max_mpi_tasks"):
+        value = ctx.slurm.get(field_name)
+        if value is not None and (
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or value < 1
+        ):
+            raise ValueError(f"slurm.{field_name} must be a positive integer")
     validate_base_sandbox_config(ctx.base_sandbox_cfg)
     validate_mapping_config(ctx.map_cfg)
 
@@ -1367,21 +1390,108 @@ def is_experiment_complete(
     )
 
 
-def get_running_slurm_jobs() -> set[str]:
+def get_active_slurm_jobs() -> list[ActiveSlurmJob]:
     user = getpass.getuser()
-    cmd = ["squeue", "-u", user, "-h", "-o", "%j", "-t", "R,PD"]
+    cmd = ["squeue", "-u", user, "-h", "-o", "%j|%C", "-t", "R,PD"]
     try:
         output = subprocess.check_output(cmd, text=True)
-    except subprocess.CalledProcessError as error:
-        print("Error fetching Slurm jobs:", error)
-        return set()
-    return {line.strip() for line in output.splitlines() if line.strip()}
+    except (FileNotFoundError, subprocess.CalledProcessError) as error:
+        raise RuntimeError(
+            "Unable to query active Slurm jobs with squeue; refusing to "
+            "submit because launcher limits cannot be enforced."
+        ) from error
+
+    jobs = []
+    for line in output.splitlines():
+        if not line.strip():
+            continue
+        try:
+            name, cpus = line.rsplit("|", 1)
+            jobs.append(ActiveSlurmJob(name.strip(), int(cpus.strip())))
+        except (TypeError, ValueError) as error:
+            raise RuntimeError(
+                f"Unexpected squeue output while enforcing Slurm limits: {line!r}"
+            ) from error
+    return jobs
+
+
+def expected_slurm_job_names(ctx: LauncherContext) -> set[str]:
+    names = set()
+    for gage_id in ctx.map_cfg["mapping"]:
+        for formulation_name, _ in get_formulations_for_gage(ctx, gage_id):
+            model_dir = model_name_to_dir(formulation_name)
+            for scenario in get_calibration_scenarios(ctx, gage_id):
+                scenario_suffix = f"_{scenario.name}" if scenario.name else ""
+                names.add(f"{model_dir}{scenario_suffix}_{gage_id}")
+    return names
+
+
+def slurm_limits(slurm: dict[str, Any]) -> tuple[int, int]:
+    max_active_jobs = slurm.get("max_active_jobs")
+    if max_active_jobs is None:
+        raise ValueError(
+            "Slurm execution requires slurm.max_active_jobs in "
+            "launcher_config.yaml to prevent unbounded job submission."
+        )
+    max_mpi_tasks = slurm.get("max_mpi_tasks")
+    if max_mpi_tasks is None:
+        raise ValueError(
+            "Slurm execution requires slurm.max_mpi_tasks in "
+            "launcher_config.yaml to cap aggregate requested cores."
+        )
+    return int(max_active_jobs), int(max_mpi_tasks)
+
+
+def slurm_limit_reason(
+    *,
+    active_jobs: int,
+    active_mpi_tasks: int,
+    requested_mpi_tasks: int,
+    max_active_jobs: int,
+    max_mpi_tasks: int,
+) -> str | None:
+    if active_jobs >= max_active_jobs:
+        return f"active-job limit reached ({active_jobs}/{max_active_jobs})"
+    if requested_mpi_tasks > max_mpi_tasks:
+        raise ValueError(
+            f"A run requires {requested_mpi_tasks} MPI tasks, which exceeds "
+            f"slurm.max_mpi_tasks={max_mpi_tasks}. Increase the limit or "
+            "reduce simulation.partitioning."
+        )
+    if active_mpi_tasks + requested_mpi_tasks > max_mpi_tasks:
+        return (
+            "MPI-task limit reached "
+            f"({active_mpi_tasks}+{requested_mpi_tasks}>{max_mpi_tasks})"
+        )
+    return None
 
 
 def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> None:
     incomplete_exists = False
-    running_jobs = get_running_slurm_jobs() if use_slurm and not dryrun else set()
     local_jobs: list[tuple[Any, ...]] = []
+    active_job_names: set[str] = set()
+    active_job_count = 0
+    active_mpi_tasks = 0
+    max_active_jobs = 0
+    max_mpi_tasks = 0
+
+    if use_slurm:
+        max_active_jobs, max_mpi_tasks = slurm_limits(ctx.slurm)
+        if not dryrun:
+            expected_names = expected_slurm_job_names(ctx)
+            campaign_jobs = [
+                job
+                for job in get_active_slurm_jobs()
+                if job.name in expected_names
+            ]
+            active_job_names = {job.name for job in campaign_jobs}
+            active_job_count = len(campaign_jobs)
+            active_mpi_tasks = sum(job.num_cpus for job in campaign_jobs)
+        print(
+            "[INFO] Slurm launcher capacity: "
+            f"jobs={active_job_count}/{max_active_jobs}, "
+            f"MPI tasks={active_mpi_tasks}/{max_mpi_tasks}"
+        )
 
     for gage_id in ctx.map_cfg["mapping"]:
         print("----------------------------------------------")
@@ -1417,11 +1527,12 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
                     )
                     continue
 
-                if job_name in running_jobs:
+                if job_name in active_job_names:
                     print(
                         f"[{gage_id}] Job '{job_name}' is already running "
                         "or pending. Skipping."
                     )
+                    incomplete_exists = True
                     continue
 
                 progress = get_experiment_progress(metadata_index_dir, gage_id)
@@ -1452,6 +1563,23 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
                 delay_seconds = delay_index * ctx.startup_delay_seconds
 
                 if use_slurm:
+                    requested_mpi_tasks = get_num_cpus(
+                        metadata_index_dir,
+                        gage_id,
+                    )
+                    limit_reason = slurm_limit_reason(
+                        active_jobs=active_job_count,
+                        active_mpi_tasks=active_mpi_tasks,
+                        requested_mpi_tasks=requested_mpi_tasks,
+                        max_active_jobs=max_active_jobs,
+                        max_mpi_tasks=max_mpi_tasks,
+                    )
+                    if limit_reason:
+                        print(
+                            f"[{gage_id}] Deferring '{job_name}': "
+                            f"{limit_reason}."
+                        )
+                        continue
                     run_experiment(
                         ctx,
                         model_dir,
@@ -1464,6 +1592,9 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
                         use_slurm=True,
                         dryrun=dryrun,
                     )
+                    active_job_names.add(job_name)
+                    active_job_count += 1
+                    active_mpi_tasks += requested_mpi_tasks
                 elif dryrun:
                     run_experiment(
                         ctx,
