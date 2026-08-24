@@ -41,6 +41,83 @@ Observation timestamps are interpreted in UTC. Timezone-aware values are
 converted to UTC, then stored without timezone metadata to match NextGen and
 ngen-cal simulation timestamps. Timezone-naive values are treated as UTC.
 
+## Download Local USGS Streamflow
+
+The utility `utils/python/download_usgs_streamflow.py` downloads USGS
+instantaneous streamflow and writes one hourly CSV file per gage. Run it from
+the NextGenSandbox repository with the Sandbox environment active.
+
+Select gages in exactly one of three ways.
+
+### Read Gages From CSV
+
+The CSV may be the same file used by Sandbox Launcher. Additional columns,
+such as group names, are ignored. IDs are read as text so leading zeros are
+preserved, and duplicate IDs are downloaded only once.
+
+```bash
+python utils/python/download_usgs_streamflow.py \
+  --gages-file /path/to/gages.csv \
+  --id-column gage_id \
+  --start "2015-10-01 00:00:00" \
+  --end "2022-09-30 23:00:00" \
+  --output-dir /path/to/observations/streamflow
+```
+
+For example:
+
+```csv
+gage_id,group_name
+01109403,humid
+08070500,dry
+```
+
+### Provide Gages Directly
+
+```bash
+python utils/python/download_usgs_streamflow.py \
+  --gages 01109403 08070500 \
+  --start "2015-10-01 00:00:00" \
+  --end "2022-09-30 23:00:00" \
+  --output-dir /path/to/observations/streamflow
+```
+
+### Discover Gages From Geopackages
+
+Quote the glob pattern so Python, rather than the shell, expands it.
+Geopackage filenames must use `gage_<gage_id>.gpkg`.
+
+```bash
+python utils/python/download_usgs_streamflow.py \
+  --gpkg-pattern "/path/to/inputs/*/hydrofabric/*.gpkg" \
+  --start "2015-10-01 00:00:00" \
+  --end "2022-09-30 23:00:00" \
+  --output-dir /path/to/observations/streamflow
+```
+
+By default, the utility averages instantaneous values into hourly values and
+keeps missing hours as `NaN`. Add `--no-aggregate` to retain only observations
+recorded exactly on the hour. Run the following for all command options and
+embedded examples:
+
+```bash
+python utils/python/download_usgs_streamflow.py --help
+```
+
+Each generated file is named
+`gage_<gage_id>_hourly_streamflow.csv`, contains `value_time` and `value`
+columns, and stores streamflow in `m3/s`. Configure the files with:
+
+```yaml
+observations:
+  streamflow:
+    layout: point
+    path: "/path/to/observations/streamflow/*<gage_id>*.csv"
+    time_column: value_time
+    value_column: value
+    units: "m3/s"
+```
+
 ## Layouts
 
 `layout: point` describes one value per timestamp at a location. This is the

@@ -1,20 +1,56 @@
+"""Download hourly USGS streamflow observations for NextGenSandbox.
+
+Exactly one gage source is required:
+
+1. Read IDs from a CSV file (extra columns are ignored)::
+
+       python utils/python/download_usgs_streamflow.py \
+         --gages-file /path/to/gages.csv \
+         --id-column gage_id \
+         --start "2015-10-01 00:00:00" \
+         --end "2022-09-30 23:00:00" \
+         --output-dir /path/to/observations/streamflow
+
+2. Provide IDs directly::
+
+       python utils/python/download_usgs_streamflow.py \
+         --gages 01109403 08070500 \
+         --start "2015-10-01 00:00:00" \
+         --end "2022-09-30 23:00:00" \
+         --output-dir /path/to/observations/streamflow
+
+3. Discover IDs from gage_<gage_id>.gpkg filenames::
+
+       python utils/python/download_usgs_streamflow.py \
+         --gpkg-pattern "/path/to/inputs/*/hydrofabric/*.gpkg" \
+         --start "2015-10-01 00:00:00" \
+         --end "2022-09-30 23:00:00" \
+         --output-dir /path/to/observations/streamflow
+
+By default, instantaneous observations are averaged to hourly values. Add
+``--no-aggregate`` to retain only observations recorded exactly on the hour.
+Each output is named ``gage_<gage_id>_hourly_streamflow.csv`` and contains
+``value_time`` and ``value`` columns, with streamflow in m3/s.
+"""
+
+from __future__ import annotations
+
+import argparse
 import glob
 import re
-import shutil
 from pathlib import Path
+
 import pandas as pd
-from hydrotools.nwis_client.iv import IVDataService
-import os, sys
 
 
 # ============================================================
 # STEP 2: Get gage IDs from local input directories
 # ============================================================
 
-def get_gage_ids(input_pattern):
+def get_gage_ids_from_gpkgs(gpkg_pattern: str) -> list[str]:
     gage_ids = []
 
-    for gpkg_path in glob.glob(input_pattern):
+    for gpkg_path in glob.glob(gpkg_pattern):
         gpkg_file = Path(gpkg_path)
         match = re.match(r"gage_(\w+)\.gpkg", gpkg_file.name)
         if match:
@@ -28,14 +64,135 @@ def get_gage_ids(input_pattern):
     return gage_ids
 
 
-#cf_per_hr_to_m3_per_hr = 0.028316847
+def get_gage_ids_from_csv(
+    gages_file: str | Path,
+    id_column: str = "gage_id",
+) -> list[str]:
+    """Read unique gage IDs from a CSV file while preserving leading zeros."""
+    path = Path(gages_file).expanduser()
+    if not path.is_file():
+        raise FileNotFoundError(f"Gage CSV file does not exist: {path}")
+
+    dataframe = pd.read_csv(path, dtype=str)
+    if id_column not in dataframe.columns:
+        available = ", ".join(str(column) for column in dataframe.columns)
+        raise ValueError(
+            f"Gage CSV column '{id_column}' was not found in {path}. "
+            f"Available columns: {available or '(none)'}"
+        )
+
+    values = dataframe[id_column]
+    if values.isna().any():
+        rows = [str(index + 2) for index in values[values.isna()].index]
+        raise ValueError(
+            f"Gage CSV column '{id_column}' contains empty values on line(s): "
+            f"{', '.join(rows)}"
+        )
+
+    gage_ids = []
+    seen = set()
+    for value in values:
+        gage_id = value.strip()
+        if not gage_id:
+            raise ValueError(
+                f"Gage CSV column '{id_column}' contains a blank gage ID"
+            )
+        if gage_id not in seen:
+            seen.add(gage_id)
+            gage_ids.append(gage_id)
+
+    if not gage_ids:
+        raise ValueError(f"No gage IDs were found in {path}")
+
+    print(f"[INFO] Read {len(gage_ids)} unique gage IDs from {path}.")
+    return gage_ids
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Download USGS instantaneous streamflow observations and write "
+            "one hourly CSV file per gage."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""examples:
+  # Read gages from a CSV file
+  python utils/python/download_usgs_streamflow.py \\
+    --gages-file gages.csv --id-column gage_id \\
+    --start "2015-10-01 00:00:00" --end "2022-09-30 23:00:00" \\
+    --output-dir observations/streamflow
+
+  # Provide gages directly
+  python utils/python/download_usgs_streamflow.py \\
+    --gages 01109403 08070500 \\
+    --start "2015-10-01 00:00:00" --end "2022-09-30 23:00:00" \\
+    --output-dir observations/streamflow
+
+  # Discover gages from geopackage filenames
+  python utils/python/download_usgs_streamflow.py \\
+    --gpkg-pattern "/path/to/inputs/*/hydrofabric/*.gpkg" \\
+    --start "2015-10-01 00:00:00" --end "2022-09-30 23:00:00" \\
+    --output-dir observations/streamflow
+""",
+    )
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument(
+        "--gages",
+        nargs="+",
+        metavar="GAGE_ID",
+        help="One or more USGS gage IDs.",
+    )
+    source.add_argument(
+        "--gages-file",
+        type=Path,
+        help="CSV file containing USGS gage IDs.",
+    )
+    source.add_argument(
+        "--gpkg-pattern",
+        help='Glob pattern for geopackages, such as "/path/*/hydrofabric/*.gpkg".',
+    )
+    parser.add_argument(
+        "--id-column",
+        default="gage_id",
+        help="Gage ID column in --gages-file (default: gage_id).",
+    )
+    parser.add_argument("--start", required=True, help="Download start time.")
+    parser.add_argument("--end", required=True, help="Download end time.")
+    parser.add_argument(
+        "--output-dir",
+        required=True,
+        type=Path,
+        help="Directory for generated streamflow CSV files.",
+    )
+    parser.add_argument(
+        "--no-aggregate",
+        action="store_false",
+        dest="aggregate",
+        help="Keep top-of-hour values instead of hourly averages.",
+    )
+    parser.set_defaults(aggregate=True)
+    return parser.parse_args()
+
+
+def resolve_gage_ids(args: argparse.Namespace) -> list[str]:
+    if args.gages:
+        return list(dict.fromkeys(str(gage_id).strip() for gage_id in args.gages))
+    if args.gages_file:
+        return get_gage_ids_from_csv(args.gages_file, args.id_column)
+
+    gage_ids = get_gage_ids_from_gpkgs(args.gpkg_pattern)
+    if not gage_ids:
+        raise FileNotFoundError(
+            f"No geopackages matched --gpkg-pattern: {args.gpkg_pattern}"
+        )
+    return gage_ids
 
 
 def fetch_and_save_hourly_usgs_data(service,
                                     gage_id,
                                     start,
                                     end,
-                                    cf_per_hr_to_m3_per_hr=0.028316847,
+                                    cfs_to_cms=0.028316847,
                                     output_dir=".",
                                     aggregate=True
                                     ):
@@ -48,7 +205,7 @@ def fetch_and_save_hourly_usgs_data(service,
         gage_id:          str, USGS site ID (e.g., '10011500')
         start:            str or datetime, start date (e.g., '2015-10-01 00:00:00')
         end:              str or datetime, end date (e.g., '2015-11-01 00:00:00')
-        cf_per_hr_to_m3_per_hr: float, conversion factor from ft³/hr to m³/hr
+        cfs_to_cms:       float, conversion factor from ft3/s to m3/s
         output_dir:       str, directory to save the CSV file in
     """
     try:
@@ -65,7 +222,7 @@ def fetch_and_save_hourly_usgs_data(service,
 
         # Parse datetime and convert units
         observations_data['value_time'] = pd.to_datetime(observations_data['value_time'])
-        observations_data['value'] = observations_data['value'] * cf_per_hr_to_m3_per_hr
+        observations_data['value'] = observations_data['value'] * cfs_to_cms
 
         if (aggregate):
             # Set datetime as index for resampling
@@ -127,33 +284,35 @@ def fetch_and_save_hourly_usgs_data(service,
 # ============================================================
 # STEP 4: Loop over all discovered gages
 # ============================================================
-def get_usgs_data_driver(input_pattern, output_dir,
-                         start, end, gages_lst, aggregate=True):
+def get_usgs_data_driver(
+    gage_ids: list[str],
+    output_dir: str | Path,
+    start: str,
+    end: str,
+    aggregate: bool = True,
+):
     """
-    get USGS gages IDs from a local directory and download hourly streamflow data for each.
+    Download hourly streamflow data for each supplied USGS gage ID.
 
     Parameters
     ----------
-    input_pattern : str
-        Glob pattern for gage_*.gpkg files.
+    gage_ids : list[str]
+        USGS gage IDs to download.
     output_dir : str
         Output directory for CSV files.
     start, end : str
         Date range for download.
-    gages_lst : list[str], optional
-        User-provided list of gage IDs. If None or empty, gages will be obtained from input_pattern.
     aggregate : bool, optional
         If True, resample to hourly mean. If False, keep top-of-hour values.
     """
-    os.makedirs(Path(output_dir), exist_ok=True)
+    from hydrotools.nwis_client.iv import IVDataService
+
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
     service  = IVDataService(value_time_label="value_time")
 
-    if gages_lst and len(gages_lst) > 0:
-        gage_ids = gages_lst
-        print(f"[INFO] Using {len(gage_ids)} user-provided gage IDs.")
-    else:
-        gage_ids = get_gage_ids(input_pattern)
-        print(f"[INFO] Discovered {len(gage_ids)} gage IDs from input directory.")
+    if not gage_ids:
+        raise ValueError("At least one gage ID must be provided")
+    print(f"[INFO] Processing {len(gage_ids)} gage IDs.")
 
     for gage_id in gage_ids:
         fetch_and_save_hourly_usgs_data(
@@ -170,19 +329,11 @@ def get_usgs_data_driver(input_pattern, output_dir,
 
 # ============================================================
 if __name__ == "__main__":
-    input_pattern = "/Users/ahmadjankhattak/Core/projects/nwm_bm_sims/input_20250902/*/data/*.gpkg"
-    output_dir    = "/Users/ahmadjankhattak/Core/projects/nwm_bm_sims/usgs_obs_streamflow_agg"
-    start = "2015-10-01 00:00:00"
-    end   = "2022-09-30 23:00:00"
-
-    aggregate = True
-    gages_lst = []     # e.g. ['10011500', '08070500']
-
+    args = parse_args()
     get_usgs_data_driver(
-        input_pattern=input_pattern,
-        output_dir=output_dir,
-        start=start,
-        end=end,
-        gages_lst=gages_lst,
-        aggregate=aggregate
+        gage_ids=resolve_gage_ids(args),
+        output_dir=args.output_dir,
+        start=args.start,
+        end=args.end,
+        aggregate=args.aggregate,
     )
