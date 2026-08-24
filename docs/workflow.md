@@ -299,12 +299,18 @@ apply configuration templates across many gages and formulations or to manage
 long calibration jobs. It can also expand a reference period and per-gage
 year/regime CSV into independent reference, wet, and dry calibration scenarios.
 
-Launcher requires a `launcher_config.yaml` campaign file and a base Sandbox
-configuration template, even for one calibration window. The campaign file
-defines project paths, gages, experiments, and assignments; the base template
-defines the reusable forcing, calibration, simulation, and output settings.
-The launcher combines them into per-gage/per-experiment configs and then runs
-locally or submits jobs through Slurm.
+Launcher uses one self-contained `launcher_config.yaml`. It defines project
+paths and gages, reusable Sandbox settings, experiment selections, and
+local/Slurm controls. The required `stages` list explicitly selects
+calibration, validation, or calibration followed by validation. Calibration
+selection also resumes incomplete work. Each experiment explicitly selects
+all project gages or a set of gage groups/IDs. The launcher expands this into
+per-gage/per-experiment Sandbox configs and then runs locally or submits jobs
+through Slurm. In local mode, one worker continues from calibration through
+validation. In Slurm mode, calibration and validation are submitted as
+separate jobs over launcher requeue cycles. The launcher configuration
+requires separate Slurm wallclock and memory settings for calibration and
+validation, allowing long validation periods to request a larger allocation.
 
 Continue to the
 [Sandbox Launcher guide](https://github.com/ajkhattak/NextGenSandbox/tree/main/tools/launcher).

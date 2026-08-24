@@ -29,7 +29,7 @@
 # Detect execution environment
 # ============================================================
 
-if [ -n "$SLURM_JOB_ID" ]; then
+if [ -n "${SLURM_JOB_ID:-}" ]; then
     RUN_ENV="slurm"
 else
     RUN_ENV="local"
@@ -47,27 +47,40 @@ echo " Time: $(date)"
 echo " Launcher config: $CONFIG_FILE"
 echo "==============================================="
 
-# ============================================================
-# Activate Python Environment -- MODIFY ME
-# ============================================================
-
-# --- HPC environment ---
-if [ "$RUN_ENV" = "slurm" ]; then
-    unset PYTHONPATH
-    if [ -z "$SANDBOX_ENV" ]; then
-        echo "ERROR: SANDBOX_ENV is not set. Run ./bootstrap.sh --env and reload your shell before submitting."
-        exit 1
-    fi
-    source "$SANDBOX_ENV/bin/activate"
-else
-    if [ -z "$SANDBOX_ENV" ]; then
-        echo "ERROR: SANDBOX_ENV is not set. Run ./bootstrap.sh --env and reload your shell before submitting."
-        exit 1
-    fi
-    source "$SANDBOX_ENV/bin/activate"
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "ERROR: Launcher config file does not exist: $CONFIG_FILE"
+    exit 1
 fi
 
-echo "Python executable: $(which python)"
+# ============================================================
+# Configure Python Environment
+# ============================================================
+
+if [ "$RUN_ENV" = "slurm" ]; then
+    unset PYTHONPATH
+fi
+
+if [ -z "${SANDBOX_ENV:-}" ]; then
+    echo "ERROR: SANDBOX_ENV is not set. Run ./bootstrap.sh --env and reload your shell before launching."
+    exit 1
+fi
+
+SANDBOX_PYTHON="$SANDBOX_ENV/bin/python"
+SANDBOX_COMMAND="$SANDBOX_ENV/bin/sandbox"
+if [ ! -x "$SANDBOX_PYTHON" ] || [ ! -x "$SANDBOX_COMMAND" ]; then
+    echo "ERROR: The Sandbox environment is incomplete: $SANDBOX_ENV"
+    echo "Expected executable files:"
+    echo "  $SANDBOX_PYTHON"
+    echo "  $SANDBOX_COMMAND"
+    echo "Run ./bootstrap.sh --sandbox to build it."
+    exit 1
+fi
+
+# Conda environments do not necessarily provide bin/activate. Using the
+# environment executables directly works for both Conda and Python venv builds.
+export PATH="$SANDBOX_ENV/bin:$PATH"
+
+echo "Python executable: $SANDBOX_PYTHON"
 
 
 # ============================================================
@@ -98,10 +111,10 @@ fi
 
 if [ "$RUN_ENV" = "slurm" ]; then
     echo "[submit_launcher] Running in SLURM mode"
-    python "$SCRIPT_DIR/sandbox_launcher.py" run --backend slurm --config "$CONFIG_FILE"
+    "$SANDBOX_PYTHON" "$SCRIPT_DIR/sandbox_launcher.py" run --backend slurm --config "$CONFIG_FILE"
 else
     echo "[submit_launcher] Running in LOCAL mode"
-    python "$SCRIPT_DIR/sandbox_launcher.py" run --backend local --config "$CONFIG_FILE"
+    "$SANDBOX_PYTHON" "$SCRIPT_DIR/sandbox_launcher.py" run --backend local --config "$CONFIG_FILE"
 fi
 
 exit_code=$?

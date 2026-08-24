@@ -21,7 +21,7 @@ def load_launcher_module():
 launcher = load_launcher_module()
 
 
-class TestLauncherAssignment(unittest.TestCase):
+class TestLauncherSelection(unittest.TestCase):
     @staticmethod
     def _write_launcher_metadata(
         metadata_index_dir: Path,
@@ -33,7 +33,7 @@ class TestLauncherAssignment(unittest.TestCase):
             yaml.safe_dump({"output_dir": str(output_dir)})
         )
 
-    def test_group_assignments_merge_for_repeated_gage(self):
+    def test_experiment_selections_merge_for_repeated_gage_groups(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             csv_path = tmp_path / "gages.csv"
@@ -45,25 +45,28 @@ class TestLauncherAssignment(unittest.TestCase):
             )
 
             config = {
+                "project": {
+                    "gages": {
+                        "option": "file",
+                        "file": {
+                            "path": str(csv_path),
+                            "id_column": "gage_id",
+                            "group_column": "group_name",
+                        },
+                    }
+                },
                 "experiments": {
-                    "pet_cfe_s": {"models": "PET, CFE, T-route"},
-                    "pet_cfe_x": {"models": "PET, CFE, T-route"},
-                    "pet_topmodel": {"models": "PET, TopModel, T-route"},
-                },
-                "gages": {
-                    "option": "file",
-                    "file": {
-                        "path": str(csv_path),
-                        "id_column": "gage_id",
-                        "group_column": "group_name",
+                    "pet_cfe_s": {
+                        "models": "PET, CFE, T-route",
+                        "selection": {"groups": ["snowy"]},
                     },
-                },
-                "assignment": {
-                    "default": ["pet_cfe_s"],
-                    "groups": {
-                        "snowy": ["pet_cfe_s"],
-                        "benchmark": ["pet_cfe_x"],
-                        "arid": ["pet_topmodel"],
+                    "pet_cfe_x": {
+                        "models": "PET, CFE, T-route",
+                        "selection": {"groups": ["benchmark"]},
+                    },
+                    "pet_topmodel": {
+                        "models": "PET, TopModel, T-route",
+                        "selection": {"groups": ["arid"]},
                     },
                 },
             }
@@ -81,15 +84,84 @@ class TestLauncherAssignment(unittest.TestCase):
                 map_config["mapping"]["02299950"],
                 ["pet_topmodel"],
             )
-            self.assertEqual(summary["snowy"]["gages"], 1)
-            self.assertEqual(summary["benchmark"]["gages"], 1)
+            self.assertEqual(summary["pet_cfe_s"], 1)
+            self.assertEqual(summary["pet_cfe_x"], 1)
+            self.assertNotIn(
+                "selection",
+                map_config["formulations"]["pet_cfe_s"],
+            )
 
-    def test_all_cannot_be_mixed_with_experiment_names(self):
-        with self.assertRaisesRegex(ValueError, "cannot mix"):
-            launcher.resolve_experiment_list(
-                ["all", "pet_cfe_s"],
-                {"pet_cfe_s": {"models": "PET, CFE, T-route"}},
-                "assignment.default",
+    def test_experiment_selection_combines_groups_and_ids(self):
+        gage_groups = {
+            "01109403": ["snowy"],
+            "02299950": ["arid"],
+            "03366500": ["humid"],
+        }
+
+        selected = launcher.resolve_experiment_gages(
+            "pet_cfe",
+            {
+                "models": "PET, CFE, T-route",
+                "selection": {
+                    "groups": ["snowy"],
+                    "ids": ["03366500"],
+                },
+            },
+            gage_groups,
+        )
+
+        self.assertEqual(selected, ["01109403", "03366500"])
+
+    def test_experiment_selection_is_required(self):
+        with self.assertRaisesRegex(ValueError, "selection.*required"):
+            launcher.resolve_experiment_gages(
+                "pet_cfe",
+                {"models": "PET, CFE, T-route"},
+                {"01109403": []},
+            )
+
+    def test_experiment_selection_rejects_unknown_ids(self):
+        with self.assertRaisesRegex(ValueError, "outside project.gages"):
+            launcher.resolve_experiment_gages(
+                "pet_cfe",
+                {
+                    "models": "PET, CFE, T-route",
+                    "selection": {"ids": ["99999999"]},
+                },
+                {"01109403": []},
+            )
+
+    def test_experiment_selection_rejects_unknown_groups(self):
+        with self.assertRaisesRegex(ValueError, "unknown project gage group"):
+            launcher.resolve_experiment_gages(
+                "pet_cfe",
+                {
+                    "models": "PET, CFE, T-route",
+                    "selection": {"groups": ["snowy"]},
+                },
+                {"01109403": ["arid"]},
+            )
+
+    def test_project_gages_must_all_receive_an_experiment(self):
+        config = {
+            "project": {
+                "gages": {
+                    "option": "ids",
+                    "ids": ["01109403", "02299950"],
+                }
+            },
+            "experiments": {
+                "pet_cfe": {
+                    "models": "PET, CFE, T-route",
+                    "selection": {"ids": ["01109403"]},
+                }
+            },
+        }
+
+        with self.assertRaisesRegex(ValueError, "not selected.*02299950"):
+            launcher.build_map_from_launcher_config(
+                config,
+                Path("/tmp"),
             )
 
     def test_dryrun_is_a_standalone_launcher_mode(self):
@@ -103,6 +175,24 @@ class TestLauncherAssignment(unittest.TestCase):
         self.assertEqual(args.mode, "dryrun")
         self.assertEqual(args.backend, "local")
         self.assertFalse(hasattr(args, "dryrun"))
+
+    def test_launcher_stages_are_explicit(self):
+        self.assertEqual(
+            launcher.load_launcher_stages(
+                {"stages": ["calibration", "validation"]}
+            ),
+            ("calibration", "validation"),
+        )
+
+    def test_launcher_rejects_missing_stages(self):
+        with self.assertRaisesRegex(ValueError, "explicitly define stages"):
+            launcher.load_launcher_stages({})
+
+    def test_launcher_rejects_validation_before_calibration(self):
+        with self.assertRaisesRegex(ValueError, "stages must be one of"):
+            launcher.load_launcher_stages(
+                {"stages": ["validation", "calibration"]}
+            )
 
     def test_dryrun_mode_previews_without_running(self):
         context = object()
@@ -139,7 +229,7 @@ class TestLauncherAssignment(unittest.TestCase):
         }
 
         with self.assertRaisesRegex(ValueError, "metadata.enabled"):
-            launcher.validate_base_sandbox_config(config)
+            launcher.validate_sandbox_config(config)
 
     def test_launcher_does_not_require_injected_placeholders(self):
         config = {
@@ -158,13 +248,105 @@ class TestLauncherAssignment(unittest.TestCase):
             },
         }
 
-        launcher.validate_base_sandbox_config(config)
+        launcher.validate_sandbox_config(config)
+
+    def test_launcher_loads_sandbox_settings_from_same_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            submit_script = root / "submit_gage.slurm"
+            submit_script.touch()
+            config_file = root / "launcher_config.yaml"
+            config_file.write_text(
+                yaml.safe_dump(
+                    {
+                        "project": {
+                            "input_dir": str(root / "inputs"),
+                            "output_dir": str(root / "outputs"),
+                            "resource_layout": "gage",
+                            "gages": {
+                                "option": "ids",
+                                "ids": ["01109403"],
+                            },
+                        },
+                        "sandbox": {
+                            "forcings": {"gages": "all"},
+                            "calibration": {
+                                "optimizer": {
+                                    "algorithm": "dds",
+                                    "iterations": 25,
+                                },
+                                "objective": {"function": "kge"},
+                            },
+                            "simulation": {
+                                "time": {
+                                    "calibration": {
+                                        "start": "2015-10-01",
+                                        "spinup": "12 months",
+                                        "evaluation": "2 years",
+                                    }
+                                },
+                                "outputs": {
+                                    "metadata": {
+                                        "enabled": True,
+                                        "index_dir": "metadata",
+                                    }
+                                },
+                            },
+                        },
+                        "submit_script": submit_script.name,
+                        "stages": ["calibration", "validation"],
+                        "experiments": {
+                            "pet_cfe": {
+                                "models": "PET, CFE, T-route",
+                                "selection": "all",
+                            }
+                        },
+                    }
+                )
+            )
+
+            context = launcher.load_context(config_file)
+
+            self.assertEqual(
+                context.sandbox_cfg["general"]["input_dir"],
+                str(root / "inputs"),
+            )
+            self.assertEqual(
+                context.sandbox_cfg["calibration"]["optimizer"]["iterations"],
+                25,
+            )
+
+    def test_launcher_requires_inline_sandbox_settings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config_file = Path(tmp) / "launcher_config.yaml"
+            config_file.write_text("project: {}\n")
+
+            with self.assertRaisesRegex(ValueError, "non-empty sandbox mapping"):
+                launcher.load_context(config_file)
+
+    def test_launcher_rejects_external_sandbox_template(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config_file = Path(tmp) / "launcher_config.yaml"
+            config_file.write_text(
+                "templates:\n  sandbox_config: sandbox_config.yaml\n"
+            )
+
+            with self.assertRaisesRegex(ValueError, "no longer supported"):
+                launcher.load_context(config_file)
+
+    def test_launcher_rejects_top_level_gages_and_assignment(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config_file = Path(tmp) / "launcher_config.yaml"
+            config_file.write_text("gages: {}\nassignment: {}\n")
+
+            with self.assertRaisesRegex(ValueError, "project.gages"):
+                launcher.load_context(config_file)
 
     def test_generated_configs_use_only_sandbox_files(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             ctx = SimpleNamespace(
-                base_sandbox_cfg={
+                sandbox_cfg={
                     "general": {
                         "input_dir": "/tmp/inputs",
                         "output_dir": "/tmp/outputs",
@@ -223,7 +405,7 @@ class TestLauncherAssignment(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             ctx = SimpleNamespace(
-                base_sandbox_cfg={
+                sandbox_cfg={
                     "general": {
                         "input_dir": "/tmp/inputs",
                         "output_dir": "/tmp/outputs",
@@ -318,11 +500,13 @@ class TestLauncherAssignment(unittest.TestCase):
             "pet_cfe_01109403",
             num_mpi_tasks=4,
             delay_seconds=10,
+            stage="calibration",
         )
 
         self.assertIn("--ntasks-per-node=4", command)
         self.assertIn("--cpus-per-task=1", command)
         self.assertNotIn("--cpus-per-task=4", command)
+        self.assertIn("SANDBOX_STAGE=calibration", command[-2])
 
     def test_slurm_command_applies_launcher_resource_overrides(self):
         command = launcher.build_slurm_submit_command(
@@ -331,6 +515,7 @@ class TestLauncherAssignment(unittest.TestCase):
             "pet_cfe_wet_01109403",
             num_mpi_tasks=4,
             delay_seconds=10,
+            stage="validation",
             slurm={
                 "account": "project123",
                 "partition": "shared",
@@ -344,13 +529,52 @@ class TestLauncherAssignment(unittest.TestCase):
         self.assertIn("--partition=shared", command)
         self.assertIn("--time=12:00:00", command)
         self.assertIn("--mem=8G", command)
+        self.assertIn("SANDBOX_STAGE=validation", command[-2])
+
+    def test_slurm_uses_stage_specific_resources(self):
+        slurm = {
+            "account": "project123",
+            "calibration": {"time": "04:00:00", "memory": "8G"},
+            "validation": {"time": "12:00:00", "memory": "64G"},
+        }
+
+        self.assertEqual(
+            launcher.slurm_settings_for_stage(slurm, "calibration"),
+            {
+                "account": "project123",
+                "time": "04:00:00",
+                "memory": "8G",
+            },
+        )
+        self.assertEqual(
+            launcher.slurm_settings_for_stage(slurm, "validation"),
+            {
+                "account": "project123",
+                "time": "12:00:00",
+                "memory": "64G",
+            },
+        )
+
+    def test_slurm_requires_resources_for_both_stages(self):
+        with self.assertRaisesRegex(ValueError, "slurm.validation"):
+            launcher.validate_slurm_config(
+                {
+                    "max_active_jobs": 2,
+                    "max_total_mpi_tasks": 8,
+                    "startup_delay_seconds": 5,
+                    "calibration": {
+                        "time": "04:00:00",
+                        "memory": "8G",
+                    },
+                }
+            )
 
     def test_slurm_execution_requires_active_job_limit(self):
         with self.assertRaisesRegex(ValueError, "max_active_jobs"):
             launcher.slurm_limits({})
 
     def test_slurm_execution_requires_mpi_task_limit(self):
-        with self.assertRaisesRegex(ValueError, "max_mpi_tasks"):
+        with self.assertRaisesRegex(ValueError, "max_total_mpi_tasks"):
             launcher.slurm_limits({"max_active_jobs": 4})
 
     def test_active_slurm_jobs_include_requested_cpus(self):
@@ -375,7 +599,7 @@ class TestLauncherAssignment(unittest.TestCase):
             active_mpi_tasks=20,
             requested_mpi_tasks=2,
             max_active_jobs=4,
-            max_mpi_tasks=32,
+            max_total_mpi_tasks=32,
         )
 
         self.assertIn("active-job limit", reason)
@@ -386,7 +610,7 @@ class TestLauncherAssignment(unittest.TestCase):
             active_mpi_tasks=30,
             requested_mpi_tasks=4,
             max_active_jobs=4,
-            max_mpi_tasks=32,
+            max_total_mpi_tasks=32,
         )
 
         self.assertIn("MPI-task limit", reason)
@@ -398,8 +622,26 @@ class TestLauncherAssignment(unittest.TestCase):
                 active_mpi_tasks=0,
                 requested_mpi_tasks=40,
                 max_active_jobs=4,
-                max_mpi_tasks=32,
+                max_total_mpi_tasks=32,
             )
+
+    def test_slurm_startup_delay_uses_global_run_sequence(self):
+        self.assertEqual(
+            [
+                launcher.startup_delay_seconds(index, 5)
+                for index in range(4)
+            ],
+            [0, 5, 10, 15],
+        )
+
+    def test_local_startup_delay_cycles_across_worker_slots(self):
+        self.assertEqual(
+            [
+                launcher.startup_delay_seconds(index, 5, cycle_size=2)
+                for index in range(6)
+            ],
+            [0, 5, 0, 5, 0, 5],
+        )
 
     def test_regime_scenarios_select_earliest_five_complete_water_years(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -580,9 +822,57 @@ class TestLauncherAssignment(unittest.TestCase):
         )
 
         self.assertEqual(
-            launcher.select_experiment_config(paths, progress, max_iter=100),
+            launcher.select_experiment_config(
+                paths,
+                progress,
+                max_iter=100,
+                stages=("calibration",),
+            ),
             paths["sandbox_restart"],
         )
+
+    def test_completed_calibration_only_experiment_has_no_next_config(self):
+        paths = {
+            "sandbox_main": Path("/tmp/main.yaml"),
+            "sandbox_restart": Path("/tmp/restart.yaml"),
+            "sandbox_validation": Path("/tmp/validation.yaml"),
+        }
+        progress = launcher.ExperimentProgress(
+            configured=True,
+            current_iteration=100,
+            completed_iterations=100,
+            checkpoint_file=Path("/tmp/state.parquet"),
+        )
+
+        self.assertIsNone(
+            launcher.select_experiment_config(
+                paths,
+                progress,
+                max_iter=100,
+                stages=("calibration",),
+            )
+        )
+
+    def test_validation_only_requires_completed_calibration(self):
+        paths = {
+            "sandbox_main": Path("/tmp/main.yaml"),
+            "sandbox_restart": Path("/tmp/restart.yaml"),
+            "sandbox_validation": Path("/tmp/validation.yaml"),
+        }
+        progress = launcher.ExperimentProgress(
+            configured=True,
+            current_iteration=25,
+            completed_iterations=25,
+            checkpoint_file=Path("/tmp/state.parquet"),
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "calibration is incomplete"):
+            launcher.select_experiment_config(
+                paths,
+                progress,
+                max_iter=100,
+                stages=("validation",),
+            )
 
     def test_started_experiment_without_checkpoint_is_rejected(self):
         paths = {
@@ -597,7 +887,12 @@ class TestLauncherAssignment(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(RuntimeError, "has no.*checkpoint"):
-            launcher.select_experiment_config(paths, progress, max_iter=100)
+            launcher.select_experiment_config(
+                paths,
+                progress,
+                max_iter=100,
+                stages=("calibration",),
+            )
 
     def test_pso_progress_uses_global_best_checkpoint(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -662,7 +957,12 @@ class TestLauncherAssignment(unittest.TestCase):
                 "sandbox_validation": Path("/tmp/validation.yaml"),
             }
             self.assertEqual(
-                launcher.select_experiment_config(paths, progress, max_iter=40),
+                launcher.select_experiment_config(
+                    paths,
+                    progress,
+                    max_iter=40,
+                    stages=("calibration", "validation"),
+                ),
                 paths["sandbox_validation"],
             )
 
@@ -725,6 +1025,7 @@ class TestLauncherAssignment(unittest.TestCase):
                 paths,
                 progress,
                 max_iter=40,
+                stages=("calibration",),
             )
 
             self.assertEqual(selected, paths["sandbox_pso_warm_start"])
@@ -752,6 +1053,195 @@ class TestLauncherAssignment(unittest.TestCase):
                 "best_path",
                 yaml.safe_load(source_settings.read_text())["initialization"],
             )
+
+    def test_local_worker_runs_calibration_then_validation(self):
+        main_config = Path("/tmp/sandbox_main.yaml")
+        validation_config = Path("/tmp/sandbox_validation.yaml")
+        initial_progress = launcher.ExperimentProgress(configured=True)
+        completed_progress = launcher.ExperimentProgress(
+            configured=True,
+            current_iteration=10,
+            completed_iterations=10,
+            objective_value=0.25,
+            checkpoint_file=Path("/tmp/state.parquet"),
+        )
+        args = (
+            object(),
+            "pet_cfe",
+            "01109403",
+            "pet_cfe_01109403",
+            Path("/tmp/configs"),
+            Path("/tmp/metadata"),
+            initial_progress,
+            5,
+            False,
+        )
+
+        with (
+            patch.object(
+                launcher,
+                "generated_config_paths",
+                return_value={
+                    "sandbox_main": main_config,
+                    "sandbox_validation": validation_config,
+                },
+            ),
+            patch.object(
+                launcher,
+                "run_experiment",
+                side_effect=[main_config, validation_config],
+            ) as run,
+            patch.object(
+                launcher,
+                "get_experiment_progress",
+                return_value=completed_progress,
+            ),
+            patch.object(
+                launcher,
+                "check_validation_exists",
+                return_value=True,
+            ),
+        ):
+            launcher.local_worker(args)
+
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual(run.call_args_list[0].args[7], 5)
+        self.assertEqual(run.call_args_list[1].args[6], completed_progress)
+        self.assertEqual(run.call_args_list[1].args[7], 0)
+
+    def test_local_validation_generates_configs_before_run(self):
+        validation_config = Path("/tmp/sandbox_validation.yaml")
+        paths = {
+            "sandbox_main": Path("/tmp/sandbox_main.yaml"),
+            "sandbox_restart": Path("/tmp/sandbox_restart.yaml"),
+            "sandbox_validation": validation_config,
+        }
+        progress = launcher.ExperimentProgress(
+            configured=True,
+            current_iteration=10,
+            completed_iterations=10,
+            checkpoint_file=Path("/tmp/state.parquet"),
+        )
+
+        with (
+            patch.object(
+                launcher,
+                "check_validation_exists",
+                return_value=False,
+            ),
+            patch.object(
+                launcher,
+                "generated_config_paths",
+                return_value=paths,
+            ),
+            patch.object(launcher, "get_max_iter", return_value=10),
+            patch.object(launcher.time, "sleep"),
+            patch.object(launcher.subprocess, "run") as run,
+        ):
+            selected = launcher.run_experiment(
+                SimpleNamespace(stages=("calibration", "validation")),
+                "pet_cfe",
+                "01109403",
+                "pet_cfe_01109403",
+                Path("/tmp/configs"),
+                Path("/tmp/metadata"),
+                progress,
+                0,
+                use_slurm=False,
+            )
+
+        self.assertEqual(selected, validation_config)
+        self.assertEqual(
+            run.call_args_list[0].args[0],
+            ["sandbox", "--conf", "-i", str(validation_config)],
+        )
+        self.assertEqual(
+            run.call_args_list[1].args[0],
+            ["sandbox", "--run", "-i", str(validation_config)],
+        )
+
+    def test_local_worker_rejects_missing_validation_output(self):
+        validation_config = Path("/tmp/sandbox_validation.yaml")
+        progress = launcher.ExperimentProgress(
+            configured=True,
+            current_iteration=10,
+            completed_iterations=10,
+            checkpoint_file=Path("/tmp/state.parquet"),
+        )
+        args = (
+            object(),
+            "pet_cfe",
+            "01109403",
+            "pet_cfe_01109403",
+            Path("/tmp/configs"),
+            Path("/tmp/metadata"),
+            progress,
+            0,
+            False,
+        )
+
+        with (
+            patch.object(
+                launcher,
+                "generated_config_paths",
+                return_value={"sandbox_validation": validation_config},
+            ),
+            patch.object(
+                launcher,
+                "run_experiment",
+                return_value=validation_config,
+            ),
+            patch.object(
+                launcher,
+                "check_validation_exists",
+                return_value=False,
+            ),
+            self.assertRaisesRegex(RuntimeError, "no sim_obs_validation"),
+        ):
+            launcher.local_worker(args)
+
+    def test_local_worker_rejects_stalled_calibration(self):
+        restart_config = Path("/tmp/sandbox_restart.yaml")
+        progress = launcher.ExperimentProgress(
+            configured=True,
+            current_iteration=5,
+            completed_iterations=5,
+            objective_value=0.5,
+            checkpoint_file=Path("/tmp/state.parquet"),
+        )
+        args = (
+            object(),
+            "pet_cfe",
+            "01109403",
+            "pet_cfe_01109403",
+            Path("/tmp/configs"),
+            Path("/tmp/metadata"),
+            progress,
+            0,
+            False,
+        )
+
+        with (
+            patch.object(
+                launcher,
+                "generated_config_paths",
+                return_value={
+                    "sandbox_validation": Path("/tmp/validation.yaml"),
+                },
+            ),
+            patch.object(
+                launcher,
+                "run_experiment",
+                return_value=restart_config,
+            ),
+            patch.object(
+                launcher,
+                "get_experiment_progress",
+                return_value=progress,
+            ),
+            self.assertRaisesRegex(RuntimeError, "did not advance"),
+        ):
+            launcher.local_worker(args)
 
 
 if __name__ == "__main__":

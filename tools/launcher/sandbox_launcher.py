@@ -49,17 +49,16 @@ class CalibrationScenario:
 class LauncherContext:
     launcher_dir: Path
     launcher_config_file: Path
-    sandbox_config_file: Path
     map_config_file: Path | None
     submit_script: Path
-    base_sandbox_cfg: dict[str, Any]
+    sandbox_cfg: dict[str, Any]
     map_cfg: dict[str, Any]
     output_dir: Path
     input_dir: Path
     metadata_index_dir_name: str
-    num_workers: int
-    startup_delay_seconds: int
-    assignment_summary: dict[str, dict[str, int]]
+    stages: tuple[str, ...]
+    local: dict[str, Any]
+    selection_summary: dict[str, int]
     calibration_scenarios: dict[str, tuple[CalibrationScenario, ...]]
     slurm: dict[str, Any]
 
@@ -127,6 +126,28 @@ def unique_ordered(values: list[str]) -> list[str]:
     return result
 
 
+def load_launcher_stages(launcher_cfg: dict[str, Any]) -> tuple[str, ...]:
+    stages = launcher_cfg.get("stages")
+    if not isinstance(stages, list) or not stages:
+        raise ValueError(
+            "launcher_config.yaml must explicitly define stages as one of: "
+            "[calibration], [validation], or [calibration, validation]"
+        )
+
+    normalized = tuple(str(stage).strip().lower() for stage in stages)
+    supported = {
+        ("calibration",),
+        ("validation",),
+        ("calibration", "validation"),
+    }
+    if normalized not in supported:
+        raise ValueError(
+            "stages must be one of: [calibration], [validation], or "
+            "[calibration, validation]"
+        )
+    return normalized
+
+
 def split_group_value(value: Any) -> list[str]:
     if value is None:
         return []
@@ -139,46 +160,41 @@ def split_group_value(value: Any) -> list[str]:
     ]
 
 
-def resolve_experiment_list(
-    selected: Any,
-    experiments: dict[str, Any],
-    field_name: str,
-) -> list[str]:
-    names = as_list(selected, field_name)
-    if not names:
-        return []
-    if "all" in names:
-        if len(names) > 1:
-            raise ValueError(f"{field_name} cannot mix 'all' with experiment names")
-        return list(experiments)
-
-    unknown = sorted(set(names) - set(experiments))
-    if unknown:
-        raise ValueError(
-            f"{field_name} references unknown experiment(s): {', '.join(unknown)}"
-        )
-    return unique_ordered(names)
-
-
 def load_launcher_gages(launcher_cfg: dict[str, Any], launcher_dir: Path) -> dict[str, list[str]]:
-    gages_cfg = launcher_cfg.get("gages")
+    project = launcher_cfg.get("project")
+    if not isinstance(project, dict):
+        raise ValueError("launcher_config.yaml must define a project block")
+
+    gages_cfg = project.get("gages")
     if not isinstance(gages_cfg, dict):
-        raise ValueError("launcher_config.yaml must define a gages block")
+        raise ValueError("launcher_config.yaml must define project.gages")
 
     option = str(gages_cfg.get("option", "")).lower()
     if option == "ids":
-        return {gage: [] for gage in as_list(gages_cfg.get("ids"), "gages.ids")}
+        gage_ids = unique_ordered(
+            [
+                gage.strip()
+                for gage in as_list(gages_cfg.get("ids"), "project.gages.ids")
+                if gage.strip()
+            ]
+        )
+        return {gage: [] for gage in gage_ids}
 
     if option != "file":
-        raise ValueError("gages.option must be one of: ids, file")
+        raise ValueError("project.gages.option must be one of: ids, file")
 
     file_cfg = gages_cfg.get("file") or {}
-    path = resolve_path(launcher_dir, file_cfg.get("path", ""))
+    if not isinstance(file_cfg, dict):
+        raise TypeError("project.gages.file must be a mapping")
+    path_value = file_cfg.get("path")
+    if not isinstance(path_value, str) or not path_value.strip():
+        raise ValueError("project.gages.file.path must be provided")
+    path = resolve_path(launcher_dir, path_value)
     id_column = file_cfg.get("id_column") or file_cfg.get("column", "gage_id")
     group_column = file_cfg.get("group_column")
 
     if not path.exists():
-        raise FileNotFoundError(f"gages.file.path not found: {path}")
+        raise FileNotFoundError(f"project.gages.file.path not found: {path}")
 
     gage_groups: dict[str, list[str]] = {}
     with path.open(newline="") as file:
@@ -199,70 +215,131 @@ def load_launcher_gages(launcher_cfg: dict[str, Any], launcher_dir: Path) -> dic
     return {gage: unique_ordered(groups) for gage, groups in gage_groups.items()}
 
 
+def resolve_experiment_gages(
+    experiment_name: str,
+    experiment: dict[str, Any],
+    gage_groups: dict[str, list[str]],
+) -> list[str]:
+    field_name = f"experiments.{experiment_name}.selection"
+    selection = experiment.get("selection")
+
+    if isinstance(selection, str):
+        if selection.strip().lower() != "all":
+            raise ValueError(f"{field_name} must be 'all' or a mapping")
+        return list(gage_groups)
+
+    if not isinstance(selection, dict):
+        raise ValueError(f"{field_name} is required and must be 'all' or a mapping")
+
+    unknown_fields = sorted(set(selection) - {"groups", "ids"})
+    if unknown_fields:
+        raise ValueError(
+            f"{field_name} contains unsupported field(s): "
+            f"{', '.join(unknown_fields)}"
+        )
+
+    selected_groups = unique_ordered(
+        [
+            group.strip()
+            for group in as_list(selection.get("groups"), f"{field_name}.groups")
+            if group.strip()
+        ]
+    )
+    selected_ids = unique_ordered(
+        [
+            gage.strip()
+            for gage in as_list(selection.get("ids"), f"{field_name}.ids")
+            if gage.strip()
+        ]
+    )
+    if not selected_groups and not selected_ids:
+        raise ValueError(f"{field_name} must contain groups and/or ids")
+
+    unknown_ids = sorted(set(selected_ids) - set(gage_groups))
+    if unknown_ids:
+        raise ValueError(
+            f"{field_name}.ids contains gages outside project.gages: "
+            f"{', '.join(unknown_ids)}"
+        )
+
+    known_groups = {
+        group
+        for groups in gage_groups.values()
+        for group in groups
+    }
+    unknown_groups = sorted(set(selected_groups) - known_groups)
+    if unknown_groups:
+        raise ValueError(
+            f"{field_name}.groups references unknown project gage group(s): "
+            f"{', '.join(unknown_groups)}"
+        )
+
+    selected_id_set = set(selected_ids)
+    selected_group_set = set(selected_groups)
+    resolved = [
+        gage_id
+        for gage_id, groups in gage_groups.items()
+        if gage_id in selected_id_set or selected_group_set.intersection(groups)
+    ]
+    if not resolved:
+        raise ValueError(f"{field_name} resolves to zero project gages")
+    return resolved
+
+
 def build_map_from_launcher_config(
     launcher_cfg: dict[str, Any],
     launcher_dir: Path,
-) -> tuple[dict[str, Any], dict[str, dict[str, int]]]:
+) -> tuple[dict[str, Any], dict[str, int]]:
     experiments = launcher_cfg.get("experiments")
     if not isinstance(experiments, dict) or not experiments:
         raise ValueError("launcher_config.yaml must define a non-empty experiments block")
 
-    assignment = launcher_cfg.get("assignment") or {}
-    if not isinstance(assignment, dict):
-        raise ValueError("assignment must be a mapping")
-
     gage_groups = load_launcher_gages(launcher_cfg, launcher_dir)
     if not gage_groups:
-        raise ValueError("No gages were resolved from launcher_config.yaml")
+        raise ValueError("No gages were resolved from project.gages")
 
-    default_selection = assignment.get("default", ["all"])
-    group_assignments = assignment.get("groups", {}) or {}
-    if not isinstance(group_assignments, dict):
-        raise ValueError("assignment.groups must be a mapping")
+    mapping: dict[str, list[str]] = {gage_id: [] for gage_id in gage_groups}
+    formulations: dict[str, dict[str, Any]] = {}
+    summary: dict[str, int] = {}
 
-    resolved_group_assignments = {
-        group: resolve_experiment_list(
-            selected,
-            experiments,
-            f"assignment.groups.{group}",
+    for experiment_name, experiment in experiments.items():
+        if not isinstance(experiment, dict):
+            raise TypeError(f"experiments.{experiment_name} must be a mapping")
+        if not experiment.get("models"):
+            raise ValueError(f"experiments.{experiment_name}.models must be provided")
+
+        selected_gages = resolve_experiment_gages(
+            experiment_name,
+            experiment,
+            gage_groups,
         )
-        for group, selected in group_assignments.items()
-    }
-    default_experiments = resolve_experiment_list(
-        default_selection,
-        experiments,
-        "assignment.default",
-    )
+        summary[experiment_name] = len(selected_gages)
+        formulations[experiment_name] = {
+            key: copy.deepcopy(value)
+            for key, value in experiment.items()
+            if key != "selection"
+        }
+        for gage_id in selected_gages:
+            mapping[gage_id].append(experiment_name)
 
-    mapping: dict[str, list[str]] = {}
-    summary: dict[str, dict[str, int]] = {}
-
-    for gage_id, groups in gage_groups.items():
-        selected: list[str] = []
-        matched_groups = [group for group in groups if group in resolved_group_assignments]
-
-        if matched_groups:
-            for group in matched_groups:
-                selected.extend(resolved_group_assignments[group])
-                group_summary = summary.setdefault(group, {"gages": 0, "experiments": 0})
-                group_summary["gages"] += 1
-                group_summary["experiments"] = len(resolved_group_assignments[group])
-        else:
-            selected.extend(default_experiments)
-            fallback_group = groups[0] if groups else "default"
-            summary.setdefault(fallback_group, {"gages": 0, "experiments": len(default_experiments)})
-            summary[fallback_group]["gages"] += 1
-
-        mapping[gage_id] = unique_ordered(selected)
+    unassigned = [gage_id for gage_id, selected in mapping.items() if not selected]
+    if unassigned:
+        raise ValueError(
+            "project.gages contains gages not selected by any experiment: "
+            f"{', '.join(unassigned)}"
+        )
 
     return {
-        "formulations": experiments,
+        "formulations": formulations,
         "mapping": mapping,
     }, summary
 
 
-def apply_project_overrides(base_sandbox_cfg: dict[str, Any], launcher_cfg: dict[str, Any]) -> dict[str, Any]:
-    sandbox_cfg = copy.deepcopy(base_sandbox_cfg)
+def apply_project_overrides(
+    sandbox_settings: dict[str, Any],
+    launcher_cfg: dict[str, Any],
+) -> dict[str, Any]:
+    sandbox_cfg = copy.deepcopy(sandbox_settings)
     project = launcher_cfg.get("project") or {}
     if not project:
         return sandbox_cfg
@@ -557,20 +634,21 @@ def resolve_regime_scenarios(
 def resolve_calibration_scenarios(
     launcher_cfg: dict[str, Any],
     map_cfg: dict[str, Any],
-    base_sandbox_cfg: dict[str, Any],
+    sandbox_cfg: dict[str, Any],
     launcher_dir: Path,
 ) -> dict[str, tuple[CalibrationScenario, ...]]:
     gage_ids = list(map_cfg["mapping"])
     regime_config = launcher_cfg.get("regime_calibration")
     if regime_config is None:
         calibration = (
-            base_sandbox_cfg.get("simulation", {})
+            sandbox_cfg.get("simulation", {})
             .get("time", {})
             .get("calibration")
         )
         if not isinstance(calibration, dict):
             raise ValueError(
-                "Base sandbox config must define simulation.time.calibration"
+                "launcher_config.yaml sandbox.simulation.time must define "
+                "calibration"
             )
         scenario = CalibrationScenario(
             name=None,
@@ -603,33 +681,64 @@ def load_context(config_file: Path) -> LauncherContext:
     launcher_dir = config_file.resolve().parent
     launcher_cfg = load_yaml(config_file)
 
-    templates = launcher_cfg.get("templates", {}) or {}
-    execution = launcher_cfg.get("execution", {}) or {}
+    if "execution" in launcher_cfg:
+        raise ValueError(
+            "launcher_config.yaml execution is no longer supported. Use "
+            "local.max_workers and local.startup_delay_seconds for local "
+            "runs, and slurm.startup_delay_seconds for Slurm runs."
+        )
 
-    sandbox_config_file = resolve_path(
-        launcher_dir,
-        templates.get(
-            "sandbox_config",
-            launcher_cfg.get("sandbox_config", "basefiles/sandbox_config_base.yaml"),
-        ),
-    )
+    if "templates" in launcher_cfg or "sandbox_config" in launcher_cfg:
+        raise ValueError(
+            "External Sandbox templates are no longer supported. Move the "
+            "forcing, observations, calibration, and simulation settings "
+            "into launcher_config.yaml under sandbox."
+        )
+
+    legacy_fields = [
+        field_name
+        for field_name in ("gages", "assignment")
+        if field_name in launcher_cfg
+    ]
+    if legacy_fields:
+        raise ValueError(
+            "Top-level launcher field(s) are no longer supported: "
+            f"{', '.join(legacy_fields)}. Move gages under project.gages "
+            "and define selection within each experiment."
+        )
+
+    sandbox_settings = launcher_cfg.get("sandbox")
+    if not isinstance(sandbox_settings, dict) or not sandbox_settings:
+        raise ValueError(
+            "launcher_config.yaml must define a non-empty sandbox mapping"
+        )
+    stages = load_launcher_stages(launcher_cfg)
+
+    local = launcher_cfg.get("local") or {}
+    if not isinstance(local, dict):
+        raise TypeError("local must be a YAML dictionary/object")
+    local = copy.deepcopy(local)
+    local.setdefault("max_workers", 2)
+    local.setdefault("startup_delay_seconds", 5)
+
     submit_script = resolve_path(
         launcher_dir,
         launcher_cfg.get("submit_script", "submit_gage.slurm"),
     )
 
-    base_sandbox_cfg = apply_project_overrides(
-        load_yaml(sandbox_config_file),
+    sandbox_cfg = apply_project_overrides(
+        sandbox_settings,
         launcher_cfg,
     )
     absolutize_optimizer_settings_file(
-        base_sandbox_cfg,
-        sandbox_config_file,
+        sandbox_cfg,
+        config_file,
     )
+    validate_sandbox_config(sandbox_cfg)
 
-    if {"experiments", "gages", "assignment"}.issubset(launcher_cfg):
+    if "experiments" in launcher_cfg:
         map_config_file = None
-        map_cfg, assignment_summary = build_map_from_launcher_config(
+        map_cfg, selection_summary = build_map_from_launcher_config(
             launcher_cfg,
             launcher_dir,
         )
@@ -639,12 +748,12 @@ def load_context(config_file: Path) -> LauncherContext:
             launcher_cfg.get("mapping_config", "models_gages_map.yaml"),
         )
         map_cfg = load_yaml(map_config_file)
-        assignment_summary = {}
+        selection_summary = {}
 
-    output_dir = Path(base_sandbox_cfg["general"]["output_dir"]).expanduser()
-    input_dir = Path(base_sandbox_cfg["general"]["input_dir"]).expanduser()
+    output_dir = Path(sandbox_cfg["general"]["output_dir"]).expanduser()
+    input_dir = Path(sandbox_cfg["general"]["input_dir"]).expanduser()
     metadata = (
-        base_sandbox_cfg.get("simulation", {})
+        sandbox_cfg.get("simulation", {})
         .get("outputs", {})
         .get("metadata", {})
     )
@@ -652,38 +761,37 @@ def load_context(config_file: Path) -> LauncherContext:
     calibration_scenarios = resolve_calibration_scenarios(
         launcher_cfg,
         map_cfg,
-        base_sandbox_cfg,
+        sandbox_cfg,
         launcher_dir,
     )
-    slurm = launcher_cfg.get("slurm") or {}
-    if not isinstance(slurm, dict):
+    slurm_value = launcher_cfg.get("slurm")
+    if slurm_value is None:
+        slurm = {}
+    elif not isinstance(slurm_value, dict):
         raise TypeError("slurm must be a YAML dictionary/object")
+    else:
+        slurm = copy.deepcopy(slurm_value)
+        slurm.setdefault("startup_delay_seconds", 5)
 
     return LauncherContext(
         launcher_dir=launcher_dir,
         launcher_config_file=config_file,
-        sandbox_config_file=sandbox_config_file,
         map_config_file=map_config_file,
         submit_script=submit_script,
-        base_sandbox_cfg=base_sandbox_cfg,
+        sandbox_cfg=sandbox_cfg,
         map_cfg=map_cfg,
         output_dir=output_dir,
         input_dir=input_dir,
         metadata_index_dir_name=metadata_index_dir_name,
-        num_workers=int(execution.get("num_workers", launcher_cfg.get("num_workers", 2))),
-        startup_delay_seconds=int(
-            execution.get(
-                "startup_delay_seconds",
-                launcher_cfg.get("startup_delay_seconds", 5),
-            )
-        ),
-        assignment_summary=assignment_summary,
+        stages=stages,
+        local=local,
+        selection_summary=selection_summary,
         calibration_scenarios=calibration_scenarios,
         slurm=slurm,
     )
 
 
-def validate_base_sandbox_config(config: dict[str, Any]) -> None:
+def validate_sandbox_config(config: dict[str, Any]) -> None:
     general = config.get("general") or {}
     simulation = config.get("simulation") or {}
     forcings = config.get("forcings") or {}
@@ -702,15 +810,13 @@ def validate_base_sandbox_config(config: dict[str, Any]) -> None:
     if "input_dir" not in general or "output_dir" not in general:
         raise ValueError(
             "Project paths are missing. Define project.input_dir and "
-            "project.output_dir in launcher_config.yaml (recommended), or "
-            "define general.input_dir and general.output_dir in the base "
-            "Sandbox config."
+            "project.output_dir in launcher_config.yaml."
         )
     metadata = simulation.get("outputs", {}).get("metadata", {})
     if not metadata.get("enabled"):
         raise ValueError(
             "Launcher requires simulation.outputs.metadata.enabled: true "
-            "in the base sandbox config"
+            "under launcher_config.yaml sandbox"
         )
     if not metadata.get("index_dir"):
         raise ValueError("Launcher requires simulation.outputs.metadata.index_dir")
@@ -752,45 +858,116 @@ def validate_mapping_config(map_cfg: dict[str, Any]) -> None:
 
 
 def validate_context(ctx: LauncherContext) -> None:
-    required_files = [ctx.sandbox_config_file]
-    if ctx.map_config_file is not None:
-        required_files.append(ctx.map_config_file)
-
-    for path in required_files:
-        if not path.exists():
-            raise FileNotFoundError(f"Required launcher file not found: {path}")
+    if ctx.map_config_file is not None and not ctx.map_config_file.exists():
+        raise FileNotFoundError(
+            f"Required launcher file not found: {ctx.map_config_file}"
+        )
     if not ctx.submit_script.exists():
         raise FileNotFoundError(f"SLURM submit script not found: {ctx.submit_script}")
-    if ctx.num_workers < 1:
-        raise ValueError("num_workers must be greater than or equal to 1")
+    unknown_local = sorted(
+        set(ctx.local) - {"max_workers", "startup_delay_seconds"}
+    )
+    if unknown_local:
+        raise ValueError(
+            f"local contains unsupported field(s): {', '.join(unknown_local)}"
+        )
+    max_workers = ctx.local.get("max_workers")
+    if (
+        isinstance(max_workers, bool)
+        or not isinstance(max_workers, int)
+        or max_workers < 1
+    ):
+        raise ValueError("local.max_workers must be a positive integer")
+    local_delay = ctx.local.get("startup_delay_seconds")
+    if (
+        isinstance(local_delay, bool)
+        or not isinstance(local_delay, int)
+        or local_delay < 0
+    ):
+        raise ValueError(
+            "local.startup_delay_seconds must be a non-negative integer"
+        )
+    validate_slurm_config(ctx.slurm)
+    validate_sandbox_config(ctx.sandbox_cfg)
+    validate_mapping_config(ctx.map_cfg)
+
+
+def validate_slurm_config(slurm: dict[str, Any]) -> None:
+    if not slurm:
+        return
+
     unknown_slurm = sorted(
-        set(ctx.slurm)
+        set(slurm)
         - {
             "account",
             "partition",
-            "time",
-            "memory",
             "mpi_tasks",
             "max_active_jobs",
-            "max_mpi_tasks",
+            "max_total_mpi_tasks",
+            "startup_delay_seconds",
+            "calibration",
+            "validation",
         }
     )
     if unknown_slurm:
         raise ValueError(
             f"slurm contains unsupported field(s): {', '.join(unknown_slurm)}"
         )
-    if "mpi_tasks" in ctx.slurm and ctx.slurm["mpi_tasks"] != "auto":
+    if "mpi_tasks" in slurm and slurm["mpi_tasks"] != "auto":
         raise ValueError("slurm.mpi_tasks must be: auto")
-    for field_name in ("max_active_jobs", "max_mpi_tasks"):
-        value = ctx.slurm.get(field_name)
+    for field_name in ("max_active_jobs", "max_total_mpi_tasks"):
+        value = slurm.get(field_name)
         if value is not None and (
             isinstance(value, bool)
             or not isinstance(value, int)
             or value < 1
         ):
             raise ValueError(f"slurm.{field_name} must be a positive integer")
-    validate_base_sandbox_config(ctx.base_sandbox_cfg)
-    validate_mapping_config(ctx.map_cfg)
+    slurm_delay = slurm.get("startup_delay_seconds")
+    if (
+        isinstance(slurm_delay, bool)
+        or not isinstance(slurm_delay, int)
+        or slurm_delay < 0
+    ):
+        raise ValueError(
+            "slurm.startup_delay_seconds must be a non-negative integer"
+        )
+
+    for stage in ("calibration", "validation"):
+        settings = slurm.get(stage)
+        if not isinstance(settings, dict):
+            raise ValueError(
+                f"slurm.{stage} must be provided as a mapping with explicit "
+                "time and memory settings"
+            )
+        unknown_settings = sorted(set(settings) - {"time", "memory"})
+        if unknown_settings:
+            raise ValueError(
+                f"slurm.{stage} contains unsupported field(s): "
+                f"{', '.join(unknown_settings)}"
+            )
+        for field_name in ("time", "memory"):
+            value = settings.get(field_name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(
+                    f"slurm.{stage}.{field_name} must be provided"
+                )
+
+
+def slurm_settings_for_stage(
+    slurm: dict[str, Any],
+    stage: str,
+) -> dict[str, Any]:
+    if stage not in {"calibration", "validation"}:
+        raise ValueError(f"Unsupported launcher stage: {stage}")
+
+    settings = {
+        key: slurm[key]
+        for key in ("account", "partition", "mpi_tasks")
+        if key in slurm
+    }
+    settings.update(slurm[stage])
+    return settings
 
 
 def model_name_to_dir(name: str) -> str:
@@ -867,7 +1044,7 @@ def generate_config_files_for_gage(
     scenario: CalibrationScenario | None = None,
     dryrun: bool = False,
 ) -> None:
-    sandbox_cfg = copy.deepcopy(ctx.base_sandbox_cfg)
+    sandbox_cfg = copy.deepcopy(ctx.sandbox_cfg)
     scenario_name = scenario.name if scenario else None
     output_dir = experiment_output_dir(ctx, model_dir, scenario_name)
 
@@ -1151,6 +1328,7 @@ def build_slurm_submit_command(
     job_name: str,
     num_mpi_tasks: int,
     delay_seconds: int,
+    stage: str,
     slurm: dict[str, Any] | None = None,
 ) -> list[str]:
     command = [
@@ -1174,6 +1352,7 @@ def build_slurm_submit_command(
         [
             "--export=ALL,"
             f"SANDBOX_FILE={sandbox_file},"
+            f"SANDBOX_STAGE={stage},"
             f"START_DELAY={delay_seconds}",
             str(submit_script),
         ]
@@ -1185,8 +1364,20 @@ def select_experiment_config(
     paths: dict[str, Path],
     progress: ExperimentProgress,
     max_iter: int,
-) -> Path:
+    stages: tuple[str, ...],
+    *,
+    validation_exists: bool = False,
+) -> Path | None:
+    calibration_requested = "calibration" in stages
+    validation_requested = "validation" in stages
+
     if not progress.started:
+        if not calibration_requested:
+            raise RuntimeError(
+                "Validation was requested, but calibration has not started. "
+                "Run the launcher with stages: [calibration] or "
+                "stages: [calibration, validation] first."
+            )
         return paths["sandbox_main"]
 
     if not progress.checkpoint_available:
@@ -1202,6 +1393,12 @@ def select_experiment_config(
         else progress.current_iteration
     )
     if completed_iterations < max_iter:
+        if not calibration_requested:
+            raise RuntimeError(
+                "Validation was requested, but calibration is incomplete "
+                f"({completed_iterations}/{max_iter} iterations). Run or "
+                "resume calibration first."
+            )
         if progress.algorithm == "pso":
             return prepare_pso_warm_start_config(
                 paths,
@@ -1209,7 +1406,9 @@ def select_experiment_config(
             )
         return paths["sandbox_restart"]
 
-    return paths["sandbox_validation"]
+    if validation_requested and not validation_exists:
+        return paths["sandbox_validation"]
+    return None
 
 
 def run_experiment(
@@ -1224,15 +1423,29 @@ def run_experiment(
     *,
     use_slurm: bool,
     dryrun: bool = False,
-) -> None:
+) -> Path | None:
     paths = generated_config_paths(exp_config_dir, gage_id)
     max_iter = get_max_iter(exp_config_dir, gage_id)
     if max_iter == 0 and not progress.configured:
         max_iter = 1
-    sandbox_file = select_experiment_config(paths, progress, max_iter)
-
-    if check_validation_exists(metadata_index_dir, gage_id):
-        return
+    validation_exists = (
+        "validation" in ctx.stages
+        and check_validation_exists(metadata_index_dir, gage_id)
+    )
+    sandbox_file = select_experiment_config(
+        paths,
+        progress,
+        max_iter,
+        ctx.stages,
+        validation_exists=validation_exists,
+    )
+    if sandbox_file is None:
+        return None
+    stage = (
+        "validation"
+        if sandbox_file == paths["sandbox_validation"]
+        else "calibration"
+    )
 
     if use_slurm:
         num_mpi_tasks = get_num_cpus(metadata_index_dir, gage_id)
@@ -1242,7 +1455,8 @@ def run_experiment(
             job_name,
             num_mpi_tasks,
             delay_seconds,
-            ctx.slurm,
+            stage,
+            slurm_settings_for_stage(ctx.slurm, stage),
         )
         if dryrun:
             print(f"[DRYRUN] [{gage_id}] Would submit: {' '.join(cmd)}")
@@ -1256,16 +1470,30 @@ def run_experiment(
             str(sandbox_file),
         ]
         if dryrun:
+            if stage == "validation":
+                print(
+                    f"[DRYRUN] [{gage_id}] Would generate validation "
+                    f"configs: sandbox --conf -i {sandbox_file}"
+                )
             print(f"[DRYRUN] [{gage_id}] Would run locally: {' '.join(cmd)}")
-        else:
-            print(f"[{gage_id}] Running locally: {' '.join(cmd)}")
 
     if dryrun:
-        return
+        return sandbox_file
 
     if not use_slurm:
         time.sleep(delay_seconds)
+        if stage == "validation":
+            print(
+                f"[{gage_id}] Generating validation configs: "
+                f"sandbox --conf -i {sandbox_file}"
+            )
+            subprocess.run(
+                ["sandbox", "--conf", "-i", str(sandbox_file)],
+                check=True,
+            )
+        print(f"[{gage_id}] Running locally: {' '.join(cmd)}")
     subprocess.run(cmd, check=True)
+    return sandbox_file
 
 
 def local_worker(args: tuple[Any, ...]) -> None:
@@ -1280,25 +1508,86 @@ def local_worker(args: tuple[Any, ...]) -> None:
         delay_seconds,
         dryrun,
     ) = args
-    run_experiment(
-        ctx,
-        model_dir,
-        gage_id,
-        job_name,
-        exp_config_dir,
-        metadata_index_dir,
-        progress,
-        delay_seconds,
-        use_slurm=False,
-        dryrun=dryrun,
-    )
+    if dryrun:
+        run_experiment(
+            ctx,
+            model_dir,
+            gage_id,
+            job_name,
+            exp_config_dir,
+            metadata_index_dir,
+            progress,
+            delay_seconds,
+            use_slurm=False,
+            dryrun=True,
+        )
+        return
+
+    paths = generated_config_paths(exp_config_dir, gage_id)
+    current_progress = progress
+    current_delay = delay_seconds
+
+    while True:
+        selected_config = run_experiment(
+            ctx,
+            model_dir,
+            gage_id,
+            job_name,
+            exp_config_dir,
+            metadata_index_dir,
+            current_progress,
+            current_delay,
+            use_slurm=False,
+        )
+        current_delay = 0
+
+        if selected_config is None:
+            return
+
+        if selected_config == paths["sandbox_validation"]:
+            if not check_validation_exists(
+                metadata_index_dir,
+                gage_id,
+                status=True,
+            ):
+                raise RuntimeError(
+                    f"Validation command completed for gage {gage_id}, but "
+                    "no sim_obs_validation output was found. Review the "
+                    "validation worker output before rerunning the launcher."
+                )
+            return
+
+        next_progress = get_experiment_progress(
+            metadata_index_dir,
+            gage_id,
+            status=True,
+        )
+        previous_state = (
+            current_progress.current_iteration,
+            current_progress.completed_iterations,
+            current_progress.objective_value,
+            current_progress.checkpoint_file,
+        )
+        next_state = (
+            next_progress.current_iteration,
+            next_progress.completed_iterations,
+            next_progress.objective_value,
+            next_progress.checkpoint_file,
+        )
+        if not next_progress.started or next_state == previous_state:
+            raise RuntimeError(
+                f"Calibration command completed for gage {gage_id}, but "
+                "calibration progress did not advance. Review the calibration "
+                "worker output before rerunning the launcher."
+            )
+        current_progress = next_progress
 
 
 def check_status(ctx: LauncherContext) -> None:
     print("\n============================ STATUS REPORT ==============================")
     header = (
         f"{'Gage':<12} {'Formulation':<24} {'Scenario':<12} "
-        f"{'Calib (cur|max|obj)':<24} {'Validation':<10}"
+        f"{'Calib (cur|max|obj)':<24} {'Validation':<14}"
     )
     print(header)
     print("-" * len(header))
@@ -1318,12 +1607,15 @@ def check_status(ctx: LauncherContext) -> None:
                     status=True,
                 )
                 max_iter = get_max_iter(exp_config_dir, gage_id)
-                validation_exists = check_validation_exists(
-                    metadata_index_dir,
-                    gage_id,
-                    status=True,
-                )
-                valid_flag = "YES" if validation_exists else "NO"
+                if "validation" in ctx.stages:
+                    validation_exists = check_validation_exists(
+                        metadata_index_dir,
+                        gage_id,
+                        status=True,
+                    )
+                    valid_flag = "YES" if validation_exists else "NO"
+                else:
+                    valid_flag = "NOT REQUESTED"
                 current_iter = (
                     str(progress.completed_iterations)
                     if progress.completed_iterations is not None
@@ -1338,7 +1630,7 @@ def check_status(ctx: LauncherContext) -> None:
                 print(
                     f"{gage_id:<12} {formulation_name:<24} "
                     f"{scenario.display_name:<12} {status_text:<24} "
-                    f"{valid_flag:<10}"
+                    f"{valid_flag:<14}"
                 )
 
     print("-" * len(header))
@@ -1378,15 +1670,22 @@ def is_experiment_complete(
     )
     progress = get_experiment_progress(metadata_index_dir, gage_id, status=True)
     max_iter = get_max_iter(exp_config_dir, gage_id)
-    validation_exists = check_validation_exists(metadata_index_dir, gage_id, status=True)
-    return (
+    calibration_complete = (
         progress.started
         and (
             progress.completed_iterations
             if progress.completed_iterations is not None
             else progress.current_iteration
         ) >= max_iter
-        and validation_exists
+    )
+    if not calibration_complete:
+        return False
+    if "validation" not in ctx.stages:
+        return True
+    return check_validation_exists(
+        metadata_index_dir,
+        gage_id,
+        status=True,
     )
 
 
@@ -1433,13 +1732,13 @@ def slurm_limits(slurm: dict[str, Any]) -> tuple[int, int]:
             "Slurm execution requires slurm.max_active_jobs in "
             "launcher_config.yaml to prevent unbounded job submission."
         )
-    max_mpi_tasks = slurm.get("max_mpi_tasks")
-    if max_mpi_tasks is None:
+    max_total_mpi_tasks = slurm.get("max_total_mpi_tasks")
+    if max_total_mpi_tasks is None:
         raise ValueError(
-            "Slurm execution requires slurm.max_mpi_tasks in "
+            "Slurm execution requires slurm.max_total_mpi_tasks in "
             "launcher_config.yaml to cap aggregate requested cores."
         )
-    return int(max_active_jobs), int(max_mpi_tasks)
+    return int(max_active_jobs), int(max_total_mpi_tasks)
 
 
 def slurm_limit_reason(
@@ -1448,22 +1747,35 @@ def slurm_limit_reason(
     active_mpi_tasks: int,
     requested_mpi_tasks: int,
     max_active_jobs: int,
-    max_mpi_tasks: int,
+    max_total_mpi_tasks: int,
 ) -> str | None:
     if active_jobs >= max_active_jobs:
         return f"active-job limit reached ({active_jobs}/{max_active_jobs})"
-    if requested_mpi_tasks > max_mpi_tasks:
+    if requested_mpi_tasks > max_total_mpi_tasks:
         raise ValueError(
             f"A run requires {requested_mpi_tasks} MPI tasks, which exceeds "
-            f"slurm.max_mpi_tasks={max_mpi_tasks}. Increase the limit or "
+            "slurm.max_total_mpi_tasks="
+            f"{max_total_mpi_tasks}. Increase the limit or "
             "reduce simulation.partitioning."
         )
-    if active_mpi_tasks + requested_mpi_tasks > max_mpi_tasks:
+    if active_mpi_tasks + requested_mpi_tasks > max_total_mpi_tasks:
         return (
             "MPI-task limit reached "
-            f"({active_mpi_tasks}+{requested_mpi_tasks}>{max_mpi_tasks})"
+            f"({active_mpi_tasks}+{requested_mpi_tasks}>"
+            f"{max_total_mpi_tasks})"
         )
     return None
+
+
+def startup_delay_seconds(
+    run_index: int,
+    interval_seconds: int,
+    *,
+    cycle_size: int | None = None,
+) -> int:
+    """Return a deterministic startup delay for a scheduled run."""
+    position = run_index if cycle_size is None else run_index % cycle_size
+    return position * interval_seconds
 
 
 def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> None:
@@ -1473,10 +1785,11 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
     active_job_count = 0
     active_mpi_tasks = 0
     max_active_jobs = 0
-    max_mpi_tasks = 0
+    max_total_mpi_tasks = 0
+    scheduled_run_index = 0
 
     if use_slurm:
-        max_active_jobs, max_mpi_tasks = slurm_limits(ctx.slurm)
+        max_active_jobs, max_total_mpi_tasks = slurm_limits(ctx.slurm)
         if not dryrun:
             expected_names = expected_slurm_job_names(ctx)
             campaign_jobs = [
@@ -1490,7 +1803,7 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
         print(
             "[INFO] Slurm launcher capacity: "
             f"jobs={active_job_count}/{max_active_jobs}, "
-            f"MPI tasks={active_mpi_tasks}/{max_mpi_tasks}"
+            f"MPI tasks={active_mpi_tasks}/{max_total_mpi_tasks}"
         )
 
     for gage_id in ctx.map_cfg["mapping"]:
@@ -1537,6 +1850,12 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
 
                 progress = get_experiment_progress(metadata_index_dir, gage_id)
                 if not progress.configured:
+                    if "calibration" not in ctx.stages:
+                        raise RuntimeError(
+                            f"Validation was requested for gage {gage_id}, "
+                            f"experiment '{job_name}', but no configured "
+                            "calibration run was found. Run calibration first."
+                        )
                     print(
                         f"[{gage_id}] Setup step for "
                         f"{scenario.display_name}; generating configs."
@@ -1559,8 +1878,6 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
                         )
 
                 incomplete_exists = True
-                delay_index = index * len(scenarios) + scenario_index
-                delay_seconds = delay_index * ctx.startup_delay_seconds
 
                 if use_slurm:
                     requested_mpi_tasks = get_num_cpus(
@@ -1572,7 +1889,7 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
                         active_mpi_tasks=active_mpi_tasks,
                         requested_mpi_tasks=requested_mpi_tasks,
                         max_active_jobs=max_active_jobs,
-                        max_mpi_tasks=max_mpi_tasks,
+                        max_total_mpi_tasks=max_total_mpi_tasks,
                     )
                     if limit_reason:
                         print(
@@ -1580,6 +1897,10 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
                             f"{limit_reason}."
                         )
                         continue
+                    delay_seconds = startup_delay_seconds(
+                        scheduled_run_index,
+                        ctx.slurm["startup_delay_seconds"],
+                    )
                     run_experiment(
                         ctx,
                         model_dir,
@@ -1595,7 +1916,13 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
                     active_job_names.add(job_name)
                     active_job_count += 1
                     active_mpi_tasks += requested_mpi_tasks
+                    scheduled_run_index += 1
                 elif dryrun:
+                    delay_seconds = startup_delay_seconds(
+                        scheduled_run_index,
+                        ctx.local["startup_delay_seconds"],
+                        cycle_size=ctx.local["max_workers"],
+                    )
                     run_experiment(
                         ctx,
                         model_dir,
@@ -1608,7 +1935,13 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
                         use_slurm=False,
                         dryrun=True,
                     )
+                    scheduled_run_index += 1
                 else:
+                    delay_seconds = startup_delay_seconds(
+                        scheduled_run_index,
+                        ctx.local["startup_delay_seconds"],
+                        cycle_size=ctx.local["max_workers"],
+                    )
                     local_jobs.append(
                         (
                             ctx,
@@ -1622,9 +1955,10 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
                             dryrun,
                         )
                     )
+                    scheduled_run_index += 1
 
     if not use_slurm and local_jobs:
-        max_workers = min(ctx.num_workers, multiprocessing.cpu_count())
+        max_workers = min(ctx.local["max_workers"], multiprocessing.cpu_count())
         print(f"\n[INFO] Running locally with up to {max_workers} parallel workers\n")
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             futures = [executor.submit(local_worker, job) for job in local_jobs]
@@ -1642,26 +1976,36 @@ def print_check_report(ctx: LauncherContext) -> None:
     print("Launcher Check")
     print("==============")
     print(f"Launcher config : {ctx.launcher_config_file}")
-    print(f"Sandbox config  : {ctx.sandbox_config_file}")
+    print(f"Sandbox settings: {ctx.launcher_config_file}:sandbox")
     print(f"Mapping config  : {ctx.map_config_file or 'resolved from launcher_config.yaml'}")
     print(f"Submit script   : {ctx.submit_script}")
     print(f"Input dir       : {ctx.input_dir}")
     print(f"Output dir      : {ctx.output_dir}")
-    print(f"Num workers     : {ctx.num_workers}")
+    print(f"Stages          : {', '.join(ctx.stages)}")
+    print(f"Local workers   : {ctx.local['max_workers']}")
+    print(f"Local delay     : {ctx.local['startup_delay_seconds']} sec")
     print(f"Mapped gages    : {len(ctx.map_cfg['mapping'])}")
-    print(f"Formulations    : {len(ctx.map_cfg['formulations'])}")
+    print(f"Experiments     : {len(ctx.map_cfg['formulations'])}")
     if ctx.slurm:
+        common_slurm = {
+            key: value
+            for key, value in ctx.slurm.items()
+            if key not in {"calibration", "validation"}
+        }
         print("Slurm settings  : " + ", ".join(
-            f"{key}={value}" for key, value in ctx.slurm.items()
+            f"{key}={value}" for key, value in common_slurm.items()
         ))
-    if ctx.assignment_summary:
-        print("\nResolved assignment summary")
-        print("---------------------------")
-        for group, counts in ctx.assignment_summary.items():
+        for stage in ("calibration", "validation"):
+            settings = ctx.slurm[stage]
             print(
-                f"{group}: {counts['gages']} gage(s) x "
-                f"{counts['experiments']} experiment(s)"
+                f"Slurm {stage:<11}: time={settings['time']}, "
+                f"memory={settings['memory']}"
             )
+    if ctx.selection_summary:
+        print("\nResolved experiment selection")
+        print("-----------------------------")
+        for experiment_name, gage_count in ctx.selection_summary.items():
+            print(f"{experiment_name}: {gage_count} gage(s)")
     print("\nResolved calibration plan")
     print("-------------------------")
     for gage_id in ctx.map_cfg["mapping"]:

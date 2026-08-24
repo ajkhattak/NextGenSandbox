@@ -1,30 +1,101 @@
 project:
   input_dir: "/Users/ahmadjankhattak/Core/projects/dynamic_model_selection/inputs"
-  output_dir: "/Users/ahmadjankhattak/Core/projects/dynamic_model_selection/outputsX"
+  output_dir: "/Users/ahmadjankhattak/Core/projects/dynamic_model_selection/outputsXY"
   resource_layout: gage
 
-templates:
-  sandbox_config: basefiles/sandbox_config_base.yaml
+  gages:
+    option: ids
+    ids:
+      #- "02299950"
+      - "08070500"
+      #- "03574500"
+      #- "04231000"
+      #- "03366500"
+      #- "04282000"
+      #- "05061000"
+      #- "09504420"
+      #- "11264500"
+
+    # For grouped experiments over many gages, use a CSV instead:
+    # option: file
+    # file:
+    #   path: "/path/to/gages.csv"
+    #   id_column: gage_id
+    #   group_column: group_name
+    #
+    # A gage may belong to more than one group by repeating rows or by
+    # separating groups in one cell with comma, semicolon, or pipe.
+
+sandbox:
+  forcings:
+    format: ".nc"
+    time:
+      start: "2000-10-01"
+      end: "2023-09-30"
+    domain: conus
+    gages: all
+
+  observations: {}
+
+  calibration:
+    optimizer:
+      algorithm: dds
+      iterations: 2
+      random_seed: 444
+    objective:
+      function: kge
+
+  simulation:
+    time:
+      calibration:
+        start: "2015-10-01 00:00:00"
+        spinup: "12 months"
+        evaluation: "1 years"
+      validations:
+        - name: validation
+          start: "2020-10-01 00:00:00"
+          spinup: "12 months"
+          evaluation: "1 year"
+
+    partitioning:
+      mode: parallel
+      max_nexus_per_proc: 15
+      max_procs: 3
+
+    outputs:
+      metadata:
+        enabled: true
+        index_dir: metadata
+        file: simulation_metadata.yml
 
 submit_script: submit_gage.slurm
 
-execution:
-  num_workers: 2
+# Select exactly which experiment stages this launcher invocation manages.
+stages: [calibration, validation]
+
+local:
+  max_workers: 2
   startup_delay_seconds: 5
 
-# Slurm execution requires both limits. max_mpi_tasks caps the aggregate
+# Slurm execution requires both limits. max_total_mpi_tasks caps the aggregate
 # cores requested by this launcher's running and pending jobs.
-# Other values override matching #SBATCH defaults in submit_gage.slurm.
+# Set calibration and validation resources separately. Validation commonly
+# needs more memory when its simulation period is longer.
 slurm:
   max_active_jobs: 10
-  max_mpi_tasks: 64
+  max_total_mpi_tasks: 64
+  startup_delay_seconds: 5
 #   account: project_account
 #   partition: shared
-#   time: "12:00:00"
-#   memory: "8G"
 #   mpi_tasks: auto
+  calibration:
+    time: "12:00:00"
+    memory: "8G"
+  validation:
+    time: "12:00:00"
+    memory: "64G"
 
-# Optional regime calibration. For every assigned experiment and gage, the
+# Optional regime calibration. For every selected experiment and gage, the
 # launcher creates independent ref, wet, and dry calibration scenarios.
 regime_calibration:
    reference:
@@ -48,6 +119,7 @@ regime_calibration:
 experiments:
   #pet_cfe_s:
   #  models: "PET, CFE, T-route"
+  #  selection: all
   #  model_instances:
   #    CFE:
   #      - name: cfe-s
@@ -57,6 +129,8 @@ experiments:
 
   #pet_cfe_x:
   #  models: "PET, CFE, T-route"
+  #  selection:
+  #    groups: [snowy]
   #  model_instances:
   #    CFE:
   #      - name: cfe-x
@@ -66,9 +140,12 @@ experiments:
 
   #pet_topmodel:
   #  models: "PET, TopModel, T-route"
+  #  selection:
+  #    groups: [arid]
 
   nom_cfe_s:
     models: "NOM, CFE, T-route"
+    selection: all
     model_instances:
       CFE:
         - name: cfe-s
@@ -78,60 +155,12 @@ experiments:
 
   #nom_cfe_x:
   #  models: "NOM, CFE, T-route"
+  #  selection:
+  #    groups: [snowy, benchmark]
+  #    ids: ["02299950"]
   #  model_instances:
   #    CFE:
   #      - name: cfe-x
   #        basefile: "config_cfe-x.yaml"
   #        repo_name: "cfe"
   #        calib_params_block: "cfex_params"
-
-gages:
-  option: ids
-  ids:
-    #- "02299950"
-    - "08070500"
-    #- "03574500"
-    #- "04231000"
-    #- "03366500"
-    #- "04282000"
-    #- "05061000"
-    #- "09504420"
-    #- "11264500"
-
-  # For grouped experiments over many gages, use a CSV instead:
-  # option: file
-  # file:
-  #   path: "/path/to/gages.csv"
-  #   id_column: gage_id
-  #   group_column: group_name
-  #
-  # A gage may belong to more than one group by repeating rows:
-  # gage_id,group_name
-  # 01109403,snowy
-  # 01109403,benchmark
-  #
-  # Or by separating groups in one cell with comma, semicolon, or pipe:
-  # 01109403,"snowy;benchmark"
-
-assignment:
-  # Use all to run every experiment over every gage:
-  default:
-     - all
-  #default:
-  #  - pet_cfe_s
-  #  - pet_cfe_x
-  #  - pet_topmodel
-
-  # Group assignments are used when gages.option: file and group_column is set.
-  # If a gage belongs to multiple groups, experiment lists are merged.
-  groupsX:
-    snowy:
-      - nom_cfe_s
-      - nom_cfe_x
-
-    arid:
-      - pet_topmodel
-
-    non-snowy:
-      - pet_cfe_s
-      - pet_cfe_x
