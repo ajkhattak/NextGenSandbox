@@ -23,6 +23,17 @@ import yaml
 LAUNCHER_PACKAGE_DIR = Path(__file__).resolve().parent
 REPO_ROOT = Path(__file__).resolve().parents[3]
 LAUNCHER_CONFIG_DIR = REPO_ROOT / "configs" / "launcher"
+CAMPAIGN_STATUS_ORDER = (
+    "COMPLETED",
+    "RUNNING",
+    "QUEUED",
+    "WILL_BE_REQUEUED",
+    "NOT_SUBMITTED",
+    "TIMEOUT",
+    "OUT_OF_MEMORY",
+    "FAILED",
+    "CANCELLED",
+)
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
@@ -112,6 +123,14 @@ class ActiveSlurmJob:
 
 
 @dataclass(frozen=True)
+class SlurmJobHistory:
+    job_id: str
+    name: str
+    state: str
+    exit_code: str
+
+
+@dataclass(frozen=True)
 class ExperimentRun:
     config_file: Path | None
     slurm_job_id: str | None = None
@@ -127,6 +146,8 @@ class CampaignStatus:
     max_iterations: int
     objective_value: float | None
     validation: str
+    average_iteration_seconds: float | None
+    estimated_remaining_seconds: float | None
 
 
 def load_yaml(path: Path) -> dict[str, Any]:
@@ -1831,6 +1852,33 @@ def parse_sbatch_job_id(output: str) -> str:
     return job_id
 
 
+def submission_history_path(ctx: LauncherContext) -> Path:
+    return (
+        ctx.output_dir
+        / "launcher"
+        / f"{ctx.campaign_name}_submitted_jobs.jsonl"
+    )
+
+
+def record_slurm_submission(
+    ctx: LauncherContext,
+    *,
+    job_id: str,
+    job_name: str,
+    stage: str,
+) -> None:
+    path = submission_history_path(ctx)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    record = {
+        "job_id": job_id,
+        "job_name": job_name,
+        "stage": stage,
+        "submitted_at": datetime.now().astimezone().isoformat(),
+    }
+    with path.open("a") as file:
+        file.write(json.dumps(record, sort_keys=True) + "\n")
+
+
 def submit_launcher(
     ctx: LauncherContext,
     dependency_job_ids: tuple[str, ...] = (),
@@ -2025,9 +2073,16 @@ def run_experiment(
         message = result.stdout.strip()
         if message:
             print(message)
+        job_id = parse_sbatch_job_id(result.stdout)
+        record_slurm_submission(
+            ctx,
+            job_id=job_id,
+            job_name=job_name,
+            stage=stage,
+        )
         return ExperimentRun(
             sandbox_file,
-            parse_sbatch_job_id(result.stdout),
+            job_id,
         )
 
     subprocess.run(cmd, check=True)
@@ -2136,11 +2191,246 @@ def calibration_is_complete(
     return completed is not None and completed >= max_iterations
 
 
+def worker_start_time(worker_dir: Path) -> float | None:
+    match = re.match(r"^(\d{12})_.*_worker$", worker_dir.name)
+    if match is None:
+        return None
+    try:
+        return datetime.strptime(match.group(1), "%Y%m%d%H%M").timestamp()
+    except ValueError:
+        return None
+
+
+def objective_log_evaluations(path: Path) -> int:
+    evaluations = 0
+    try:
+        lines = path.read_text().splitlines()
+    except OSError:
+        return 0
+    for line in lines:
+        fields = line.split(",", 1)
+        if len(fields) != 2:
+            continue
+        try:
+            int(fields[0].strip())
+            float(fields[1].strip())
+        except ValueError:
+            continue
+        evaluations += 1
+    return evaluations
+
+
+def estimate_calibration_timing(
+    output_dir: Path,
+    progress: ExperimentProgress,
+    max_iterations: int,
+) -> tuple[float | None, float | None]:
+    if not progress.started:
+        return None, None
+
+    elapsed_seconds = 0.0
+    completed_samples = 0
+    if progress.algorithm == "pso":
+        progress_file = output_dir / "pso_progress.json"
+        worker_starts = [
+            start
+            for worker_dir in output_dir.glob("*_worker")
+            if (start := worker_start_time(worker_dir)) is not None
+        ]
+        if progress_file.is_file() and worker_starts:
+            try:
+                pso_progress = json.loads(progress_file.read_text())
+                progress_mtime = progress_file.stat().st_mtime
+            except (OSError, json.JSONDecodeError):
+                pso_progress = {}
+                progress_mtime = 0.0
+            completed = pso_progress.get("completed_generations", 0)
+            if (
+                isinstance(completed, int)
+                and not isinstance(completed, bool)
+                and completed > 0
+            ):
+                elapsed_seconds = max(
+                    0.0,
+                    progress_mtime - min(worker_starts),
+                )
+                completed_samples = completed
+    else:
+        for objective_log in output_dir.glob("*_worker/objective_log.txt"):
+            start = worker_start_time(objective_log.parent)
+            if start is None:
+                continue
+            evaluations = objective_log_evaluations(objective_log)
+            try:
+                elapsed = max(0.0, objective_log.stat().st_mtime - start)
+            except OSError:
+                continue
+            if evaluations == 0 or elapsed == 0:
+                continue
+            elapsed_seconds += elapsed
+            completed_samples += evaluations
+
+    if completed_samples == 0 or elapsed_seconds == 0:
+        return None, None
+
+    average_seconds = elapsed_seconds / completed_samples
+    completed_iterations = (
+        progress.completed_iterations
+        if progress.completed_iterations is not None
+        else progress.current_iteration
+    )
+    remaining_iterations = max(
+        0,
+        max_iterations - (completed_iterations or 0),
+    )
+    return average_seconds, average_seconds * remaining_iterations
+
+
+def format_duration(seconds: float | None) -> str:
+    if seconds is None:
+        return "-"
+    total_seconds = max(0, int(round(seconds)))
+    days, remainder = divmod(total_seconds, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if days:
+        return f"{days}d {hours}h"
+    if hours:
+        return f"{hours}h {minutes}m"
+    if minutes:
+        return f"{minutes}m {secs}s"
+    return f"{secs}s"
+
+
+def submitted_worker_jobs(
+    ctx: LauncherContext,
+    expected_names: set[str],
+) -> dict[str, str]:
+    """Return submitted Slurm worker job IDs mapped to experiment names."""
+    jobs: dict[str, str] = {}
+    history_path = submission_history_path(ctx)
+    if history_path.is_file():
+        try:
+            lines = history_path.read_text().splitlines()
+        except OSError:
+            lines = []
+        for line in lines:
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            job_id = str(record.get("job_id", "")).strip()
+            job_name = str(record.get("job_name", "")).strip()
+            if job_id.isdigit() and job_name in expected_names:
+                jobs[job_id] = job_name
+
+    # Recover campaigns submitted before the history file was introduced from
+    # their persistent Slurm output/error filenames.
+    log_dir = getattr(ctx, "log_dir", ctx.output_dir / "logs")
+    if log_dir.is_dir():
+        for path in log_dir.iterdir():
+            match = re.match(r"^(.+)_(\d+)\.(?:out|err)$", path.name)
+            if match is None:
+                continue
+            job_name, job_id = match.groups()
+            if job_name in expected_names:
+                jobs[job_id] = job_name
+    return jobs
+
+
+def normalize_slurm_state(state: str) -> str:
+    return state.strip().upper().split()[0].rstrip("+")
+
+
+def get_slurm_job_history(
+    jobs_by_id: dict[str, str],
+) -> dict[str, SlurmJobHistory]:
+    """Return the latest accounting record for each submitted experiment."""
+    if not jobs_by_id:
+        return {}
+
+    latest: dict[str, SlurmJobHistory] = {}
+    job_ids = sorted(jobs_by_id, key=int)
+    for start in range(0, len(job_ids), 500):
+        chunk = job_ids[start : start + 500]
+        cmd = [
+            "sacct",
+            "-X",
+            "-n",
+            "-P",
+            "-j",
+            ",".join(chunk),
+            "-o",
+            "JobIDRaw,State,ExitCode",
+        ]
+        try:
+            output = subprocess.check_output(cmd, text=True)
+        except (FileNotFoundError, subprocess.CalledProcessError) as error:
+            raise RuntimeError(
+                "Unable to query completed Slurm jobs with sacct."
+            ) from error
+
+        for line in output.splitlines():
+            if not line.strip():
+                continue
+            fields = line.split("|", 2)
+            if len(fields) != 3:
+                continue
+            job_id, state, exit_code = (field.strip() for field in fields)
+            job_name = jobs_by_id.get(job_id)
+            if job_name is None:
+                continue
+            record = SlurmJobHistory(
+                job_id=job_id,
+                name=job_name,
+                state=normalize_slurm_state(state),
+                exit_code=exit_code,
+            )
+            previous = latest.get(job_name)
+            if previous is None or int(job_id) > int(previous.job_id):
+                latest[job_name] = record
+    return latest
+
+
+def terminal_campaign_state(
+    progress: ExperimentProgress,
+    history: SlurmJobHistory | None,
+) -> str:
+    if history is None:
+        return "WILL_BE_REQUEUED" if progress.started else "NOT_SUBMITTED"
+
+    state = history.state
+    if state == "TIMEOUT":
+        return "TIMEOUT"
+    if state == "OUT_OF_MEMORY":
+        return "OUT_OF_MEMORY"
+    if state == "CANCELLED":
+        return "CANCELLED"
+    if state == "COMPLETED":
+        return "WILL_BE_REQUEUED"
+    if state in {"PENDING", "CONFIGURING", "REQUEUED", "RESIZING"}:
+        return "QUEUED"
+    if state in {"RUNNING", "COMPLETING", "SUSPENDED"}:
+        return "RUNNING"
+    if state in {
+        "BOOT_FAIL",
+        "DEADLINE",
+        "FAILED",
+        "NODE_FAIL",
+        "PREEMPTED",
+        "REVOKED",
+        "SPECIAL_EXIT",
+    }:
+        return "FAILED"
+    return "FAILED"
+
+
 def collect_campaign_status(
     ctx: LauncherContext,
 ) -> tuple[list[CampaignStatus], str | None]:
     scheduler_error = None
     active_by_name: dict[str, ActiveSlurmJob] = {}
+    history_by_name: dict[str, SlurmJobHistory] = {}
     if ctx.slurm:
         try:
             expected_names = expected_slurm_job_names(ctx)
@@ -2150,6 +2440,8 @@ def collect_campaign_status(
                 existing = active_by_name.get(job.name)
                 if existing is None or job.state == "RUNNING":
                     active_by_name[job.name] = job
+            submitted_jobs = submitted_worker_jobs(ctx, expected_names)
+            history_by_name = get_slurm_job_history(submitted_jobs)
         except RuntimeError as error:
             scheduler_error = str(error)
     else:
@@ -2171,6 +2463,20 @@ def collect_campaign_status(
                     status=True,
                 )
                 max_iter = get_max_iter(exp_config_dir, gage_id)
+                metadata = read_metadata_index_file(
+                    metadata_index_dir,
+                    gage_id,
+                )
+                if metadata is not None and metadata.get("output_dir"):
+                    average_seconds, remaining_seconds = (
+                        estimate_calibration_timing(
+                            Path(metadata["output_dir"]),
+                            progress,
+                            max_iter,
+                        )
+                    )
+                else:
+                    average_seconds, remaining_seconds = None, None
                 calibration_complete = calibration_is_complete(
                     progress,
                     max_iter,
@@ -2191,15 +2497,18 @@ def collect_campaign_status(
                 job_name = f"{model_dir}{scenario_suffix}_{gage_id}"
                 active_job = active_by_name.get(job_name)
                 if finished:
-                    state = "FINISHED"
+                    state = "COMPLETED"
+                elif active_job is not None and active_job.state == "PENDING":
+                    state = "QUEUED"
+                elif active_job is not None:
+                    state = "RUNNING"
                 elif scheduler_error is not None:
                     state = "UNKNOWN"
-                elif active_job is None:
-                    state = "INACTIVE/INCOMPLETE"
-                elif active_job.state == "PENDING":
-                    state = "QUEUED"
                 else:
-                    state = "RUNNING"
+                    state = terminal_campaign_state(
+                        progress,
+                        history_by_name.get(job_name),
+                    )
 
                 current_iteration = (
                     progress.completed_iterations
@@ -2216,6 +2525,8 @@ def collect_campaign_status(
                         max_iterations=max_iter,
                         objective_value=progress.objective_value,
                         validation=validation,
+                        average_iteration_seconds=average_seconds,
+                        estimated_remaining_seconds=remaining_seconds,
                     )
                 )
     return statuses, scheduler_error
@@ -2225,24 +2536,17 @@ def check_status(ctx: LauncherContext, *, detailed: bool = False) -> None:
     statuses, scheduler_error = collect_campaign_status(ctx)
     counts = {
         state: sum(status.state == state for status in statuses)
-        for state in (
-            "FINISHED",
-            "RUNNING",
-            "QUEUED",
-            "INACTIVE/INCOMPLETE",
-            "UNKNOWN",
-        )
+        for state in (*CAMPAIGN_STATUS_ORDER, "UNKNOWN")
     }
 
     print("\nCampaign Status Summary")
-    print("=======================")
-    print(f"Total experiments   : {len(statuses)}")
-    print(f"Finished            : {counts['FINISHED']}")
-    print(f"Running             : {counts['RUNNING']}")
-    print(f"Queued              : {counts['QUEUED']}")
-    print(f"Inactive/incomplete : {counts['INACTIVE/INCOMPLETE']}")
+    print("========================")
+    print(f"{'TOTAL':<18} | {len(statuses)}")
+    for state in CAMPAIGN_STATUS_ORDER:
+        print(f"{state:<18} | {counts[state]}")
     if counts["UNKNOWN"]:
-        print(f"Unknown             : {counts['UNKNOWN']}")
+        print(f"{'UNKNOWN':<18} | {counts['UNKNOWN']}")
+    print("========================")
     if scheduler_error is not None:
         print(f"Scheduler status    : unavailable ({scheduler_error})")
 
@@ -2253,7 +2557,8 @@ def check_status(ctx: LauncherContext, *, detailed: bool = False) -> None:
     print("==========================")
     header = (
         f"{'Gage':<12} {'Formulation':<24} {'Scenario':<12} "
-        f"{'State':<20} {'Calib (cur|max|obj)':<24} {'Validation':<14}"
+        f"{'State':<20} {'Calib (cur|max|obj)':<24} "
+        f"{'Avg/iter':<12} {'Est. remaining':<15} {'Validation':<14}"
     )
     print(header)
     print("-" * len(header))
@@ -2271,10 +2576,27 @@ def check_status(ctx: LauncherContext, *, detailed: bool = False) -> None:
         calibration = (
             f"{current_iter} | {status.max_iterations} | {obj_value}"
         )
+        average_time = (
+            f"~{format_duration(status.average_iteration_seconds)}"
+            if status.average_iteration_seconds is not None
+            else "-"
+        )
+        if (
+            status.current_iteration is not None
+            and status.current_iteration >= status.max_iterations
+        ):
+            remaining_time = "DONE"
+        elif status.estimated_remaining_seconds is not None:
+            remaining_time = (
+                f"~{format_duration(status.estimated_remaining_seconds)}"
+            )
+        else:
+            remaining_time = "-"
         print(
             f"{status.gage_id:<12} {status.formulation:<24} "
             f"{status.scenario:<12} {status.state:<20} "
-            f"{calibration:<24} {status.validation:<14}"
+            f"{calibration:<24} {average_time:<12} "
+            f"{remaining_time:<15} {status.validation:<14}"
         )
     print("-" * len(header))
 

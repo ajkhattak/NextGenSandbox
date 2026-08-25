@@ -1,6 +1,9 @@
+import os
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -914,6 +917,114 @@ class TestLauncherSelection(unittest.TestCase):
             ],
         )
 
+    def test_slurm_history_reports_latest_terminal_state_per_experiment(self):
+        submitted = {
+            "101": "pet_cfe_01109403",
+            "102": "pet_cfe_01109403",
+            "103": "pet_cfe_08070500",
+        }
+        with patch.object(
+            launcher.subprocess,
+            "check_output",
+            return_value=(
+                "101|TIMEOUT|0:0\n"
+                "102|OUT_OF_MEMORY|0:125\n"
+                "103|CANCELLED by 1234|0:15\n"
+            ),
+        ):
+            history = launcher.get_slurm_job_history(submitted)
+
+        self.assertEqual(
+            history["pet_cfe_01109403"].state,
+            "OUT_OF_MEMORY",
+        )
+        self.assertEqual(
+            history["pet_cfe_08070500"].state,
+            "CANCELLED",
+        )
+
+    def test_terminal_campaign_states_are_distinct(self):
+        progress = launcher.ExperimentProgress(
+            configured=True,
+            current_iteration=4,
+        )
+        states = {
+            state: launcher.terminal_campaign_state(
+                progress,
+                launcher.SlurmJobHistory("101", "job", state, "0:1"),
+            )
+            for state in (
+                "TIMEOUT",
+                "OUT_OF_MEMORY",
+                "FAILED",
+                "CANCELLED",
+            )
+        }
+
+        self.assertEqual(
+            states,
+            {
+                "TIMEOUT": "TIMEOUT",
+                "OUT_OF_MEMORY": "OUT_OF_MEMORY",
+                "FAILED": "FAILED",
+                "CANCELLED": "CANCELLED",
+            },
+        )
+        self.assertEqual(
+            launcher.terminal_campaign_state(progress, None),
+            "WILL_BE_REQUEUED",
+        )
+        self.assertEqual(
+            launcher.terminal_campaign_state(
+                launcher.ExperimentProgress(configured=True),
+                None,
+            ),
+            "NOT_SUBMITTED",
+        )
+
+    def test_status_summary_prints_lifecycle_and_failure_categories(self):
+        statuses = [
+            launcher.CampaignStatus(
+                gage_id="01109403",
+                formulation="pet_cfe",
+                scenario="default",
+                state="OUT_OF_MEMORY",
+                current_iteration=3,
+                max_iterations=40,
+                objective_value=0.5,
+                validation="NO",
+                average_iteration_seconds=None,
+                estimated_remaining_seconds=None,
+            )
+        ]
+        output = StringIO()
+        with (
+            patch.object(
+                launcher,
+                "collect_campaign_status",
+                return_value=(statuses, None),
+            ),
+            redirect_stdout(output),
+        ):
+            launcher.check_status(SimpleNamespace(), detailed=False)
+
+        report = output.getvalue()
+        labels = [
+            "TOTAL",
+            "COMPLETED",
+            "RUNNING",
+            "QUEUED",
+            "WILL_BE_REQUEUED",
+            "NOT_SUBMITTED",
+            "TIMEOUT",
+            "OUT_OF_MEMORY",
+            "FAILED",
+            "CANCELLED",
+        ]
+        positions = [report.index(label) for label in labels]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn("OUT_OF_MEMORY      | 1", report)
+
     def test_parse_sbatch_job_id_supports_parsable_cluster_output(self):
         self.assertEqual(
             launcher.parse_sbatch_job_id("12345;anvil\n"),
@@ -923,6 +1034,7 @@ class TestLauncherSelection(unittest.TestCase):
     def test_campaign_status_distinguishes_running_and_queued(self):
         gages = ("01109403", "08070500")
         context = SimpleNamespace(
+            campaign_name="test_campaign",
             output_dir=Path("/tmp/outputs"),
             metadata_index_dir_name="metadata",
             stages=("calibration",),
@@ -972,6 +1084,34 @@ class TestLauncherSelection(unittest.TestCase):
             [status.state for status in statuses],
             ["RUNNING", "QUEUED"],
         )
+
+    def test_calibration_timing_estimates_remaining_iterations(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            worker = output_dir / "202608250100_ngen_test_worker"
+            worker.mkdir()
+            objective_log = worker / "objective_log.txt"
+            objective_log.write_text("0, 0.8\n1, 0.6\n2, 0.5\n")
+            start = launcher.datetime.strptime(
+                "202608250100",
+                "%Y%m%d%H%M",
+            ).timestamp()
+            os.utime(objective_log, (start + 180, start + 180))
+
+            average, remaining = launcher.estimate_calibration_timing(
+                output_dir,
+                launcher.ExperimentProgress(
+                    configured=True,
+                    current_iteration=2,
+                    completed_iterations=2,
+                    algorithm="dds",
+                ),
+                max_iterations=5,
+            )
+
+        self.assertEqual(average, 60.0)
+        self.assertEqual(remaining, 180.0)
+        self.assertEqual(launcher.format_duration(remaining), "3m 0s")
 
     def test_slurm_runner_schedules_followup_after_active_worker(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1628,6 +1768,7 @@ class TestLauncherSelection(unittest.TestCase):
                 "run",
                 return_value=SimpleNamespace(stdout="456;anvil\n"),
             ),
+            patch.object(launcher, "record_slurm_submission") as record,
         ):
             result = launcher.run_experiment(
                 context,
@@ -1643,6 +1784,12 @@ class TestLauncherSelection(unittest.TestCase):
 
         self.assertEqual(result.config_file, main_config)
         self.assertEqual(result.slurm_job_id, "456")
+        record.assert_called_once_with(
+            context,
+            job_id="456",
+            job_name="pet_cfe_01109403",
+            stage="calibration",
+        )
 
     def test_local_worker_rejects_missing_validation_output(self):
         validation_config = Path("/tmp/sandbox_validation.yaml")

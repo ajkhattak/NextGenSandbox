@@ -355,10 +355,23 @@ sandbox-launcher status --summary --config launcher_dds.yaml
 
 Omitting `--summary` produces the same compact view.
 
-Example fields are total experiments, finished, running, queued, and
-inactive/incomplete. An experiment is one resolved gage, formulation, and
-calibration scenario; calibration restarts are not counted as additional
-experiments.
+The summary separates normal campaign progress from Slurm termination states:
+
+| Status | Meaning |
+|---|---|
+| `COMPLETED` | Every requested stage for the experiment is complete. |
+| `RUNNING` | A worker is currently running in Slurm. |
+| `QUEUED` | A worker is pending in Slurm. |
+| `WILL_BE_REQUEUED` | A prior worker completed or produced restart progress, but another calibration restart or validation submission is still required. |
+| `NOT_SUBMITTED` | No worker submission or calibration progress has been recorded. |
+| `TIMEOUT` | The latest worker reached its Slurm wall-clock limit. |
+| `OUT_OF_MEMORY` | Slurm killed the latest worker for exceeding its memory allocation. |
+| `FAILED` | The latest worker ended in another failure state, including node failure or preemption. |
+| `CANCELLED` | The latest worker was cancelled. |
+
+An experiment is one resolved gage, formulation, and calibration scenario;
+calibration restarts are not counted as additional experiments. The categories
+are mutually exclusive, so their counts add up to `TOTAL`.
 
 Use the detailed view for one line per experiment:
 
@@ -367,12 +380,19 @@ sandbox-launcher status --detailed --config launcher_dds.yaml
 ```
 
 The detailed view includes live scheduler state, calibration iteration and
-objective progress, and validation status. `INACTIVE/INCOMPLETE` means that
-the experiment is unfinished but has no running or pending Slurm worker. It
-may be awaiting the next coordinator cycle or require investigation after a
-worker failure. Status reads Slurm, existing metadata, and output files; it
-does not start or submit work. If Slurm cannot be queried, unfinished
-experiments are reported as `UNKNOWN` rather than guessed.
+objective progress, estimated average time per calibration iteration,
+estimated calibration time remaining, and validation status. Values prefixed
+with `~` are estimates based on completed worker objective logs; PSO uses its
+completed-generation progress. The estimate includes worker startup and model
+execution overhead, is recalculated as progress changes, and is unavailable
+until enough calibration progress has been written. It does not estimate
+validation runtime.
+
+Status combines current `squeue` data, completed-job accounting from `sacct`,
+existing metadata, and output files; it does not start or submit work. The
+launcher records submitted job IDs for new campaigns and can recover older job
+IDs from existing launcher log filenames. If Slurm cannot be queried,
+unfinished experiments are reported as `UNKNOWN` rather than guessed.
 
 ## Generated Layout
 
@@ -382,6 +402,7 @@ For a normal calibration campaign:
 <project.output_dir>/
   launcher/
     <campaign>_worker.slurm
+    <campaign>_submitted_jobs.jsonl
   logs/
     <campaign>_launcher_<job_id>.out
     <campaign>_launcher_<job_id>.err
