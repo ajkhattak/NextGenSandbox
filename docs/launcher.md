@@ -398,12 +398,13 @@ and calibration scenario. Status filters are mutually exclusive.
 
 The detailed view includes live scheduler state, calibration iteration and
 objective progress, estimated average time per calibration iteration,
-estimated calibration time remaining, and validation status. Values prefixed
-with `~` are estimates based on completed worker objective logs; PSO uses its
-completed-generation progress. The estimate includes worker startup and model
-execution overhead, is recalculated as progress changes, and is unavailable
-until enough calibration progress has been written. It does not estimate
-validation runtime.
+estimated calibration time remaining, and validation status. Estimated times
+are rounded to the nearest minute and are based on completed worker objective
+logs; PSO uses its completed-generation progress. The estimate includes worker
+startup and model execution overhead, is recalculated as progress changes, and
+is unavailable until enough calibration progress has been written. It does
+not estimate validation runtime. Rows are grouped by status, with running,
+completed, failed, and not-submitted experiments shown first in that order.
 
 Status combines current `squeue` data, completed-job accounting from `sacct`,
 existing metadata, and output files; it does not start or submit work. The

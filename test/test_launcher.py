@@ -1177,6 +1177,32 @@ class TestLauncherSelection(unittest.TestCase):
         self.assertEqual(average, 60.0)
         self.assertEqual(remaining, 180.0)
         self.assertEqual(launcher.format_duration(remaining), "3m 0s")
+        self.assertEqual(launcher.format_estimated_minutes(208), "3 min")
+        self.assertEqual(launcher.format_estimated_minutes(223), "4 min")
+        self.assertEqual(launcher.format_estimated_minutes(3568), "59 min")
+
+    def test_detailed_status_sort_order(self):
+        statuses = [
+            SimpleNamespace(
+                state=state,
+                gage_id="01109403",
+                formulation="nom_cfe_s",
+                scenario="ref",
+            )
+            for state in (
+                "NOT_SUBMITTED",
+                "FAILED",
+                "COMPLETED",
+                "RUNNING",
+            )
+        ]
+
+        ordered = sorted(statuses, key=launcher.detailed_status_sort_key)
+
+        self.assertEqual(
+            [status.state for status in ordered],
+            ["RUNNING", "COMPLETED", "FAILED", "NOT_SUBMITTED"],
+        )
 
     def test_slurm_runner_schedules_followup_after_active_worker(self):
         with tempfile.TemporaryDirectory() as tmp:

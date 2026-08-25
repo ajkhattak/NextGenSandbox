@@ -45,6 +45,23 @@ STATUS_FILTERS = {
     "failed": "FAILED",
     "cancelled": "CANCELLED",
 }
+DETAILED_STATUS_ORDER = {
+    state: index
+    for index, state in enumerate(
+        (
+            "RUNNING",
+            "COMPLETED",
+            "FAILED",
+            "NOT_SUBMITTED",
+            "QUEUED",
+            "WILL_BE_REQUEUED",
+            "TIMEOUT",
+            "OUT_OF_MEMORY",
+            "CANCELLED",
+            "UNKNOWN",
+        )
+    )
+}
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
@@ -2314,6 +2331,24 @@ def format_duration(seconds: float | None) -> str:
     return f"{secs}s"
 
 
+def format_estimated_minutes(seconds: float | None) -> str:
+    if seconds is None:
+        return "-"
+    minutes = max(0, int(seconds / 60.0 + 0.5))
+    return f"{minutes} min"
+
+
+def detailed_status_sort_key(
+    status: CampaignStatus,
+) -> tuple[int, str, str, str]:
+    return (
+        DETAILED_STATUS_ORDER.get(status.state, len(DETAILED_STATUS_ORDER)),
+        status.gage_id,
+        status.formulation,
+        status.scenario,
+    )
+
+
 def submitted_worker_jobs(
     ctx: LauncherContext,
     expected_names: set[str],
@@ -2613,11 +2648,11 @@ def check_status(
     header = (
         f"{'Gage':<12} {'Formulation':<24} {'Scenario':<12} "
         f"{'State':<20} {'Calib (cur|max|obj)':<24} "
-        f"{'Avg/iter':<12} {'Est. remaining':<15} {'Validation':<14}"
+        f"{'Est. avg/iter':<14} {'Est. remaining':<15} {'Validation':<14}"
     )
     print(header)
     print("-" * len(header))
-    for status in statuses:
+    for status in sorted(statuses, key=detailed_status_sort_key):
         current_iter = (
             str(status.current_iteration)
             if status.current_iteration is not None
@@ -2631,10 +2666,8 @@ def check_status(
         calibration = (
             f"{current_iter} | {status.max_iterations} | {obj_value}"
         )
-        average_time = (
-            f"~{format_duration(status.average_iteration_seconds)}"
-            if status.average_iteration_seconds is not None
-            else "-"
+        average_time = format_estimated_minutes(
+            status.average_iteration_seconds
         )
         if (
             status.current_iteration is not None
@@ -2642,15 +2675,15 @@ def check_status(
         ):
             remaining_time = "DONE"
         elif status.estimated_remaining_seconds is not None:
-            remaining_time = (
-                f"~{format_duration(status.estimated_remaining_seconds)}"
+            remaining_time = format_estimated_minutes(
+                status.estimated_remaining_seconds
             )
         else:
             remaining_time = "-"
         print(
             f"{status.gage_id:<12} {status.formulation:<24} "
             f"{status.scenario:<12} {status.state:<20} "
-            f"{calibration:<24} {average_time:<12} "
+            f"{calibration:<24} {average_time:<14} "
             f"{remaining_time:<15} {status.validation:<14}"
         )
     print("-" * len(header))
