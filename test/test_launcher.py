@@ -1204,6 +1204,37 @@ class TestLauncherSelection(unittest.TestCase):
             ["RUNNING", "COMPLETED", "FAILED", "NOT_SUBMITTED"],
         )
 
+    def test_failed_status_does_not_print_estimated_remaining_time(self):
+        status = launcher.CampaignStatus(
+            gage_id="02096846",
+            formulation="nom_cfe_s",
+            scenario="dry",
+            state="FAILED",
+            current_iteration=180,
+            max_iterations=300,
+            objective_value=0.538,
+            validation="NO",
+            average_iteration_seconds=60,
+            estimated_remaining_seconds=9480,
+        )
+        output = StringIO()
+        with (
+            patch.object(
+                launcher,
+                "collect_campaign_status",
+                return_value=([status], None),
+            ),
+            redirect_stdout(output),
+        ):
+            launcher.check_status(SimpleNamespace(), detailed=True)
+
+        detail_line = next(
+            line for line in output.getvalue().splitlines()
+            if line.startswith("02096846")
+        )
+        self.assertIn("1 min", detail_line)
+        self.assertNotIn("158 min", detail_line)
+
     def test_slurm_runner_schedules_followup_after_active_worker(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

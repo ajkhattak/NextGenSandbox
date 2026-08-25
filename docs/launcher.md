@@ -405,6 +405,8 @@ startup and model execution overhead, is recalculated as progress changes, and
 is unavailable until enough calibration progress has been written. It does
 not estimate validation runtime. Rows are grouped by status, with running,
 completed, failed, and not-submitted experiments shown first in that order.
+Terminal `FAILED`, `OUT_OF_MEMORY`, and `CANCELLED` rows retain their historical
+average iteration time but do not show an estimated remaining time.
 
 Status combines current `squeue` data, completed-job accounting from `sacct`,
 existing metadata, and output files; it does not start or submit work. The

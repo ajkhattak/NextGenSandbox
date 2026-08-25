@@ -101,7 +101,9 @@ by USGS before preparing forcing or model configurations:
 python utils/python/check_hydrofabric_basin_area.py \
   /path/to/input_dir \
   --threshold-pct 10 \
-  --output-csv basin_area_comparison.csv
+  --output-csv basin_area_comparison.csv \
+  --figure-dir basin_boundary_figures \
+  --figure-format pdf
 ```
 
 The utility finds `*.gpkg` files recursively, extracts the gage ID from each
@@ -109,7 +111,15 @@ filename, sums `areasqkm` in the `divides` layer, and compares that total with
 the NWIS `drain_area_va` value. Use `--threshold-pct 20` for a less restrictive
 20% screen. It returns exit status 1 when any basin is outside the tolerance or
 cannot be compared, and writes the complete pass/fail audit to the requested
-CSV.
+CSV. It also writes a one-column `passed_basin_ids.csv` beside the audit CSV;
+this contains only the `gage_id` values that passed the area check. Use
+`--passed-csv /path/to/name.csv` to choose a different location or filename.
+When `--figure-dir` is supplied, the utility also retrieves the USGS NLDI basin
+boundary. `--figure-format pdf` writes one multi-page
+`basin_boundary_comparisons.pdf`, ordered with failed basins first and passing
+basins last. `--figure-format jpeg` writes one image per gage. The audit CSV
+records the report path and page number. Omit `--figure-dir` for the faster
+area-only check.
 
 If the gage-specific geopackages already exist, use
 `general.gages.option: gpkg` or place the files under the configured resource

@@ -2669,7 +2669,9 @@ def check_status(
         average_time = format_estimated_minutes(
             status.average_iteration_seconds
         )
-        if (
+        if status.state in {"FAILED", "OUT_OF_MEMORY", "CANCELLED"}:
+            remaining_time = "-"
+        elif (
             status.current_iteration is not None
             and status.current_iteration >= status.max_iterations
         ):
