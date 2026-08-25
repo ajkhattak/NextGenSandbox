@@ -180,6 +180,48 @@ class TestLauncherSelection(unittest.TestCase):
         self.assertEqual(args.mode, "submit")
         self.assertEqual(args.config, "launcher_pso.yaml")
 
+    def test_status_defaults_to_summary_view(self):
+        with patch.object(
+            sys,
+            "argv",
+            ["sandbox-launcher", "status", "--config", "launcher.yaml"],
+        ):
+            args = launcher.parse_args()
+
+        self.assertEqual(args.status_view, "summary")
+
+    def test_status_accepts_detailed_view(self):
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "sandbox-launcher",
+                "status",
+                "--detailed",
+                "--config",
+                "launcher.yaml",
+            ],
+        ):
+            args = launcher.parse_args()
+
+        self.assertEqual(args.status_view, "detailed")
+
+    def test_status_accepts_explicit_summary(self):
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "sandbox-launcher",
+                "status",
+                "--summary",
+                "--config",
+                "launcher.yaml",
+            ],
+        ):
+            args = launcher.parse_args()
+
+        self.assertEqual(args.status_view, "summary")
+
     def test_launcher_stages_are_explicit(self):
         self.assertEqual(
             launcher.load_launcher_stages(
@@ -209,11 +251,16 @@ class TestLauncherSelection(unittest.TestCase):
             patch.object(launcher, "parse_args", return_value=args),
             patch.object(launcher, "load_context", return_value=context),
             patch.object(launcher, "validate_context") as validate,
+            patch.object(
+                launcher,
+                "validate_launcher_resources",
+            ) as validate_resources,
             patch.object(launcher, "runner") as run,
         ):
             launcher.main()
 
         validate.assert_called_once_with(context)
+        validate_resources.assert_called_once_with(context)
         run.assert_called_once_with(
             context,
             use_slurm=False,
@@ -262,8 +309,8 @@ class TestLauncherSelection(unittest.TestCase):
                 yaml.safe_dump(
                     {
                         "project": {
-                            "input_dir": str(root / "inputs"),
-                            "output_dir": str(root / "outputs"),
+                            "input_dir": "inputs",
+                            "output_dir": "outputs",
                             "resource_layout": "gage",
                             "gages": {
                                 "option": "ids",
@@ -310,14 +357,128 @@ class TestLauncherSelection(unittest.TestCase):
 
             self.assertEqual(
                 context.sandbox_cfg["general"]["input_dir"],
-                str(root / "inputs"),
+                str((root / "inputs").resolve()),
             )
             self.assertEqual(
                 context.sandbox_cfg["calibration"]["optimizer"]["iterations"],
                 25,
             )
             self.assertEqual(context.campaign_name, "launcher_dds")
-            self.assertEqual(context.log_dir, root / "outputs" / "logs")
+            self.assertEqual(
+                context.log_dir,
+                (root / "outputs").resolve() / "logs",
+            )
+
+    def test_project_path_validation_reports_missing_input_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            context = SimpleNamespace(
+                input_dir=root / "missing-inputs",
+                output_dir=root / "outputs",
+                launcher_config_file=root / "launcher.yaml",
+            )
+
+            with self.assertRaisesRegex(
+                FileNotFoundError,
+                "project.input_dir does not exist",
+            ):
+                launcher.validate_project_paths(context)
+
+    def test_launcher_resource_preflight_resolves_gage_forcing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            gage_id = "08070500"
+            hydrofabric = root / "inputs" / gage_id / "hydrofabric"
+            forcing = root / "inputs" / gage_id / "forcing" / "2000_to_2024"
+            hydrofabric.mkdir(parents=True)
+            forcing.mkdir(parents=True)
+            (hydrofabric / f"gage_{gage_id}.gpkg").touch()
+            forcing_file = forcing / f"gage_{gage_id}_corrected.nc"
+            forcing_file.touch()
+            context = SimpleNamespace(
+                input_dir=root / "inputs",
+                launcher_dir=root,
+                map_cfg={"mapping": {gage_id: ["pet_cfe"]}},
+                sandbox_cfg={
+                    "general": {"resource_layout": "gage"},
+                    "forcings": {
+                        "format": ".nc",
+                        "time": {
+                            "start": "2000-10-01",
+                            "end": "2023-09-30 23:00:00",
+                        },
+                        "use_corrected": True,
+                        "rechunk": False,
+                    },
+                    "observations": {},
+                },
+            )
+
+            launcher.validate_launcher_resources(context)
+            self.assertEqual(
+                launcher.resolve_launcher_forcing(context, gage_id),
+                forcing_file,
+            )
+
+    def test_launcher_resource_preflight_reports_mismatched_gage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            actual_gage = "08070500"
+            requested_gage = "08075400"
+            hydrofabric = root / "inputs" / actual_gage / "hydrofabric"
+            forcing = (
+                root
+                / "inputs"
+                / actual_gage
+                / "forcing"
+                / "2000_to_2024"
+            )
+            hydrofabric.mkdir(parents=True)
+            forcing.mkdir(parents=True)
+            (hydrofabric / f"gage_{actual_gage}.gpkg").touch()
+            (forcing / f"gage_{actual_gage}_corrected.nc").touch()
+            context = SimpleNamespace(
+                input_dir=root / "inputs",
+                launcher_dir=root,
+                map_cfg={"mapping": {requested_gage: ["pet_cfe"]}},
+                sandbox_cfg={
+                    "general": {"resource_layout": "gage"},
+                    "forcings": {
+                        "format": ".nc",
+                        "time": {
+                            "start": "2000-10-01",
+                            "end": "2023-09-30 23:00:00",
+                        },
+                        "use_corrected": True,
+                        "rechunk": False,
+                    },
+                    "observations": {},
+                },
+            )
+
+            with self.assertRaisesRegex(
+                FileNotFoundError,
+                "08075400.*2000_to_2024",
+            ):
+                launcher.validate_launcher_resources(context)
+
+    def test_project_path_validation_rejects_unwritable_output_parent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            input_dir = root / "inputs"
+            input_dir.mkdir()
+            context = SimpleNamespace(
+                input_dir=input_dir,
+                output_dir=root / "missing" / "outputs",
+                launcher_config_file=root / "launcher.yaml",
+            )
+
+            with patch.object(launcher.os, "access", return_value=False):
+                with self.assertRaisesRegex(
+                    PermissionError,
+                    "project.output_dir cannot be created",
+                ):
+                    launcher.validate_project_paths(context)
 
     def test_launcher_requires_inline_sandbox_settings(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -508,6 +669,7 @@ class TestLauncherSelection(unittest.TestCase):
 
         self.assertIn("--ntasks-per-node=4", command)
         self.assertIn("--cpus-per-task=1", command)
+        self.assertIn("--parsable", command)
         self.assertNotIn("--cpus-per-task=4", command)
         self.assertIn("SANDBOX_STAGE=calibration", command[-2])
 
@@ -568,6 +730,7 @@ class TestLauncherSelection(unittest.TestCase):
         command = launcher.build_launcher_submit_command(context)
 
         self.assertIn("--job-name=launcher_pso_launcher", command)
+        self.assertIn("--parsable", command)
         self.assertIn(
             "--output=/project/outputs/pso/logs/%x_%j.out",
             command,
@@ -584,6 +747,25 @@ class TestLauncherSelection(unittest.TestCase):
             launcher.LAUNCHER_PACKAGE_DIR / "submit_launcher.sh",
         )
 
+    def test_launcher_followup_waits_for_worker_jobs(self):
+        context = SimpleNamespace(
+            campaign_name="launcher_pso",
+            launcher_config_file=Path("/project/launcher_pso.yaml"),
+            output_dir=Path("/project/outputs/pso"),
+            log_dir=Path("/project/outputs/pso/logs"),
+            slurm={"account": "project123", "partition": "shared"},
+        )
+
+        command = launcher.build_launcher_submit_command(
+            context,
+            ("123", "456"),
+        )
+
+        self.assertIn(
+            "--dependency=afterany:123?afterany:456",
+            command,
+        )
+
     def test_launcher_default_files_use_config_and_package_directories(self):
         self.assertEqual(
             launcher.default_config_file(),
@@ -592,6 +774,11 @@ class TestLauncherSelection(unittest.TestCase):
         self.assertTrue(
             (launcher.LAUNCHER_PACKAGE_DIR / "submit_launcher.sh").is_file()
         )
+        coordinator = (
+            launcher.LAUNCHER_PACKAGE_DIR / "submit_launcher.sh"
+        ).read_text()
+        self.assertNotIn("scontrol requeue", coordinator)
+        self.assertNotIn("LAUNCHER_WALLCLOCK", coordinator)
 
     def test_worker_script_contains_configured_modules_and_environment(self):
         script = launcher.render_slurm_worker_script(
@@ -635,14 +822,14 @@ class TestLauncherSelection(unittest.TestCase):
                     "max_total_mpi_tasks": 8,
                 },
             )
-            completed = SimpleNamespace(stdout="Submitted batch job 123\n")
+            completed = SimpleNamespace(stdout="123\n")
 
             with patch.object(
                 launcher.subprocess,
                 "run",
                 return_value=completed,
             ) as run:
-                launcher.submit_launcher(context)
+                job_id = launcher.submit_launcher(context)
 
             self.assertTrue(context.log_dir.is_dir())
             worker_script = launcher.worker_script_path(context)
@@ -650,6 +837,7 @@ class TestLauncherSelection(unittest.TestCase):
             self.assertTrue(worker_script.stat().st_mode & 0o100)
             run.assert_called_once()
             self.assertTrue(run.call_args.kwargs["check"])
+            self.assertEqual(job_id, "123")
 
     def test_submit_mode_requires_slurm_settings(self):
         context = SimpleNamespace(slurm={})
@@ -707,17 +895,138 @@ class TestLauncherSelection(unittest.TestCase):
         with patch.object(
             launcher.subprocess,
             "check_output",
-            return_value="pet_cfe_01109403|4\npet_cfe_08070500|12\n",
+            return_value=(
+                "101|pet_cfe_01109403|4|RUNNING\n"
+                "102|pet_cfe_08070500|12|PENDING\n"
+            ),
         ):
             jobs = launcher.get_active_slurm_jobs()
 
         self.assertEqual(
             jobs,
             [
-                launcher.ActiveSlurmJob("pet_cfe_01109403", 4),
-                launcher.ActiveSlurmJob("pet_cfe_08070500", 12),
+                launcher.ActiveSlurmJob(
+                    "101", "pet_cfe_01109403", 4, "RUNNING"
+                ),
+                launcher.ActiveSlurmJob(
+                    "102", "pet_cfe_08070500", 12, "PENDING"
+                ),
             ],
         )
+
+    def test_parse_sbatch_job_id_supports_parsable_cluster_output(self):
+        self.assertEqual(
+            launcher.parse_sbatch_job_id("12345;anvil\n"),
+            "12345",
+        )
+
+    def test_campaign_status_distinguishes_running_and_queued(self):
+        gages = ("01109403", "08070500")
+        context = SimpleNamespace(
+            output_dir=Path("/tmp/outputs"),
+            metadata_index_dir_name="metadata",
+            stages=("calibration",),
+            slurm={"max_active_jobs": 2},
+            map_cfg={
+                "mapping": {gage_id: ["pet_cfe"] for gage_id in gages},
+                "formulations": {"pet_cfe": {"models": "PET,CFE"}},
+                "groups": {},
+            },
+            calibration_scenarios={
+                gage_id: (
+                    launcher.CalibrationScenario(
+                        name=None,
+                        calibration={},
+                    ),
+                )
+                for gage_id in gages
+            },
+        )
+
+        with (
+            patch.object(
+                launcher,
+                "get_active_slurm_jobs",
+                return_value=[
+                    launcher.ActiveSlurmJob(
+                        "101", "pet_cfe_01109403", 4, "RUNNING"
+                    ),
+                    launcher.ActiveSlurmJob(
+                        "102", "pet_cfe_08070500", 4, "PENDING"
+                    ),
+                ],
+            ),
+            patch.object(
+                launcher,
+                "get_experiment_progress",
+                return_value=launcher.ExperimentProgress(configured=True),
+            ),
+            patch.object(launcher, "get_max_iter", return_value=40),
+        ):
+            statuses, scheduler_error = launcher.collect_campaign_status(
+                context
+            )
+
+        self.assertIsNone(scheduler_error)
+        self.assertEqual(
+            [status.state for status in statuses],
+            ["RUNNING", "QUEUED"],
+        )
+
+    def test_slurm_runner_schedules_followup_after_active_worker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            gage_id = "01109403"
+            context = SimpleNamespace(
+                campaign_name="regime",
+                output_dir=root / "outputs",
+                log_dir=root / "outputs" / "logs",
+                metadata_index_dir_name="metadata",
+                stages=("calibration", "validation"),
+                slurm={
+                    "max_active_jobs": 4,
+                    "max_total_mpi_tasks": 16,
+                    "startup_delay_seconds": 0,
+                },
+                map_cfg={
+                    "mapping": {gage_id: ["pet_cfe"]},
+                    "formulations": {"pet_cfe": {"models": "PET,CFE"}},
+                    "groups": {},
+                },
+                calibration_scenarios={
+                    gage_id: (
+                        launcher.CalibrationScenario(
+                            name=None,
+                            calibration={},
+                        ),
+                    )
+                },
+            )
+
+            with (
+                patch.object(launcher, "write_slurm_worker_script"),
+                patch.object(
+                    launcher,
+                    "get_active_slurm_jobs",
+                    return_value=[
+                        launcher.ActiveSlurmJob(
+                            "123",
+                            "pet_cfe_01109403",
+                            4,
+                            "RUNNING",
+                        )
+                    ],
+                ),
+                patch.object(
+                    launcher,
+                    "is_experiment_complete",
+                    return_value=False,
+                ),
+                patch.object(launcher, "submit_launcher") as submit,
+            ):
+                launcher.runner(context, use_slurm=True)
+
+            submit.assert_called_once_with(context, ("123",))
 
     def test_slurm_job_limit_defers_submission(self):
         reason = launcher.slurm_limit_reason(
@@ -1215,7 +1524,10 @@ class TestLauncherSelection(unittest.TestCase):
             patch.object(
                 launcher,
                 "run_experiment",
-                side_effect=[main_config, validation_config],
+                side_effect=[
+                    launcher.ExperimentRun(main_config),
+                    launcher.ExperimentRun(validation_config),
+                ],
             ) as run,
             patch.object(
                 launcher,
@@ -1276,7 +1588,7 @@ class TestLauncherSelection(unittest.TestCase):
                 use_slurm=False,
             )
 
-        self.assertEqual(selected, validation_config)
+        self.assertEqual(selected.config_file, validation_config)
         self.assertEqual(
             run.call_args_list[0].args[0],
             ["sandbox", "--conf", "-i", str(validation_config)],
@@ -1285,6 +1597,52 @@ class TestLauncherSelection(unittest.TestCase):
             run.call_args_list[1].args[0],
             ["sandbox", "--run", "-i", str(validation_config)],
         )
+
+    def test_slurm_run_returns_submitted_worker_job_id(self):
+        main_config = Path("/tmp/sandbox_main.yaml")
+        paths = {
+            "sandbox_main": main_config,
+            "sandbox_restart": Path("/tmp/sandbox_restart.yaml"),
+            "sandbox_validation": Path("/tmp/sandbox_validation.yaml"),
+        }
+        context = SimpleNamespace(
+            stages=("calibration",),
+            slurm={
+                "calibration": {"time": "24:00:00", "memory": "8G"},
+            },
+            log_dir=Path("/tmp/logs"),
+            output_dir=Path("/tmp/outputs"),
+            campaign_name="test",
+        )
+
+        with (
+            patch.object(
+                launcher,
+                "generated_config_paths",
+                return_value=paths,
+            ),
+            patch.object(launcher, "get_max_iter", return_value=10),
+            patch.object(launcher, "get_num_cpus", return_value=4),
+            patch.object(
+                launcher.subprocess,
+                "run",
+                return_value=SimpleNamespace(stdout="456;anvil\n"),
+            ),
+        ):
+            result = launcher.run_experiment(
+                context,
+                "pet_cfe",
+                "01109403",
+                "pet_cfe_01109403",
+                Path("/tmp/configs"),
+                Path("/tmp/metadata"),
+                launcher.ExperimentProgress(configured=True),
+                0,
+                use_slurm=True,
+            )
+
+        self.assertEqual(result.config_file, main_config)
+        self.assertEqual(result.slurm_job_id, "456")
 
     def test_local_worker_rejects_missing_validation_output(self):
         validation_config = Path("/tmp/sandbox_validation.yaml")
@@ -1315,7 +1673,7 @@ class TestLauncherSelection(unittest.TestCase):
             patch.object(
                 launcher,
                 "run_experiment",
-                return_value=validation_config,
+                return_value=launcher.ExperimentRun(validation_config),
             ),
             patch.object(
                 launcher,
@@ -1358,7 +1716,7 @@ class TestLauncherSelection(unittest.TestCase):
             patch.object(
                 launcher,
                 "run_experiment",
-                return_value=restart_config,
+                return_value=launcher.ExperimentRun(restart_config),
             ),
             patch.object(
                 launcher,

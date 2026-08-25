@@ -309,7 +309,11 @@ all project gages or a set of gage groups/IDs. The launcher expands this into
 per-gage/per-experiment Sandbox configs and then runs locally or submits jobs
 through Slurm. In local mode, one worker continues from calibration through
 validation. In Slurm mode, calibration and validation are submitted as
-separate jobs over launcher requeue cycles. The launcher configuration
+separate jobs over dependency-driven coordinator cycles. Each coordinator
+submits a successor that Slurm holds until any active worker job terminates.
+The successor then fills newly available capacity while leaving other active
+workers alone, so no coordinator allocation waits throughout a long
+calibration. The launcher configuration
 requires separate Slurm wallclock and memory settings for calibration and
 validation, allowing long validation periods to request a larger allocation.
 

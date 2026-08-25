@@ -27,9 +27,24 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from src.python.calibration_config import absolutize_optimizer_settings_file
+from src.python.forcing_files import (
+    resolve_netcdf_forcing_pattern,
+    select_netcdf_forcing_file,
+    select_prepared_forcing_file,
+)
+from src.python.observations import ObservationLoader
+from src.python.resource_paths import (
+    forcing_dir_for_resource,
+    find_gpkg_file,
+    has_gage_placeholder,
+    render_gage_path,
+    resource_hydrofabric_dir,
+    resource_id,
+)
 from src.python.time_windows import (
     NGEN_TIMESTEP,
     format_timestamp,
+    normalize_forcing_time_config,
     parse_duration,
     parse_timestamp,
     resolve_time_period,
@@ -90,8 +105,28 @@ class ExperimentProgress:
 
 @dataclass(frozen=True)
 class ActiveSlurmJob:
+    job_id: str
     name: str
     num_cpus: int
+    state: str
+
+
+@dataclass(frozen=True)
+class ExperimentRun:
+    config_file: Path | None
+    slurm_job_id: str | None = None
+
+
+@dataclass(frozen=True)
+class CampaignStatus:
+    gage_id: str
+    formulation: str
+    scenario: str
+    state: str
+    current_iteration: int | None
+    max_iterations: int
+    objective_value: float | None
+    validation: str
 
 
 def load_yaml(path: Path) -> dict[str, Any]:
@@ -360,6 +395,36 @@ def apply_project_overrides(
         if key in project:
             general[key] = project[key]
     return sandbox_cfg
+
+
+def resolve_project_paths(
+    sandbox_cfg: dict[str, Any],
+    launcher_dir: Path,
+) -> None:
+    general = sandbox_cfg.get("general") or {}
+    for field_name in ("input_dir", "output_dir"):
+        value = general.get(field_name)
+        if not isinstance(value, (str, Path)) or not str(value).strip():
+            raise ValueError(f"project.{field_name} must be a non-empty path")
+        general[field_name] = str(resolve_path(launcher_dir, value).resolve())
+
+
+def absolutize_launcher_resource_paths(
+    sandbox_cfg: dict[str, Any],
+    launcher_dir: Path,
+) -> None:
+    forcings = sandbox_cfg.get("forcings") or {}
+    forcing_dir = forcings.get("forcing_dir")
+    if forcing_dir and not Path(str(forcing_dir)).expanduser().is_absolute():
+        forcings["forcing_dir"] = str(resolve_path(launcher_dir, forcing_dir))
+
+    observations = sandbox_cfg.get("observations") or {}
+    for settings in observations.values():
+        if not isinstance(settings, dict):
+            continue
+        path = settings.get("path")
+        if path and not Path(str(path)).expanduser().is_absolute():
+            settings["path"] = str(resolve_path(launcher_dir, path))
 
 
 def _complete_evaluation_years(
@@ -738,6 +803,8 @@ def load_context(config_file: Path) -> LauncherContext:
         sandbox_settings,
         launcher_cfg,
     )
+    resolve_project_paths(sandbox_cfg, launcher_dir)
+    absolutize_launcher_resource_paths(sandbox_cfg, launcher_dir)
     absolutize_optimizer_settings_file(
         sandbox_cfg,
         config_file,
@@ -903,6 +970,207 @@ def validate_context(ctx: LauncherContext) -> None:
     validate_slurm_config(ctx.slurm)
     validate_sandbox_config(ctx.sandbox_cfg)
     validate_mapping_config(ctx.map_cfg)
+    validate_project_paths(ctx)
+
+
+def validate_project_paths(ctx: LauncherContext) -> None:
+    if not ctx.input_dir.exists():
+        raise FileNotFoundError(
+            "project.input_dir does not exist: "
+            f"{ctx.input_dir}. Update project.input_dir in "
+            f"{ctx.launcher_config_file}."
+        )
+    if not ctx.input_dir.is_dir():
+        raise NotADirectoryError(
+            f"project.input_dir is not a directory: {ctx.input_dir}"
+        )
+
+    if ctx.output_dir.exists():
+        if not ctx.output_dir.is_dir():
+            raise NotADirectoryError(
+                f"project.output_dir is not a directory: {ctx.output_dir}"
+            )
+        return
+
+    existing_parent = ctx.output_dir.parent
+    while (
+        not existing_parent.exists()
+        and existing_parent != existing_parent.parent
+    ):
+        existing_parent = existing_parent.parent
+    if not existing_parent.is_dir() or not os.access(existing_parent, os.W_OK):
+        raise PermissionError(
+            "project.output_dir cannot be created: "
+            f"{ctx.output_dir}. The nearest existing parent is not writable: "
+            f"{existing_parent}. Update project.output_dir in "
+            f"{ctx.launcher_config_file}."
+        )
+
+
+def resolve_launcher_hydrofabric(ctx: LauncherContext, gage_id: str) -> Path:
+    resource_layout = ctx.sandbox_cfg["general"].get(
+        "resource_layout",
+        "gage",
+    )
+    if resource_layout == "gage":
+        return find_gpkg_file(ctx.input_dir / gage_id)
+
+    candidates = [
+        path
+        for path in sorted(resource_hydrofabric_dir(ctx.input_dir).glob("*.gpkg"))
+        if resource_id(path) == gage_id
+    ]
+    if not candidates:
+        raise FileNotFoundError(
+            f"No geopackage found for gage {gage_id} under "
+            f"{resource_hydrofabric_dir(ctx.input_dir)}"
+        )
+    if len(candidates) > 1:
+        raise ValueError(
+            f"Multiple geopackages found for gage {gage_id}: "
+            f"{', '.join(str(path) for path in candidates)}"
+        )
+    return candidates[0]
+
+
+def resolve_launcher_forcing(
+    ctx: LauncherContext,
+    gage_id: str,
+) -> Path:
+    forcings = ctx.sandbox_cfg.get("forcings") or {}
+    forcing_time = normalize_forcing_time_config(forcings.get("time"))
+    start_year = parse_timestamp(
+        forcing_time["start_time"],
+        "forcings.time.start",
+    ).year
+    end_year = parse_timestamp(
+        forcing_time["end_time"],
+        "forcings.time.end",
+    ).year + 1
+    resource_layout = ctx.sandbox_cfg["general"].get(
+        "resource_layout",
+        "gage",
+    )
+
+    configured_path = forcings.get("forcing_dir")
+    if configured_path:
+        if not has_gage_placeholder(configured_path) and len(ctx.map_cfg["mapping"]) > 1:
+            raise ValueError(
+                "forcings.forcing_dir must contain <gage_id> for a "
+                "multi-gage launcher campaign"
+            )
+        forcing_path = (
+            render_gage_path(configured_path, gage_id)
+            if has_gage_placeholder(configured_path)
+            else Path(configured_path)
+        )
+    else:
+        resource = (
+            ctx.input_dir / gage_id
+            if resource_layout == "gage"
+            else Path(gage_id)
+        )
+        forcing_path = forcing_dir_for_resource(
+            ctx.input_dir,
+            resource,
+            start_year,
+            end_year,
+            resource_layout,
+        )
+
+    forcing_format = str(forcings.get("format", ".nc")).lower()
+    if forcing_format == ".csv":
+        if not forcing_path.is_dir():
+            raise FileNotFoundError(
+                f"CSV forcing directory does not exist: {forcing_path}"
+            )
+        return forcing_path
+
+    rechunk_enabled = bool(forcings.get("rechunk", True))
+    forcing_path = resolve_netcdf_forcing_pattern(
+        forcing_path,
+        rechunk_enabled=rechunk_enabled,
+    )
+    if not forcing_path.exists():
+        raise FileNotFoundError(
+            f"Forcing directory or file does not exist: {forcing_path}"
+        )
+    if forcing_path.is_dir():
+        forcing_file = select_netcdf_forcing_file(
+            forcing_path,
+            use_corrected=bool(forcings.get("use_corrected", True)),
+        )
+    elif forcing_path.suffix.lower() == ".nc":
+        forcing_file = forcing_path
+    else:
+        raise ValueError(
+            f"NetCDF forcing path must resolve to a .nc file: {forcing_path}"
+        )
+    return select_prepared_forcing_file(
+        forcing_file,
+        rechunk_enabled=rechunk_enabled,
+    )
+
+
+def validate_launcher_resources(
+    ctx: LauncherContext,
+    *,
+    verbose: bool = False,
+) -> None:
+    errors = []
+    resolved = []
+    for gage_id in ctx.map_cfg["mapping"]:
+        try:
+            hydrofabric = resolve_launcher_hydrofabric(ctx, gage_id)
+        except (
+            FileNotFoundError,
+            NotADirectoryError,
+            TypeError,
+            ValueError,
+        ) as error:
+            hydrofabric = None
+            errors.append(f"{gage_id} hydrofabric: {error}")
+
+        try:
+            forcing = resolve_launcher_forcing(ctx, gage_id)
+        except (
+            FileNotFoundError,
+            NotADirectoryError,
+            TypeError,
+            ValueError,
+        ) as error:
+            forcing = None
+            errors.append(f"{gage_id} forcing: {error}")
+
+        resolved.append((gage_id, hydrofabric, forcing))
+
+    observations = ctx.sandbox_cfg.get("observations") or {}
+    if observations:
+        try:
+            ObservationLoader(
+                observations=observations,
+                config_dir=ctx.launcher_dir,
+            ).validate(list(ctx.map_cfg["mapping"]))
+        except (FileNotFoundError, TypeError, ValueError) as error:
+            errors.append(f"observations: {error}")
+
+    if verbose:
+        print("\nResource preflight")
+        print("------------------")
+        for gage_id, hydrofabric, forcing in resolved:
+            print(f"{gage_id} | hydrofabric: {hydrofabric or 'MISSING'}")
+            print(f"{gage_id} | forcing    : {forcing or 'MISSING'}")
+        if observations:
+            status = "valid" if not any(
+                error.startswith("observations:") for error in errors
+            ) else "INVALID"
+            print(f"observations | {status}")
+
+    if errors:
+        details = "\n".join(f"  - {error}" for error in errors)
+        raise FileNotFoundError(
+            "Launcher resource preflight failed:\n" + details
+        )
 
 
 def validate_slurm_config(slurm: dict[str, Any]) -> None:
@@ -1383,6 +1651,7 @@ def build_slurm_submit_command(
 ) -> list[str]:
     command = [
         "sbatch",
+        "--parsable",
         "--cpus-per-task=1",
         f"--ntasks-per-node={num_mpi_tasks}",
         f"--job-name={job_name}",
@@ -1509,9 +1778,13 @@ def write_slurm_worker_script(ctx: LauncherContext) -> Path:
     return path
 
 
-def build_launcher_submit_command(ctx: LauncherContext) -> list[str]:
+def build_launcher_submit_command(
+    ctx: LauncherContext,
+    dependency_job_ids: tuple[str, ...] = (),
+) -> list[str]:
     command = [
         "sbatch",
+        "--parsable",
         "--nodes=1",
         "--ntasks=1",
         "--cpus-per-task=1",
@@ -1526,6 +1799,13 @@ def build_launcher_submit_command(ctx: LauncherContext) -> list[str]:
         value = ctx.slurm.get(name)
         if value is not None and str(value).strip():
             command.append(f"--{name}={value}")
+    if dependency_job_ids:
+        command.append(
+            "--dependency="
+            + "?".join(
+                f"afterany:{job_id}" for job_id in dependency_job_ids
+            )
+        )
     command.extend(
         [
             f"--export=ALL,LAUNCHER_CONFIG={ctx.launcher_config_file}",
@@ -1535,18 +1815,48 @@ def build_launcher_submit_command(ctx: LauncherContext) -> list[str]:
     return command
 
 
-def submit_launcher(ctx: LauncherContext) -> None:
+def parse_sbatch_job_id(output: str) -> str:
+    text = output.strip()
+    if not text:
+        raise RuntimeError("Slurm submission did not return a job ID")
+
+    last_line = text.splitlines()[-1].strip()
+    if last_line.startswith("Submitted batch job "):
+        last_line = last_line.removeprefix("Submitted batch job ").strip()
+    job_id = last_line.split(";", 1)[0]
+    if not job_id.isdigit():
+        raise RuntimeError(
+            f"Unable to parse Slurm job ID from sbatch output: {text!r}"
+        )
+    return job_id
+
+
+def submit_launcher(
+    ctx: LauncherContext,
+    dependency_job_ids: tuple[str, ...] = (),
+) -> str:
     if not ctx.slurm:
         raise ValueError(
             "Slurm submission requires a slurm block in the launcher configuration"
         )
     slurm_limits(ctx.slurm)
-    ctx.output_dir.mkdir(parents=True, exist_ok=True)
-    ctx.log_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        ctx.output_dir.mkdir(parents=True, exist_ok=True)
+        ctx.log_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as error:
+        raise RuntimeError(
+            f"Unable to create project.output_dir {ctx.output_dir}: {error}"
+        ) from error
     worker_script = write_slurm_worker_script(ctx)
     print(f"Generated Slurm worker script: {worker_script}")
-    command = build_launcher_submit_command(ctx)
-    print(f"Submitting launcher campaign '{ctx.campaign_name}'...")
+    command = build_launcher_submit_command(ctx, dependency_job_ids)
+    if dependency_job_ids:
+        print(
+            "Scheduling launcher follow-up after worker job(s): "
+            f"{', '.join(dependency_job_ids)}"
+        )
+    else:
+        print(f"Submitting launcher campaign '{ctx.campaign_name}'...")
     try:
         result = subprocess.run(
             command,
@@ -1565,7 +1875,10 @@ def submit_launcher(ctx: LauncherContext) -> None:
     message = result.stdout.strip()
     if message:
         print(message)
+    job_id = parse_sbatch_job_id(result.stdout)
+    print(f"Launcher coordinator job ID: {job_id}")
     print(f"Launcher logs: {ctx.log_dir}")
+    return job_id
 
 
 def select_experiment_config(
@@ -1631,7 +1944,7 @@ def run_experiment(
     *,
     use_slurm: bool,
     dryrun: bool = False,
-) -> Path | None:
+) -> ExperimentRun:
     paths = generated_config_paths(exp_config_dir, gage_id)
     max_iter = get_max_iter(exp_config_dir, gage_id)
     if max_iter == 0 and not progress.configured:
@@ -1648,7 +1961,7 @@ def run_experiment(
         validation_exists=validation_exists,
     )
     if sandbox_file is None:
-        return None
+        return ExperimentRun(None)
     stage = (
         "validation"
         if sandbox_file == paths["sandbox_validation"]
@@ -1688,7 +2001,7 @@ def run_experiment(
             print(f"[DRYRUN] [{gage_id}] Would run locally: {' '.join(cmd)}")
 
     if dryrun:
-        return sandbox_file
+        return ExperimentRun(sandbox_file)
 
     if not use_slurm:
         time.sleep(delay_seconds)
@@ -1702,8 +2015,23 @@ def run_experiment(
                 check=True,
             )
         print(f"[{gage_id}] Running locally: {' '.join(cmd)}")
+    if use_slurm:
+        result = subprocess.run(
+            cmd,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        message = result.stdout.strip()
+        if message:
+            print(message)
+        return ExperimentRun(
+            sandbox_file,
+            parse_sbatch_job_id(result.stdout),
+        )
+
     subprocess.run(cmd, check=True)
-    return sandbox_file
+    return ExperimentRun(sandbox_file)
 
 
 def local_worker(args: tuple[Any, ...]) -> None:
@@ -1738,7 +2066,7 @@ def local_worker(args: tuple[Any, ...]) -> None:
     current_delay = delay_seconds
 
     while True:
-        selected_config = run_experiment(
+        run_result = run_experiment(
             ctx,
             model_dir,
             gage_id,
@@ -1751,6 +2079,7 @@ def local_worker(args: tuple[Any, ...]) -> None:
         )
         current_delay = 0
 
+        selected_config = run_result.config_file
         if selected_config is None:
             return
 
@@ -1793,15 +2122,40 @@ def local_worker(args: tuple[Any, ...]) -> None:
         current_progress = next_progress
 
 
-def check_status(ctx: LauncherContext) -> None:
-    print("\n============================ STATUS REPORT ==============================")
-    header = (
-        f"{'Gage':<12} {'Formulation':<24} {'Scenario':<12} "
-        f"{'Calib (cur|max|obj)':<24} {'Validation':<14}"
+def calibration_is_complete(
+    progress: ExperimentProgress,
+    max_iterations: int,
+) -> bool:
+    if not progress.started:
+        return False
+    completed = (
+        progress.completed_iterations
+        if progress.completed_iterations is not None
+        else progress.current_iteration
     )
-    print(header)
-    print("-" * len(header))
+    return completed is not None and completed >= max_iterations
 
+
+def collect_campaign_status(
+    ctx: LauncherContext,
+) -> tuple[list[CampaignStatus], str | None]:
+    scheduler_error = None
+    active_by_name: dict[str, ActiveSlurmJob] = {}
+    if ctx.slurm:
+        try:
+            expected_names = expected_slurm_job_names(ctx)
+            for job in get_active_slurm_jobs():
+                if job.name not in expected_names:
+                    continue
+                existing = active_by_name.get(job.name)
+                if existing is None or job.state == "RUNNING":
+                    active_by_name[job.name] = job
+        except RuntimeError as error:
+            scheduler_error = str(error)
+    else:
+        scheduler_error = "Slurm is not configured for this campaign."
+
+    statuses = []
     for gage_id in ctx.map_cfg["mapping"]:
         for formulation_name, _ in get_formulations_for_gage(ctx, gage_id):
             model_dir = model_name_to_dir(formulation_name)
@@ -1817,54 +2171,112 @@ def check_status(ctx: LauncherContext) -> None:
                     status=True,
                 )
                 max_iter = get_max_iter(exp_config_dir, gage_id)
+                calibration_complete = calibration_is_complete(
+                    progress,
+                    max_iter,
+                )
                 if "validation" in ctx.stages:
                     validation_exists = check_validation_exists(
                         metadata_index_dir,
                         gage_id,
                         status=True,
                     )
-                    valid_flag = "YES" if validation_exists else "NO"
+                    validation = "YES" if validation_exists else "NO"
+                    finished = calibration_complete and validation_exists
                 else:
-                    valid_flag = "NOT REQUESTED"
-                current_iter = (
-                    str(progress.completed_iterations)
+                    validation = "NOT REQUESTED"
+                    finished = calibration_complete
+
+                scenario_suffix = f"_{scenario.name}" if scenario.name else ""
+                job_name = f"{model_dir}{scenario_suffix}_{gage_id}"
+                active_job = active_by_name.get(job_name)
+                if finished:
+                    state = "FINISHED"
+                elif scheduler_error is not None:
+                    state = "UNKNOWN"
+                elif active_job is None:
+                    state = "INACTIVE/INCOMPLETE"
+                elif active_job.state == "PENDING":
+                    state = "QUEUED"
+                else:
+                    state = "RUNNING"
+
+                current_iteration = (
+                    progress.completed_iterations
                     if progress.completed_iterations is not None
-                    else "-"
+                    else progress.current_iteration
                 )
-                obj_value = (
-                    str(progress.objective_value)
-                    if progress.objective_value is not None
-                    else "-"
+                statuses.append(
+                    CampaignStatus(
+                        gage_id=gage_id,
+                        formulation=formulation_name,
+                        scenario=scenario.display_name,
+                        state=state,
+                        current_iteration=current_iteration,
+                        max_iterations=max_iter,
+                        objective_value=progress.objective_value,
+                        validation=validation,
+                    )
                 )
-                status_text = f"{current_iter} | {max_iter} | {obj_value}"
-                print(
-                    f"{gage_id:<12} {formulation_name:<24} "
-                    f"{scenario.display_name:<12} {status_text:<24} "
-                    f"{valid_flag:<14}"
-                )
-
-    print("-" * len(header))
-    print("======================== STATUS REPORT COMPLETE =========================")
+    return statuses, scheduler_error
 
 
-def launcher_exit(incomplete_exists: bool) -> None:
-    wallclock_min_str = os.getenv("LAUNCHER_WALLCLOCK_MIN")
-    if wallclock_min_str is None:
-        raise RuntimeError(
-            "LAUNCHER_WALLCLOCK_MIN must be set before SLURM requeue handling."
+def check_status(ctx: LauncherContext, *, detailed: bool = False) -> None:
+    statuses, scheduler_error = collect_campaign_status(ctx)
+    counts = {
+        state: sum(status.state == state for status in statuses)
+        for state in (
+            "FINISHED",
+            "RUNNING",
+            "QUEUED",
+            "INACTIVE/INCOMPLETE",
+            "UNKNOWN",
         )
+    }
 
-    wallclock_min = int(wallclock_min_str)
-    buffer_seconds = 30
-    max_runtime_sec = max(0, wallclock_min * 60 - buffer_seconds)
+    print("\nCampaign Status Summary")
+    print("=======================")
+    print(f"Total experiments   : {len(statuses)}")
+    print(f"Finished            : {counts['FINISHED']}")
+    print(f"Running             : {counts['RUNNING']}")
+    print(f"Queued              : {counts['QUEUED']}")
+    print(f"Inactive/incomplete : {counts['INACTIVE/INCOMPLETE']}")
+    if counts["UNKNOWN"]:
+        print(f"Unknown             : {counts['UNKNOWN']}")
+    if scheduler_error is not None:
+        print(f"Scheduler status    : unavailable ({scheduler_error})")
 
-    if incomplete_exists:
-        print("[INFO] Incomplete gages/models detected; requesting SLURM requeue.")
-        time.sleep(max_runtime_sec)
-        sys.exit(99)
+    if not detailed:
+        return
 
-    print("[INFO] All work complete; exiting normally.")
-    sys.exit(0)
+    print("\nDetailed Experiment Status")
+    print("==========================")
+    header = (
+        f"{'Gage':<12} {'Formulation':<24} {'Scenario':<12} "
+        f"{'State':<20} {'Calib (cur|max|obj)':<24} {'Validation':<14}"
+    )
+    print(header)
+    print("-" * len(header))
+    for status in statuses:
+        current_iter = (
+            str(status.current_iteration)
+            if status.current_iteration is not None
+            else "-"
+        )
+        obj_value = (
+            str(status.objective_value)
+            if status.objective_value is not None
+            else "-"
+        )
+        calibration = (
+            f"{current_iter} | {status.max_iterations} | {obj_value}"
+        )
+        print(
+            f"{status.gage_id:<12} {status.formulation:<24} "
+            f"{status.scenario:<12} {status.state:<20} "
+            f"{calibration:<24} {status.validation:<14}"
+        )
+    print("-" * len(header))
 
 
 def is_experiment_complete(
@@ -1880,14 +2292,7 @@ def is_experiment_complete(
     )
     progress = get_experiment_progress(metadata_index_dir, gage_id, status=True)
     max_iter = get_max_iter(exp_config_dir, gage_id)
-    calibration_complete = (
-        progress.started
-        and (
-            progress.completed_iterations
-            if progress.completed_iterations is not None
-            else progress.current_iteration
-        ) >= max_iter
-    )
+    calibration_complete = calibration_is_complete(progress, max_iter)
     if not calibration_complete:
         return False
     if "validation" not in ctx.stages:
@@ -1901,7 +2306,14 @@ def is_experiment_complete(
 
 def get_active_slurm_jobs() -> list[ActiveSlurmJob]:
     user = getpass.getuser()
-    cmd = ["squeue", "-u", user, "-h", "-o", "%j|%C", "-t", "R,PD"]
+    cmd = [
+        "squeue",
+        "-u",
+        user,
+        "-h",
+        "-o",
+        "%A|%j|%C|%T",
+    ]
     try:
         output = subprocess.check_output(cmd, text=True)
     except (FileNotFoundError, subprocess.CalledProcessError) as error:
@@ -1915,8 +2327,15 @@ def get_active_slurm_jobs() -> list[ActiveSlurmJob]:
         if not line.strip():
             continue
         try:
-            name, cpus = line.rsplit("|", 1)
-            jobs.append(ActiveSlurmJob(name.strip(), int(cpus.strip())))
+            job_id, name, cpus, state = line.split("|", 3)
+            jobs.append(
+                ActiveSlurmJob(
+                    job_id.strip(),
+                    name.strip(),
+                    int(cpus.strip()),
+                    state.strip().upper(),
+                )
+            )
         except (TypeError, ValueError) as error:
             raise RuntimeError(
                 f"Unexpected squeue output while enforcing Slurm limits: {line!r}"
@@ -1992,6 +2411,7 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
     incomplete_exists = False
     local_jobs: list[tuple[Any, ...]] = []
     active_job_names: set[str] = set()
+    dependency_job_ids: set[str] = set()
     active_job_count = 0
     active_mpi_tasks = 0
     max_active_jobs = 0
@@ -2011,6 +2431,7 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
                 if job.name in expected_names
             ]
             active_job_names = {job.name for job in campaign_jobs}
+            dependency_job_ids = {job.job_id for job in campaign_jobs}
             active_job_count = len(campaign_jobs)
             active_mpi_tasks = sum(job.num_cpus for job in campaign_jobs)
         print(
@@ -2114,7 +2535,7 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
                         scheduled_run_index,
                         ctx.slurm["startup_delay_seconds"],
                     )
-                    run_experiment(
+                    run_result = run_experiment(
                         ctx,
                         model_dir,
                         gage_id,
@@ -2126,6 +2547,8 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
                         use_slurm=True,
                         dryrun=dryrun,
                     )
+                    if run_result.slurm_job_id is not None:
+                        dependency_job_ids.add(run_result.slurm_job_id)
                     active_job_names.add(job_name)
                     active_job_count += 1
                     active_mpi_tasks += requested_mpi_tasks
@@ -2181,7 +2604,19 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
     print("\n=== Launcher Finished ===\n")
 
     if use_slurm and not dryrun:
-        launcher_exit(incomplete_exists)
+        if incomplete_exists:
+            if not dependency_job_ids:
+                raise RuntimeError(
+                    "Launcher work remains incomplete, but no active or newly "
+                    "submitted worker job IDs are available for a follow-up "
+                    "dependency. Review the launcher output and Slurm limits."
+                )
+            submit_launcher(
+                ctx,
+                tuple(sorted(dependency_job_ids, key=int)),
+            )
+        else:
+            print("[INFO] All launcher work is complete.")
 
 
 def print_check_report(ctx: LauncherContext) -> None:
@@ -2275,7 +2710,8 @@ def print_check_report(ctx: LauncherContext) -> None:
                 f"years: {years} | MPI tasks: {tasks} | "
                 f"experiments: {len(formulations)}"
             )
-    print("Launcher configuration looks valid.")
+    validate_launcher_resources(ctx, verbose=True)
+    print("Launcher configuration and required resources look valid.")
 
 
 def parse_args() -> argparse.Namespace:
@@ -2302,6 +2738,22 @@ def parse_args() -> argparse.Namespace:
             "repository example."
         ),
     )
+    status_view = parser.add_mutually_exclusive_group()
+    status_view.add_argument(
+        "--summary",
+        dest="status_view",
+        action="store_const",
+        const="summary",
+        help="Print campaign status totals (the default status view).",
+    )
+    status_view.add_argument(
+        "--detailed",
+        dest="status_view",
+        action="store_const",
+        const="detailed",
+        help="Print campaign totals and one line per resolved experiment.",
+    )
+    parser.set_defaults(status_view="summary")
     return parser.parse_args()
 
 
@@ -2315,11 +2767,12 @@ def main() -> None:
         return
 
     validate_context(ctx)
+    if args.mode == "status":
+        check_status(ctx, detailed=args.status_view == "detailed")
+        return
+    validate_launcher_resources(ctx)
     if args.mode == "submit":
         submit_launcher(ctx)
-        return
-    if args.mode == "status":
-        check_status(ctx)
         return
 
     runner(

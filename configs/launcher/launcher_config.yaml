@@ -1,8 +1,8 @@
 project:
   # Optional; defaults to this configuration filename without .yaml.
   # name: example_campaign
-  input_dir: "/Users/ahmadjankhattak/Core/projects/dynamic_model_selection/inputs"
-  output_dir: "/Users/ahmadjankhattak/Core/projects/dynamic_model_selection/outputsXY"
+  input_dir: "./inputs"
+  output_dir: "./outputs"
   resource_layout: gage
 
   gages:
@@ -117,7 +117,7 @@ regime_calibration:
      year_type: water_year
 
    source:
-     file: "/Users/ahmadjankhattak/Core/projects/dynamic_model_selection/clusters/<gage_id>_annual_signatures_clusters.csv"
+     file: "./clusters/<gage_id>_annual_signatures_clusters.csv"
      year_column: Water_Year
      regime_column: Regime
 

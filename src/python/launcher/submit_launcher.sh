@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -euo pipefail
+
 
 # ============================================================
 # Internal Slurm coordinator submitted by `sandbox-launcher submit`.
@@ -14,7 +16,6 @@
 #SBATCH --time=00:05:00
 #SBATCH --job-name=sandbox_launcher
 #SBATCH --mem=2G
-#SBATCH --requeue
 
 
 # ============================================================
@@ -78,38 +79,10 @@ echo "Python executable: $SANDBOX_PYTHON"
 
 
 # ============================================================
-# SLURM Wallclock Handling (HPC only) - MODIFY ME
-# ============================================================
-
-# Set wallclock in seconds (MUST match SBATCH time above).
-SLURM_TIMELIMIT=$((5*60))
-export LAUNCHER_WALLCLOCK=$SLURM_TIMELIMIT
-export LAUNCHER_WALLCLOCK_MIN=$(( LAUNCHER_WALLCLOCK / 60 ))
-echo "Launcher wallclock (minutes): $LAUNCHER_WALLCLOCK_MIN"
-
-
-# ============================================================
 # Run Python Launcher
 # ============================================================
 
 echo "[submit_launcher] Running in SLURM mode"
 "$SANDBOX_LAUNCHER" run --backend slurm --config "$CONFIG_FILE"
 
-exit_code=$?
-
-echo "[submit_launcher] Python exit code = $exit_code"
-
-
-# ============================================================
-# SLURM Requeue Handling
-# 99 means: "requeue me, work still incomplete"
-# ============================================================
-
-if [ $exit_code -eq 99 ]; then
-    echo "[submit_launcher] Requeue requested; requeueing job"
-    scontrol requeue "$SLURM_JOB_ID"
-    exit 0
-fi
-
-echo "[submit_launcher] Completed"
-exit "$exit_code"
+echo "[submit_launcher] Coordinator cycle completed"

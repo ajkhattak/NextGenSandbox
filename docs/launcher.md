@@ -50,6 +50,11 @@ project:
       - "08070500"
 ```
 
+Paths may be absolute or relative. Relative paths are resolved from the
+directory containing the launcher YAML, so a project-local configuration can
+use `./inputs`, `./outputs`, and `./clusters/...` regardless of the directory
+from which `sandbox-launcher` is invoked.
+
 The launcher injects these values, plus the current gage, formulation, model
 instances, and calibration scenario, into each generated Sandbox config.
 They do not need placeholders under `sandbox`.
@@ -248,11 +253,14 @@ Expected result:
 - input and output directories;
 - gage and experiment counts;
 - resolved gage count for each experiment;
-- calibration scenarios and selected years; and
-- `Launcher configuration looks valid.`
+- calibration scenarios and selected years;
+- the resolved hydrofabric and forcing resource for every gage;
+- observation file paths and required columns; and
+- `Launcher configuration and required resources look valid.`
 
 `check` does not generate configs, create output directories, run Sandbox, or
-submit jobs.
+submit jobs. The same resource preflight runs automatically before `submit`,
+`run`, and `dryrun`.
 
 ### 4. Preview the Work
 
@@ -298,17 +306,20 @@ sandbox-launcher submit --config launcher_dds.yaml
 
 The command validates the configuration, creates
 `<project.output_dir>/logs`, submits the coordinator with absolute paths, and
-prints the resulting Slurm job ID. The coordinator requeues itself while work
-remains. During each cycle, Slurm mode
+prints the resulting Slurm job ID. During each coordinator cycle, Slurm mode
 generates missing configs and submits the generated worker script once per
-admitted gage/experiment/scenario. Running or pending jobs are not submitted again.
-Calibration and validation are separate Slurm submissions selected across
-launcher cycles.
+admitted gage/experiment/scenario. It then submits a lightweight follow-up
+coordinator with OR-separated `afterany` dependencies on the active worker
+job IDs and exits. Slurm starts that follow-up when any admitted worker
+terminates. The coordinator recognizes workers that remain running or pending,
+fills the newly available campaign capacity, and schedules its next dependent
+successor. Running or pending workers are not submitted again. Calibration,
+restarts, and validation are separate Slurm submissions selected across
+dependency-driven coordinator cycles.
 
 Do not call `sbatch` directly for the normal workflow. The
 `sandbox-launcher submit` command supplies the configuration, output log
-paths, account, partition, and coordinator settings needed by automatic
-requeue handling.
+paths, account, partition, and dependency settings needed by the coordinator.
 
 ### Multiple Campaign Configurations
 
@@ -336,13 +347,32 @@ directories, and logs from the two optimizers from being mixed.
 
 ### 6. Check Status
 
+The default view prints a compact campaign summary:
+
 ```bash
-sandbox-launcher status --config launcher_dds.yaml
+sandbox-launcher status --summary --config launcher_dds.yaml
 ```
 
-Status reports calibration progress and whether validation output exists for
-each resolved run. It reads existing metadata and output files; it does not
-start work.
+Omitting `--summary` produces the same compact view.
+
+Example fields are total experiments, finished, running, queued, and
+inactive/incomplete. An experiment is one resolved gage, formulation, and
+calibration scenario; calibration restarts are not counted as additional
+experiments.
+
+Use the detailed view for one line per experiment:
+
+```bash
+sandbox-launcher status --detailed --config launcher_dds.yaml
+```
+
+The detailed view includes live scheduler state, calibration iteration and
+objective progress, and validation status. `INACTIVE/INCOMPLETE` means that
+the experiment is unfinished but has no running or pending Slurm worker. It
+may be awaiting the next coordinator cycle or require investigation after a
+worker failure. Status reads Slurm, existing metadata, and output files; it
+does not start or submit work. If Slurm cannot be queried, unfinished
+experiments are reported as `UNKNOWN` rather than guessed.
 
 ## Generated Layout
 
@@ -584,8 +614,8 @@ slurm:
 
 With these limits, no more than ten worker jobs and no more than 64 aggregate
 MPI tasks can be running or pending from this campaign. Work that does not fit
-is deferred until the launcher's next requeue cycle. A single run requiring
-more than `max_total_mpi_tasks` is rejected with an actionable error.
+is deferred until the next dependency-driven coordinator cycle. A single run
+requiring more than `max_total_mpi_tasks` is rejected with an actionable error.
 
 `startup_delay_seconds` staggers the jobs admitted during one launcher cycle.
 For example, a five-second interval assigns delays of 0, 5, 10, and 15 seconds
