@@ -299,7 +299,8 @@ apply configuration templates across many gages and formulations or to manage
 long calibration jobs. It can also expand a reference period and per-gage
 year/regime CSV into independent reference, wet, and dry calibration scenarios.
 
-Launcher uses one self-contained `launcher_config.yaml`. It defines project
+Launcher uses one self-contained YAML configuration with any user-selected
+filename, such as `launcher_dds.yaml` or `launcher_pso.yaml`. It defines project
 paths and gages, reusable Sandbox settings, experiment selections, and
 local/Slurm controls. The required `stages` list explicitly selects
 calibration, validation, or calibration followed by validation. Calibration
@@ -312,5 +313,16 @@ separate jobs over launcher requeue cycles. The launcher configuration
 requires separate Slurm wallclock and memory settings for calibration and
 validation, allowing long validation periods to request a larger allocation.
 
+The launcher is installed with NextGenSandbox. For Slurm, submit an arbitrary
+campaign configuration with:
+
+```bash
+sandbox-launcher submit --config launcher_dds.yaml
+```
+
+Launcher and worker logs are written under
+`<project.output_dir>/logs`; launcher source files remain in the
+NextGenSandbox repository.
+
 Continue to the
-[Sandbox Launcher guide](https://github.com/ajkhattak/NextGenSandbox/tree/main/tools/launcher).
+[Sandbox Launcher guide](launcher.md).

@@ -1,4 +1,3 @@
-import importlib.util
 import sys
 import tempfile
 import unittest
@@ -8,17 +7,11 @@ from unittest.mock import patch
 
 import yaml
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
-def load_launcher_module():
-    path = Path(__file__).resolve().parents[1] / "tools/launcher/sandbox_launcher.py"
-    spec = importlib.util.spec_from_file_location("sandbox_launcher", path)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-launcher = load_launcher_module()
+from src.python.launcher import cli as launcher
 
 
 class TestLauncherSelection(unittest.TestCase):
@@ -176,6 +169,17 @@ class TestLauncherSelection(unittest.TestCase):
         self.assertEqual(args.backend, "local")
         self.assertFalse(hasattr(args, "dryrun"))
 
+    def test_submit_is_a_standalone_launcher_mode(self):
+        with patch.object(
+            sys,
+            "argv",
+            ["sandbox-launcher", "submit", "--config", "launcher_pso.yaml"],
+        ):
+            args = launcher.parse_args()
+
+        self.assertEqual(args.mode, "submit")
+        self.assertEqual(args.config, "launcher_pso.yaml")
+
     def test_launcher_stages_are_explicit(self):
         self.assertEqual(
             launcher.load_launcher_stages(
@@ -253,9 +257,7 @@ class TestLauncherSelection(unittest.TestCase):
     def test_launcher_loads_sandbox_settings_from_same_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            submit_script = root / "submit_gage.slurm"
-            submit_script.touch()
-            config_file = root / "launcher_config.yaml"
+            config_file = root / "launcher_dds.yaml"
             config_file.write_text(
                 yaml.safe_dump(
                     {
@@ -293,7 +295,6 @@ class TestLauncherSelection(unittest.TestCase):
                                 },
                             },
                         },
-                        "submit_script": submit_script.name,
                         "stages": ["calibration", "validation"],
                         "experiments": {
                             "pet_cfe": {
@@ -315,6 +316,8 @@ class TestLauncherSelection(unittest.TestCase):
                 context.sandbox_cfg["calibration"]["optimizer"]["iterations"],
                 25,
             )
+            self.assertEqual(context.campaign_name, "launcher_dds")
+            self.assertEqual(context.log_dir, root / "outputs" / "logs")
 
     def test_launcher_requires_inline_sandbox_settings(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -530,6 +533,129 @@ class TestLauncherSelection(unittest.TestCase):
         self.assertIn("--time=12:00:00", command)
         self.assertIn("--mem=8G", command)
         self.assertIn("SANDBOX_STAGE=validation", command[-2])
+
+    def test_slurm_command_routes_worker_logs_to_output_directory(self):
+        command = launcher.build_slurm_submit_command(
+            Path("/tmp/submit_gage.slurm"),
+            Path("/tmp/sandbox_config.yaml"),
+            "pet_cfe_01109403",
+            num_mpi_tasks=4,
+            delay_seconds=0,
+            stage="calibration",
+            log_dir=Path("/project/outputs/logs"),
+            work_dir=Path("/project/outputs"),
+        )
+
+        self.assertIn(
+            "--output=/project/outputs/logs/%x_%j.out",
+            command,
+        )
+        self.assertIn(
+            "--error=/project/outputs/logs/%x_%j.err",
+            command,
+        )
+        self.assertIn("--chdir=/project/outputs", command)
+
+    def test_launcher_submit_command_uses_config_and_output_paths(self):
+        context = SimpleNamespace(
+            campaign_name="launcher_pso",
+            launcher_config_file=Path("/project/launcher_pso.yaml"),
+            output_dir=Path("/project/outputs/pso"),
+            log_dir=Path("/project/outputs/pso/logs"),
+            slurm={"account": "project123", "partition": "shared"},
+        )
+
+        command = launcher.build_launcher_submit_command(context)
+
+        self.assertIn("--job-name=launcher_pso_launcher", command)
+        self.assertIn(
+            "--output=/project/outputs/pso/logs/%x_%j.out",
+            command,
+        )
+        self.assertIn("--chdir=/project/outputs/pso", command)
+        self.assertIn("--account=project123", command)
+        self.assertIn("--partition=shared", command)
+        self.assertIn(
+            "--export=ALL,LAUNCHER_CONFIG=/project/launcher_pso.yaml",
+            command,
+        )
+        self.assertEqual(
+            Path(command[-1]),
+            launcher.LAUNCHER_PACKAGE_DIR / "submit_launcher.sh",
+        )
+
+    def test_launcher_default_files_use_config_and_package_directories(self):
+        self.assertEqual(
+            launcher.default_config_file(),
+            launcher.LAUNCHER_CONFIG_DIR / "launcher_config.yaml",
+        )
+        self.assertTrue(
+            (launcher.LAUNCHER_PACKAGE_DIR / "submit_launcher.sh").is_file()
+        )
+
+    def test_worker_script_contains_configured_modules_and_environment(self):
+        script = launcher.render_slurm_worker_script(
+            {
+                "modules": ["openmpi/4.1.6", "netcdf-fortran/4.6.1"],
+                "environment": {
+                    "OMP_NUM_THREADS": "1",
+                    "MODEL_MODE": "test value",
+                },
+            }
+        )
+
+        self.assertIn("module load openmpi/4.1.6", script)
+        self.assertIn("module load netcdf-fortran/4.6.1", script)
+        self.assertIn("export OMP_NUM_THREADS=1", script)
+        self.assertIn("export MODEL_MODE='test value'", script)
+        self.assertIn('"$SANDBOX_COMMAND" --run -i "$SANDBOX_FILE"', script)
+
+    def test_slurm_rejects_reserved_environment_variable(self):
+        with self.assertRaisesRegex(ValueError, "cannot override"):
+            launcher.validate_slurm_config(
+                {
+                    "modules": [],
+                    "environment": {"SANDBOX_FILE": "/tmp/config.yaml"},
+                    "startup_delay_seconds": 0,
+                    "calibration": {"time": "01:00:00", "memory": "8G"},
+                    "validation": {"time": "01:00:00", "memory": "8G"},
+                }
+            )
+
+    def test_submit_mode_creates_output_logs_and_submits(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            context = SimpleNamespace(
+                campaign_name="launcher_dds",
+                launcher_config_file=root / "launcher_dds.yaml",
+                output_dir=root / "outputs" / "dds",
+                log_dir=root / "outputs" / "dds" / "logs",
+                slurm={
+                    "max_active_jobs": 2,
+                    "max_total_mpi_tasks": 8,
+                },
+            )
+            completed = SimpleNamespace(stdout="Submitted batch job 123\n")
+
+            with patch.object(
+                launcher.subprocess,
+                "run",
+                return_value=completed,
+            ) as run:
+                launcher.submit_launcher(context)
+
+            self.assertTrue(context.log_dir.is_dir())
+            worker_script = launcher.worker_script_path(context)
+            self.assertTrue(worker_script.is_file())
+            self.assertTrue(worker_script.stat().st_mode & 0o100)
+            run.assert_called_once()
+            self.assertTrue(run.call_args.kwargs["check"])
+
+    def test_submit_mode_requires_slurm_settings(self):
+        context = SimpleNamespace(slurm={})
+
+        with self.assertRaisesRegex(ValueError, "requires a slurm block"):
+            launcher.submit_launcher(context)
 
     def test_slurm_uses_stage_specific_resources(self):
         slurm = {

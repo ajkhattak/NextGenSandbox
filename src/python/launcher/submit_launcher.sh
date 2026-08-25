@@ -1,11 +1,8 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 
 # ============================================================
-# Universal Sandbox Launcher Entry Script
-# Works on:
-#   - SLURM HPC (via sbatch)
-#   - Local laptop (via bash)
+# Internal Slurm coordinator submitted by `sandbox-launcher submit`.
 # ============================================================
 
 # -------------------------------
@@ -16,28 +13,25 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --time=00:05:00
 #SBATCH --job-name=sandbox_launcher
-#SBATCH --account=ohd
-#SBATCH --error=log/launcher_%j.err
-#SBATCH --output=log/launcher_%j.out
-##SBATCH --partition=ursa
 #SBATCH --mem=2G
 #SBATCH --requeue
-##SBATCH --exclusive
 
 
 # ============================================================
 # Detect execution environment
 # ============================================================
 
-if [ -n "${SLURM_JOB_ID:-}" ]; then
-    RUN_ENV="slurm"
-else
-    RUN_ENV="local"
+if [ -z "${SLURM_JOB_ID:-}" ]; then
+    echo "ERROR: This internal coordinator must be submitted by sandbox-launcher submit."
+    echo "For local execution, use: sandbox-launcher run --backend local --config <file>"
+    exit 1
 fi
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_FILE="${LAUNCHER_CONFIG:-$SCRIPT_DIR/launcher_config.yaml}"
-mkdir -p "$SCRIPT_DIR/log"
+if [ -z "${LAUNCHER_CONFIG:-}" ]; then
+    echo "ERROR: LAUNCHER_CONFIG was not provided by sandbox-launcher submit."
+    exit 1
+fi
+RUN_ENV="slurm"
+CONFIG_FILE="$LAUNCHER_CONFIG"
 
 echo "==============================================="
 echo " Sandbox Launcher Entry Script"
@@ -56,9 +50,7 @@ fi
 # Configure Python Environment
 # ============================================================
 
-if [ "$RUN_ENV" = "slurm" ]; then
-    unset PYTHONPATH
-fi
+unset PYTHONPATH
 
 if [ -z "${SANDBOX_ENV:-}" ]; then
     echo "ERROR: SANDBOX_ENV is not set. Run ./bootstrap.sh --env and reload your shell before launching."
@@ -67,11 +59,13 @@ fi
 
 SANDBOX_PYTHON="$SANDBOX_ENV/bin/python"
 SANDBOX_COMMAND="$SANDBOX_ENV/bin/sandbox"
-if [ ! -x "$SANDBOX_PYTHON" ] || [ ! -x "$SANDBOX_COMMAND" ]; then
+SANDBOX_LAUNCHER="$SANDBOX_ENV/bin/sandbox-launcher"
+if [ ! -x "$SANDBOX_PYTHON" ] || [ ! -x "$SANDBOX_COMMAND" ] || [ ! -x "$SANDBOX_LAUNCHER" ]; then
     echo "ERROR: The Sandbox environment is incomplete: $SANDBOX_ENV"
     echo "Expected executable files:"
     echo "  $SANDBOX_PYTHON"
     echo "  $SANDBOX_COMMAND"
+    echo "  $SANDBOX_LAUNCHER"
     echo "Run ./bootstrap.sh --sandbox to build it."
     exit 1
 fi
@@ -87,35 +81,19 @@ echo "Python executable: $SANDBOX_PYTHON"
 # SLURM Wallclock Handling (HPC only) - MODIFY ME
 # ============================================================
 
-if [ "$RUN_ENV" = "slurm" ]; then
-
-    # Set wallclock in seconds (MUST match SBATCH time above)
-    SLURM_TIMELIMIT=$((5*60))
-
-    if [ -z "$SLURM_TIMELIMIT" ]; then
-        echo "ERROR: SLURM_TIMELIMIT is not set."
-        exit 1
-    fi
-
-    export LAUNCHER_WALLCLOCK=$SLURM_TIMELIMIT
-    export LAUNCHER_WALLCLOCK_MIN=$(( LAUNCHER_WALLCLOCK / 60 ))
-
-    echo "Launcher wallclock (minutes): $LAUNCHER_WALLCLOCK_MIN"
-
-fi
+# Set wallclock in seconds (MUST match SBATCH time above).
+SLURM_TIMELIMIT=$((5*60))
+export LAUNCHER_WALLCLOCK=$SLURM_TIMELIMIT
+export LAUNCHER_WALLCLOCK_MIN=$(( LAUNCHER_WALLCLOCK / 60 ))
+echo "Launcher wallclock (minutes): $LAUNCHER_WALLCLOCK_MIN"
 
 
 # ============================================================
 # Run Python Launcher
 # ============================================================
 
-if [ "$RUN_ENV" = "slurm" ]; then
-    echo "[submit_launcher] Running in SLURM mode"
-    "$SANDBOX_PYTHON" "$SCRIPT_DIR/sandbox_launcher.py" run --backend slurm --config "$CONFIG_FILE"
-else
-    echo "[submit_launcher] Running in LOCAL mode"
-    "$SANDBOX_PYTHON" "$SCRIPT_DIR/sandbox_launcher.py" run --backend local --config "$CONFIG_FILE"
-fi
+echo "[submit_launcher] Running in SLURM mode"
+"$SANDBOX_LAUNCHER" run --backend slurm --config "$CONFIG_FILE"
 
 exit_code=$?
 
@@ -127,21 +105,11 @@ echo "[submit_launcher] Python exit code = $exit_code"
 # 99 means: "requeue me, work still incomplete"
 # ============================================================
 
-if [ "$RUN_ENV" = "slurm" ]; then
-    if [ $exit_code -eq 99 ]; then
-        echo "[submit_launcher] Requeue requested — requeueing job"
-        scontrol requeue $SLURM_JOB_ID
-        exit 0
-    fi
+if [ $exit_code -eq 99 ]; then
+    echo "[submit_launcher] Requeue requested; requeueing job"
+    scontrol requeue "$SLURM_JOB_ID"
+    exit 0
 fi
 
 echo "[submit_launcher] Completed"
-exit $exit_code
-
-# ----------------------------------------------------
-
-
-# Debug info
-#echo "LL Python executable: $(which python)"
-#python -c "import numpy; print('LL NumPy version:', numpy.__version__)"
-#python -c "import sqlite3; print('LL sqlite3 version:', sqlite3.sqlite_version)"
+exit "$exit_code"

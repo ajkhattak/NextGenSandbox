@@ -70,6 +70,7 @@ summarize_sandbox_build()
 {
     local sandbox_python="$SANDBOX_ENV/bin/python"
     local sandbox_command="$SANDBOX_ENV/bin/sandbox"
+    local launcher_command="$SANDBOX_ENV/bin/sandbox-launcher"
     local forcing_python="$FORCING_ENV/bin/python"
     local failed=0
 
@@ -88,6 +89,13 @@ summarize_sandbox_build()
         print_build_status "OK" "sandbox command: $sandbox_command"
     else
         print_build_status "MISSING" "sandbox command: $sandbox_command"
+        failed=1
+    fi
+
+    if [ -x "$launcher_command" ]; then
+        print_build_status "OK" "sandbox-launcher command: $launcher_command"
+    else
+        print_build_status "MISSING" "sandbox-launcher command: $launcher_command"
         failed=1
     fi
 

@@ -1,4 +1,6 @@
 project:
+  # Optional; defaults to this configuration filename without .yaml.
+  # name: example_campaign
   input_dir: "/Users/ahmadjankhattak/Core/projects/dynamic_model_selection/inputs"
   output_dir: "/Users/ahmadjankhattak/Core/projects/dynamic_model_selection/outputsXY"
   resource_layout: gage
@@ -68,8 +70,6 @@ sandbox:
         index_dir: metadata
         file: simulation_metadata.yml
 
-submit_script: submit_gage.slurm
-
 # Select exactly which experiment stages this launcher invocation manages.
 stages: [calibration, validation]
 
@@ -88,6 +88,18 @@ slurm:
 #   account: project_account
 #   partition: shared
 #   mpi_tasks: auto
+
+  # Replace these examples with the modules required on the target HPC system.
+  modules:
+    - openmpi/4.1.6
+    - netcdf-fortran/4.6.1
+    - cmake/3.30.2
+    - sqlite
+    - udunits
+
+  environment:
+    OMP_NUM_THREADS: "1"
+
   calibration:
     time: "12:00:00"
     memory: "8G"

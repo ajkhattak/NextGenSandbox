@@ -25,6 +25,7 @@ nav:
       - Installation: install.md
       - Configuration: configuration.md
       - Run a Project: workflow.md
+      - Scale with Launcher: launcher.md
   - Resources:
       - Directory Layout: directory_layout.md
       - Forcing Data: forcing.md

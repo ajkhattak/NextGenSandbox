@@ -39,8 +39,98 @@ import argparse
 import glob
 import re
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
+import requests
+
+
+class USGSIVDataService:
+    """Synchronous client for the USGS instantaneous-values JSON service."""
+
+    URL = "https://waterservices.usgs.gov/nwis/iv/"
+
+    def __init__(self, session: requests.Session | None = None):
+        self.session = session or requests.Session()
+        self._owns_session = session is None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        if self._owns_session:
+            self.session.close()
+
+    def get(
+        self,
+        *,
+        sites: str,
+        startDT: str,
+        endDT: str,
+        parameterCd: str = "00060",
+        siteStatus: str = "all",
+    ) -> pd.DataFrame:
+        response = self.session.get(
+            self.URL,
+            params={
+                "format": "json",
+                "sites": str(sites),
+                "startDT": startDT,
+                "endDT": endDT,
+                "parameterCd": parameterCd,
+                "siteStatus": siteStatus,
+            },
+            headers={"Accept-Encoding": "gzip, compress"},
+            timeout=(30, 900),
+        )
+        response.raise_for_status()
+        return self._parse_response(response.json())
+
+    @staticmethod
+    def _parse_response(payload: dict[str, Any]) -> pd.DataFrame:
+        rows = []
+        time_series = payload.get("value", {}).get("timeSeries", [])
+        for series_index, series in enumerate(time_series):
+            source_info = series.get("sourceInfo", {})
+            site_codes = source_info.get("siteCode", [])
+            site_code = site_codes[0].get("value", "") if site_codes else ""
+            unit = (
+                series.get("variable", {})
+                .get("unit", {})
+                .get("unitCode", "")
+            )
+            for values_group in series.get("values", []):
+                for observation in values_group.get("value", []):
+                    rows.append(
+                        {
+                            "value_time": observation.get("dateTime"),
+                            "value": observation.get("value"),
+                            "usgs_site_code": site_code,
+                            "measurement_unit": unit,
+                            "series": series_index,
+                        }
+                    )
+
+        columns = [
+            "value_time",
+            "value",
+            "usgs_site_code",
+            "measurement_unit",
+            "series",
+        ]
+        if not rows:
+            return pd.DataFrame(columns=columns)
+
+        dataframe = pd.DataFrame(rows, columns=columns)
+        dataframe["value_time"] = (
+            pd.to_datetime(dataframe["value_time"], utc=True)
+            .dt.tz_localize(None)
+        )
+        dataframe["value"] = pd.to_numeric(
+            dataframe["value"],
+            errors="coerce",
+        )
+        return dataframe.sort_values("value_time", ignore_index=True)
 
 
 # ============================================================
@@ -195,7 +285,7 @@ def fetch_and_save_hourly_usgs_data(service,
                                     cfs_to_cms=0.028316847,
                                     output_dir=".",
                                     aggregate=True
-                                    ):
+                                    ) -> bool:
     """
     Fetches 15-min USGS streamflow data for a given gage ID, filters to hourly values,
     converts units, and saves to CSV.
@@ -218,7 +308,7 @@ def fetch_and_save_hourly_usgs_data(service,
 
         if observations_data.empty:
             print(f"[WARNING] No data returned for site {gage_id}")
-            return
+            return False
 
         # Parse datetime and convert units
         observations_data['value_time'] = pd.to_datetime(observations_data['value_time'])
@@ -276,9 +366,11 @@ def fetch_and_save_hourly_usgs_data(service,
         output_path = f"{output_dir}/gage_{gage_id}_hourly_streamflow.csv"
         hourly_df.to_csv(output_path, index=False)
         print(f"[INFO] Saved hourly data for gage {gage_id} to {output_path}")
+        return True
 
     except Exception as e:
         print(f"[ERROR] Failed to fetch/process data for gage {gage_id}: {e}")
+        return False
 
 
 # ============================================================
@@ -305,26 +397,32 @@ def get_usgs_data_driver(
     aggregate : bool, optional
         If True, resample to hourly mean. If False, keep top-of-hour values.
     """
-    from hydrotools.nwis_client.iv import IVDataService
-
     Path(output_dir).mkdir(parents=True, exist_ok=True)
-    service  = IVDataService(value_time_label="value_time")
-
     if not gage_ids:
         raise ValueError("At least one gage ID must be provided")
     print(f"[INFO] Processing {len(gage_ids)} gage IDs.")
 
-    for gage_id in gage_ids:
-        fetch_and_save_hourly_usgs_data(
-            service=service,
-            gage_id=gage_id,
-            start=start,
-            end=end,
-            output_dir=output_dir,
-            aggregate=aggregate
+    failed_gages = []
+    with USGSIVDataService() as service:
+        for gage_id in gage_ids:
+            success = fetch_and_save_hourly_usgs_data(
+                service=service,
+                gage_id=gage_id,
+                start=start,
+                end=end,
+                output_dir=output_dir,
+                aggregate=aggregate
+            )
+            if not success:
+                failed_gages.append(gage_id)
+
+    if failed_gages:
+        raise RuntimeError(
+            "USGS streamflow download failed for gage(s): "
+            + ", ".join(failed_gages)
         )
 
-    print("All gages processed successfully.")
+    print("All gages processed successfully.", flush=True)
 
 
 # ============================================================

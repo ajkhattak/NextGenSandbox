@@ -8,6 +8,7 @@ import json
 import multiprocessing
 import os
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -19,7 +20,9 @@ from typing import Any
 
 import yaml
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+LAUNCHER_PACKAGE_DIR = Path(__file__).resolve().parent
+REPO_ROOT = Path(__file__).resolve().parents[3]
+LAUNCHER_CONFIG_DIR = REPO_ROOT / "configs" / "launcher"
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
@@ -49,8 +52,8 @@ class CalibrationScenario:
 class LauncherContext:
     launcher_dir: Path
     launcher_config_file: Path
+    campaign_name: str
     map_config_file: Path | None
-    submit_script: Path
     sandbox_cfg: dict[str, Any]
     map_cfg: dict[str, Any]
     output_dir: Path
@@ -61,6 +64,10 @@ class LauncherContext:
     selection_summary: dict[str, int]
     calibration_scenarios: dict[str, tuple[CalibrationScenario, ...]]
     slurm: dict[str, Any]
+
+    @property
+    def log_dir(self) -> Path:
+        return self.output_dir / "logs"
 
 
 @dataclass(frozen=True)
@@ -103,7 +110,11 @@ def resolve_path(base_dir: Path, value: str | Path) -> Path:
 
 
 def default_config_file() -> Path:
-    return Path(__file__).resolve().parent / "launcher_config.yaml"
+    return LAUNCHER_CONFIG_DIR / "launcher_config.yaml"
+
+
+def worker_script_path(ctx: LauncherContext) -> Path:
+    return ctx.output_dir / "launcher" / f"{ctx.campaign_name}_worker.slurm"
 
 
 def as_list(value: Any, field_name: str) -> list[str]:
@@ -678,7 +689,8 @@ def load_context(config_file: Path) -> LauncherContext:
         else:
             raise FileNotFoundError(f"Launcher config file not found: {config_file}")
 
-    launcher_dir = config_file.resolve().parent
+    config_file = config_file.resolve()
+    launcher_dir = config_file.parent
     launcher_cfg = load_yaml(config_file)
 
     if "execution" in launcher_cfg:
@@ -697,14 +709,15 @@ def load_context(config_file: Path) -> LauncherContext:
 
     legacy_fields = [
         field_name
-        for field_name in ("gages", "assignment")
+        for field_name in ("gages", "assignment", "submit_script")
         if field_name in launcher_cfg
     ]
     if legacy_fields:
         raise ValueError(
             "Top-level launcher field(s) are no longer supported: "
-            f"{', '.join(legacy_fields)}. Move gages under project.gages "
-            "and define selection within each experiment."
+            f"{', '.join(legacy_fields)}. Move gages under project.gages, "
+            "define selection within each experiment, and configure the "
+            "generated worker under slurm."
         )
 
     sandbox_settings = launcher_cfg.get("sandbox")
@@ -720,11 +733,6 @@ def load_context(config_file: Path) -> LauncherContext:
     local = copy.deepcopy(local)
     local.setdefault("max_workers", 2)
     local.setdefault("startup_delay_seconds", 5)
-
-    submit_script = resolve_path(
-        launcher_dir,
-        launcher_cfg.get("submit_script", "submit_gage.slurm"),
-    )
 
     sandbox_cfg = apply_project_overrides(
         sandbox_settings,
@@ -773,11 +781,18 @@ def load_context(config_file: Path) -> LauncherContext:
         slurm = copy.deepcopy(slurm_value)
         slurm.setdefault("startup_delay_seconds", 5)
 
+    project = launcher_cfg.get("project") or {}
+    campaign_name = model_name_to_dir(project.get("name") or config_file.stem)
+    if not campaign_name:
+        raise ValueError(
+            "project.name or the launcher config filename must contain a usable name"
+        )
+
     return LauncherContext(
         launcher_dir=launcher_dir,
         launcher_config_file=config_file,
+        campaign_name=campaign_name,
         map_config_file=map_config_file,
-        submit_script=submit_script,
         sandbox_cfg=sandbox_cfg,
         map_cfg=map_cfg,
         output_dir=output_dir,
@@ -862,8 +877,6 @@ def validate_context(ctx: LauncherContext) -> None:
         raise FileNotFoundError(
             f"Required launcher file not found: {ctx.map_config_file}"
         )
-    if not ctx.submit_script.exists():
-        raise FileNotFoundError(f"SLURM submit script not found: {ctx.submit_script}")
     unknown_local = sorted(
         set(ctx.local) - {"max_workers", "startup_delay_seconds"}
     )
@@ -905,6 +918,8 @@ def validate_slurm_config(slurm: dict[str, Any]) -> None:
             "max_active_jobs",
             "max_total_mpi_tasks",
             "startup_delay_seconds",
+            "modules",
+            "environment",
             "calibration",
             "validation",
         }
@@ -915,6 +930,39 @@ def validate_slurm_config(slurm: dict[str, Any]) -> None:
         )
     if "mpi_tasks" in slurm and slurm["mpi_tasks"] != "auto":
         raise ValueError("slurm.mpi_tasks must be: auto")
+
+    modules = slurm.get("modules", [])
+    if not isinstance(modules, list) or any(
+        not isinstance(module, str) or not module.strip()
+        for module in modules
+    ):
+        raise ValueError("slurm.modules must be a list of non-empty module names")
+
+    environment = slurm.get("environment", {})
+    if not isinstance(environment, dict):
+        raise ValueError("slurm.environment must be a mapping of names to values")
+    reserved_environment = {
+        "SANDBOX_ENV",
+        "SANDBOX_FILE",
+        "SANDBOX_STAGE",
+        "START_DELAY",
+    }
+    for name, value in environment.items():
+        if not isinstance(name, str) or not re.fullmatch(
+            r"[A-Za-z_][A-Za-z0-9_]*",
+            name,
+        ):
+            raise ValueError(
+                f"Invalid environment variable name in slurm.environment: {name!r}"
+            )
+        if name in reserved_environment:
+            raise ValueError(
+                f"slurm.environment cannot override launcher variable {name}"
+            )
+        if value is None or isinstance(value, (dict, list)):
+            raise ValueError(
+                f"slurm.environment.{name} must be a scalar value"
+            )
     for field_name in ("max_active_jobs", "max_total_mpi_tasks"):
         value = slurm.get(field_name)
         if value is not None and (
@@ -1323,13 +1371,15 @@ def check_validation_exists(metadata_index_dir: Path, gage_id: str, *, status: b
 
 
 def build_slurm_submit_command(
-    submit_script: Path,
+    worker_script: Path,
     sandbox_file: Path,
     job_name: str,
     num_mpi_tasks: int,
     delay_seconds: int,
     stage: str,
     slurm: dict[str, Any] | None = None,
+    log_dir: Path | None = None,
+    work_dir: Path | None = None,
 ) -> list[str]:
     command = [
         "sbatch",
@@ -1348,16 +1398,174 @@ def build_slurm_submit_command(
         value = slurm.get(config_name)
         if value is not None and str(value).strip():
             command.append(f"--{option_name}={value}")
+    if log_dir is not None:
+        command.extend(
+            [
+                f"--output={log_dir}/%x_%j.out",
+                f"--error={log_dir}/%x_%j.err",
+            ]
+        )
+    if work_dir is not None:
+        command.append(f"--chdir={work_dir}")
     command.extend(
         [
             "--export=ALL,"
             f"SANDBOX_FILE={sandbox_file},"
             f"SANDBOX_STAGE={stage},"
             f"START_DELAY={delay_seconds}",
-            str(submit_script),
+            str(worker_script),
         ]
     )
     return command
+
+
+def render_slurm_worker_script(slurm: dict[str, Any]) -> str:
+    lines = [
+        "#!/usr/bin/env bash",
+        "",
+        "set -euo pipefail",
+        "",
+        'echo "Allocated MPI tasks: ${SLURM_NTASKS:-1}"',
+        'echo "CPUs per task: ${SLURM_CPUS_PER_TASK:-1}"',
+    ]
+
+    modules = slurm.get("modules", [])
+    if modules:
+        lines.extend(
+            [
+                "",
+                "if ! command -v module >/dev/null 2>&1; then",
+                '    echo "ERROR: The module command is unavailable in this Slurm job."',
+                "    exit 1",
+                "fi",
+            ]
+        )
+        lines.extend(
+            f"module load {shlex.quote(module)}"
+            for module in modules
+        )
+
+    environment = slurm.get("environment", {})
+    if environment:
+        lines.append("")
+        for name, value in environment.items():
+            if isinstance(value, bool):
+                value = str(value).lower()
+            lines.append(f"export {name}={shlex.quote(str(value))}")
+
+    lines.extend(
+        [
+            "",
+            "unset PYTHONPATH",
+            'if [ -z "${SANDBOX_ENV:-}" ]; then',
+            '    echo "ERROR: SANDBOX_ENV is not set. Run ./bootstrap.sh --env and reload your shell before submitting."',
+            "    exit 1",
+            "fi",
+            "",
+            'SANDBOX_PYTHON="$SANDBOX_ENV/bin/python"',
+            'SANDBOX_COMMAND="$SANDBOX_ENV/bin/sandbox"',
+            'if [ ! -x "$SANDBOX_PYTHON" ] || [ ! -x "$SANDBOX_COMMAND" ]; then',
+            '    echo "ERROR: The Sandbox environment is incomplete: $SANDBOX_ENV"',
+            '    echo "Run ./bootstrap.sh --sandbox to build it."',
+            "    exit 1",
+            "fi",
+            'export PATH="$SANDBOX_ENV/bin:$PATH"',
+            "",
+            'if [ -z "${SANDBOX_FILE:-}" ]; then',
+            '    echo "ERROR: SANDBOX_FILE must be exported by the launcher."',
+            "    exit 1",
+            "fi",
+            'if [ "${SANDBOX_STAGE:-}" != "calibration" ] && [ "${SANDBOX_STAGE:-}" != "validation" ]; then',
+            '    echo "ERROR: SANDBOX_STAGE must be calibration or validation."',
+            "    exit 1",
+            "fi",
+            "",
+            'echo "Python executable: $SANDBOX_PYTHON"',
+            'echo "SANDBOX_FILE = $SANDBOX_FILE"',
+            'echo "SANDBOX_STAGE = $SANDBOX_STAGE"',
+            "",
+            'if [ -n "${START_DELAY:-}" ] && [ "$START_DELAY" -gt 0 ]; then',
+            '    echo "Applying startup delay: ${START_DELAY}s"',
+            '    sleep "$START_DELAY"',
+            "fi",
+            "",
+            'if [ "$SANDBOX_STAGE" = "validation" ]; then',
+            '    echo "Generating validation configuration files..."',
+            '    "$SANDBOX_COMMAND" --conf -i "$SANDBOX_FILE"',
+            "fi",
+            '"$SANDBOX_COMMAND" --run -i "$SANDBOX_FILE"',
+        ]
+    )
+    return "\n".join(lines) + "\n"
+
+
+def write_slurm_worker_script(ctx: LauncherContext) -> Path:
+    path = worker_script_path(ctx)
+    content = render_slurm_worker_script(ctx.slurm)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists() or path.read_text() != content:
+        path.write_text(content)
+    path.chmod(0o700)
+    return path
+
+
+def build_launcher_submit_command(ctx: LauncherContext) -> list[str]:
+    command = [
+        "sbatch",
+        "--nodes=1",
+        "--ntasks=1",
+        "--cpus-per-task=1",
+        "--time=00:05:00",
+        "--mem=2G",
+        f"--job-name={ctx.campaign_name}_launcher",
+        f"--output={ctx.log_dir}/%x_%j.out",
+        f"--error={ctx.log_dir}/%x_%j.err",
+        f"--chdir={ctx.output_dir}",
+    ]
+    for name in ("account", "partition"):
+        value = ctx.slurm.get(name)
+        if value is not None and str(value).strip():
+            command.append(f"--{name}={value}")
+    command.extend(
+        [
+            f"--export=ALL,LAUNCHER_CONFIG={ctx.launcher_config_file}",
+            str(LAUNCHER_PACKAGE_DIR / "submit_launcher.sh"),
+        ]
+    )
+    return command
+
+
+def submit_launcher(ctx: LauncherContext) -> None:
+    if not ctx.slurm:
+        raise ValueError(
+            "Slurm submission requires a slurm block in the launcher configuration"
+        )
+    slurm_limits(ctx.slurm)
+    ctx.output_dir.mkdir(parents=True, exist_ok=True)
+    ctx.log_dir.mkdir(parents=True, exist_ok=True)
+    worker_script = write_slurm_worker_script(ctx)
+    print(f"Generated Slurm worker script: {worker_script}")
+    command = build_launcher_submit_command(ctx)
+    print(f"Submitting launcher campaign '{ctx.campaign_name}'...")
+    try:
+        result = subprocess.run(
+            command,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError as error:
+        raise RuntimeError(
+            "The sbatch command was not found. Submit Slurm campaigns from "
+            "an HPC login node with Slurm available."
+        ) from error
+    except subprocess.CalledProcessError as error:
+        details = (error.stderr or error.stdout or str(error)).strip()
+        raise RuntimeError(f"Slurm launcher submission failed: {details}") from error
+    message = result.stdout.strip()
+    if message:
+        print(message)
+    print(f"Launcher logs: {ctx.log_dir}")
 
 
 def select_experiment_config(
@@ -1450,13 +1658,15 @@ def run_experiment(
     if use_slurm:
         num_mpi_tasks = get_num_cpus(metadata_index_dir, gage_id)
         cmd = build_slurm_submit_command(
-            ctx.submit_script,
+            worker_script_path(ctx),
             sandbox_file,
             job_name,
             num_mpi_tasks,
             delay_seconds,
             stage,
             slurm_settings_for_stage(ctx.slurm, stage),
+            log_dir=ctx.log_dir,
+            work_dir=ctx.output_dir,
         )
         if dryrun:
             print(f"[DRYRUN] [{gage_id}] Would submit: {' '.join(cmd)}")
@@ -1789,6 +1999,9 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
     scheduled_run_index = 0
 
     if use_slurm:
+        if not dryrun:
+            ctx.log_dir.mkdir(parents=True, exist_ok=True)
+            write_slurm_worker_script(ctx)
         max_active_jobs, max_total_mpi_tasks = slurm_limits(ctx.slurm)
         if not dryrun:
             expected_names = expected_slurm_job_names(ctx)
@@ -1976,11 +2189,13 @@ def print_check_report(ctx: LauncherContext) -> None:
     print("Launcher Check")
     print("==============")
     print(f"Launcher config : {ctx.launcher_config_file}")
+    print(f"Campaign name   : {ctx.campaign_name}")
     print(f"Sandbox settings: {ctx.launcher_config_file}:sandbox")
     print(f"Mapping config  : {ctx.map_config_file or 'resolved from launcher_config.yaml'}")
-    print(f"Submit script   : {ctx.submit_script}")
+    print(f"Worker script   : {worker_script_path(ctx)} (generated for Slurm runs)")
     print(f"Input dir       : {ctx.input_dir}")
     print(f"Output dir      : {ctx.output_dir}")
+    print(f"Slurm logs      : {ctx.log_dir}")
     print(f"Stages          : {', '.join(ctx.stages)}")
     print(f"Local workers   : {ctx.local['max_workers']}")
     print(f"Local delay     : {ctx.local['startup_delay_seconds']} sec")
@@ -1990,11 +2205,30 @@ def print_check_report(ctx: LauncherContext) -> None:
         common_slurm = {
             key: value
             for key, value in ctx.slurm.items()
-            if key not in {"calibration", "validation"}
+            if key not in {
+                "calibration",
+                "validation",
+                "modules",
+                "environment",
+            }
         }
         print("Slurm settings  : " + ", ".join(
             f"{key}={value}" for key, value in common_slurm.items()
         ))
+        modules = ctx.slurm.get("modules", [])
+        environment = ctx.slurm.get("environment", {})
+        print(
+            "Slurm modules   : "
+            + (", ".join(modules) if modules else "none")
+        )
+        print(
+            "Slurm environment: "
+            + (
+                ", ".join(f"{name}={value}" for name, value in environment.items())
+                if environment
+                else "none"
+            )
+        )
         for stage in ("calibration", "validation"):
             settings = ctx.slurm[stage]
             print(
@@ -2048,10 +2282,10 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run or inspect Sandbox Launcher jobs.")
     parser.add_argument(
         "mode",
-        choices=["run", "dryrun", "status", "check"],
+        choices=["run", "submit", "dryrun", "status", "check"],
         help=(
-            "Run experiments, preview execution, show status, or validate "
-            "launcher inputs."
+            "Run locally, submit to Slurm, preview execution, show status, "
+            "or validate launcher inputs."
         ),
     )
     parser.add_argument(
@@ -2063,7 +2297,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--config",
         default="launcher_config.yaml",
-        help="Path to launcher_config.yaml. Defaults to tools/launcher/launcher_config.yaml.",
+        help=(
+            "Path to any launcher YAML configuration file. Defaults to the "
+            "repository example."
+        ),
     )
     return parser.parse_args()
 
@@ -2078,6 +2315,9 @@ def main() -> None:
         return
 
     validate_context(ctx)
+    if args.mode == "submit":
+        submit_launcher(ctx)
+        return
     if args.mode == "status":
         check_status(ctx)
         return

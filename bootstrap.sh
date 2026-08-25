@@ -645,6 +645,12 @@ run_check() {
         status_fail "sandbox command not found in sandbox env"
         add_recommendation "Run: ./bootstrap.sh --sandbox"
     fi
+    if [ -x "$sandbox_env/bin/sandbox-launcher" ]; then
+        status_ok "sandbox-launcher command: $sandbox_env/bin/sandbox-launcher"
+    else
+        status_fail "sandbox-launcher command not found in sandbox env"
+        add_recommendation "Run: ./bootstrap.sh --sandbox"
+    fi
     if [ -x "$forcing_env/bin/python" ]; then
         status_ok "Forcing Python: $forcing_env/bin/python"
     else

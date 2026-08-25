@@ -45,10 +45,14 @@ Issues = "https://github.com/ajkhattak/NextGenSandbox/issues"
 
 [project.scripts]
 sandbox = "sandbox:main"
+sandbox-launcher = "src.python.launcher.cli:main"
 
 
 [tool.setuptools]
 py-modules = ["sandbox"]
 
 [tool.setuptools.packages.find]
-include = ["src"]
+include = ["src", "src.python", "src.python.*"]
+
+[tool.setuptools.package-data]
+"src.python.launcher" = ["*.sh"]

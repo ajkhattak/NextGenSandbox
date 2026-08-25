@@ -30,7 +30,7 @@ First-time users should follow these guides in order:
    Prepare hydrofabric and forcing resources, generate model files, inspect the
    command with dry run, and execute the simulation or calibration.
 
-4. **[Scale with Sandbox Launcher](tools/launcher/README.md)** *(optional)*
+4. **[Scale with Sandbox Launcher](docs/launcher.md)** *(optional)*
 
    Apply working configuration templates across many gages and formulations,
    run locally, or submit jobs through Slurm.

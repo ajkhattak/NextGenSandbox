@@ -17,9 +17,10 @@ The launcher can:
 
 ## How Configuration Works
 
-The launcher uses one self-contained `launcher_config.yaml`. It describes the
-campaign and contains the reusable Sandbox settings copied into every
-generated run.
+The launcher uses one self-contained YAML file. Its name and location are up
+to the user; examples include `launcher_dds.yaml` and `launcher_pso.yaml`.
+The file describes the campaign and contains the reusable Sandbox settings
+copied into every generated run.
 
 The main sections are:
 
@@ -38,6 +39,7 @@ Define the paths once under `project`:
 
 ```yaml
 project:
+  name: regime_dds
   input_dir: "/path/to/project/inputs"
   output_dir: "/path/to/project/outputs"
   resource_layout: gage
@@ -52,16 +54,27 @@ The launcher injects these values, plus the current gage, formulation, model
 instances, and calibration scenario, into each generated Sandbox config.
 They do not need placeholders under `sandbox`.
 
+`project.name` is optional. When omitted, the launcher uses the configuration
+filename without `.yaml` as the campaign name.
+
 ## Required Files
 
 | File | Purpose |
 |---|---|
-| `launcher_config.yaml` | Complete campaign and shared Sandbox configuration; always required. |
-| `sandbox_launcher.py` | Launcher command-line program. |
-| `submit_gage.slurm` | Slurm worker template used for each submitted run; required for the Slurm backend. |
-| `submit_launcher.sh` | Local wrapper and Slurm launcher/requeue script. Use it for bounded Slurm campaigns. |
-| `check_status.sh` | Convenience wrapper for campaign status. |
+| Project launcher YAML | Complete campaign and shared Sandbox configuration; always required. It may have any filename. |
 | `models_gages_map.yaml` | Optional advanced mapping format; not needed for the recommended setup. |
+
+The launcher program and its Slurm scripts remain managed by NextGenSandbox.
+Users configure Slurm resources, modules, and environment variables in the
+project launcher YAML instead of maintaining a separate submission script.
+
+The repository layout separates those responsibilities:
+
+```text
+src/python/launcher/       installed launcher implementation
+configs/launcher/          editable launcher YAML examples
+docs/launcher.md           this user guide
+```
 
 ## Before You Start
 
@@ -72,13 +85,12 @@ Confirm that:
    the intended gages and formulations.
 3. Hydrofabric, forcing, observations, and any trained model data already
    exist. The launcher does not download or subset resources.
-4. `SANDBOX_ENV` is available in the shell.
-5. For Slurm, `submit_gage.slurm` contains the correct modules and site
-   settings.
+4. The installed `sandbox-launcher` command is available.
+5. For Slurm, the `slurm.modules` list contains the modules required by the
+   target HPC system.
 
-The launcher scripts use `$SANDBOX_ENV/bin/python` and
-`$SANDBOX_ENV/bin/sandbox` directly. They do not require
-`$SANDBOX_ENV/bin/activate`, which may not exist for a Conda environment.
+Run `./bootstrap.sh --sandbox` again after updating NextGenSandbox so the
+installed `sandbox-launcher` command matches the repository.
 
 ## Minimal Setup
 
@@ -87,10 +99,17 @@ window from one configuration file.
 
 ### 1. Configure the Campaign and Sandbox
 
-Edit `tools/launcher/launcher_config.yaml`:
+Copy the example into the project and give it a descriptive name:
+
+```bash
+cp "$SANDBOX_DIR/configs/launcher/launcher_config.yaml" launcher_dds.yaml
+```
+
+Then edit `launcher_dds.yaml`:
 
 ```yaml
 project:
+  name: regime_dds
   input_dir: "/path/to/project/inputs"
   output_dir: "/path/to/project/outputs"
   resource_layout: gage
@@ -139,8 +158,6 @@ sandbox:
         index_dir: metadata
         file: simulation_metadata.yml
 
-submit_script: submit_gage.slurm
-
 stages: [calibration, validation]
 
 local:
@@ -151,6 +168,14 @@ slurm:
   max_active_jobs: 10
   max_total_mpi_tasks: 64
   startup_delay_seconds: 5
+  modules:
+    - openmpi/4.1.6
+    - netcdf-fortran/4.6.1
+    - cmake/3.30.2
+    - sqlite
+    - udunits
+  environment:
+    OMP_NUM_THREADS: "1"
   calibration:
     time: "12:00:00"
     memory: "8G"
@@ -193,34 +218,28 @@ Keep `simulation.outputs.metadata.enabled: true`. The launcher uses each
 `metadata/run_<gage_id>.yml` file to detect progress, select restart behavior,
 request MPI tasks, and find validation output.
 
-### 2. Configure the Slurm Scripts
+### 2. Configure the Slurm Environment
 
-Skip this step for local execution. Before using Slurm, edit both scripts for
-the target HPC system:
+Skip this step for local execution. Before using Slurm, replace the example
+`slurm.modules` entries with the modules used when ngen and its model
+libraries were built on the target HPC system. Put simple fixed environment
+variables under `slurm.environment`. Environment values are exported as
+literal values; shell expressions and arbitrary setup commands are not
+evaluated.
 
-- `submit_launcher.sh`: launcher account, partition, wallclock, memory, and
-  environment setup;
-- `submit_gage.slurm`: worker modules, environment setup, default
-  wallclock, and memory.
-
-The `SLURM_TIMELIMIT` value in `submit_launcher.sh` must match that script's
-`#SBATCH --time`. The launcher uses this interval to requeue itself while
-calibrations, validations, or deferred jobs remain incomplete.
-
-Common values such as `slurm.account` and `slurm.partition`, together with
-the stage-specific `slurm.calibration` and `slurm.validation` resource
-profiles, override the corresponding worker defaults in `submit_gage.slurm`.
-Both profiles require explicit `time` and `memory` values. This prevents a
-long validation period from unintentionally receiving the smaller allocation
-chosen for calibration.
+The launcher generates one shared worker script under
+`<project.output_dir>/launcher/<campaign>_worker.slurm`. All gage jobs in that
+campaign reuse this script. Values such as `slurm.account` and
+`slurm.partition`, together with the stage-specific `slurm.calibration` and
+`slurm.validation` profiles, are passed to `sbatch` for each job. Both
+profiles require explicit `time` and `memory` values.
 
 ### 3. Check the Campaign
 
 Run the read-only preflight check:
 
 ```bash
-python tools/launcher/sandbox_launcher.py check \
-  --config tools/launcher/launcher_config.yaml
+sandbox-launcher check --config launcher_dds.yaml
 ```
 
 Expected result:
@@ -240,17 +259,13 @@ submit jobs.
 Preview local execution:
 
 ```bash
-python tools/launcher/sandbox_launcher.py dryrun \
-  --backend local \
-  --config tools/launcher/launcher_config.yaml
+sandbox-launcher dryrun --backend local --config launcher_dds.yaml
 ```
 
 Preview Slurm submissions:
 
 ```bash
-python tools/launcher/sandbox_launcher.py dryrun \
-  --backend slurm \
-  --config tools/launcher/launcher_config.yaml
+sandbox-launcher dryrun --backend slurm --config launcher_dds.yaml
 ```
 
 Expected result: one `Would generate configs` and one `Would run locally` or
@@ -264,9 +279,7 @@ the live queue.
 For local execution:
 
 ```bash
-python tools/launcher/sandbox_launcher.py run \
-  --backend local \
-  --config tools/launcher/launcher_config.yaml
+sandbox-launcher run --backend local --config launcher_dds.yaml
 ```
 
 Local mode runs at most `local.max_workers` experiments concurrently. Its
@@ -277,50 +290,54 @@ resumes calibration, reloads the resulting checkpoint, and then runs
 validation. One launcher command therefore completes both stages when they
 succeed.
 
-For Slurm, submit the launcher wrapper from a login node:
+For Slurm, submit the campaign from a login node:
 
 ```bash
-LAUNCHER_CONFIG="$(pwd)/tools/launcher/launcher_config.yaml" \
-  sbatch tools/launcher/submit_launcher.sh
+sandbox-launcher submit --config launcher_dds.yaml
 ```
 
-The wrapper establishes the launcher wallclock, invokes the Slurm backend,
-and requeues itself while work remains. During each cycle, Slurm mode
-generates missing configs and submits `submit_gage.slurm` once per admitted
-gage/experiment/scenario. Running or pending jobs are not submitted again.
+The command validates the configuration, creates
+`<project.output_dir>/logs`, submits the coordinator with absolute paths, and
+prints the resulting Slurm job ID. The coordinator requeues itself while work
+remains. During each cycle, Slurm mode
+generates missing configs and submits the generated worker script once per
+admitted gage/experiment/scenario. Running or pending jobs are not submitted again.
 Calibration and validation are separate Slurm submissions selected across
 launcher cycles.
 
-The same wrapper may be used locally; outside a Slurm allocation it selects
-the local backend automatically:
+Do not call `sbatch` directly for the normal workflow. The
+`sandbox-launcher submit` command supplies the configuration, output log
+paths, account, partition, and coordinator settings needed by automatic
+requeue handling.
 
-```bash
-bash tools/launcher/submit_launcher.sh
+### Multiple Campaign Configurations
+
+Configuration filenames are unrestricted. Keep independent optimizer setups
+in separate files and give each one a separate output directory:
+
+```text
+regime_calibration/
+  launcher_dds.yaml
+  launcher_pso.yaml
+  outputs/
+    dds/
+    pso/
 ```
 
-Set `LAUNCHER_CONFIG` when the launcher config is not the default file:
+Submit them independently:
 
 ```bash
-LAUNCHER_CONFIG=/path/to/launcher_config.yaml \
-  bash tools/launcher/submit_launcher.sh
+sandbox-launcher submit --config launcher_dds.yaml
+sandbox-launcher submit --config launcher_pso.yaml
 ```
 
-Do not use a plain `python ... run --backend slurm` command as the normal HPC
-entry point. It does not establish the wallclock variables used by automatic
-requeue handling. Direct `python` commands remain appropriate for `check`,
-`dryrun`, and `status`.
+Separate output directories prevent calibration checkpoints, metadata, worker
+directories, and logs from the two optimizers from being mixed.
 
 ### 6. Check Status
 
 ```bash
-python tools/launcher/sandbox_launcher.py status \
-  --config tools/launcher/launcher_config.yaml
-```
-
-or:
-
-```bash
-bash tools/launcher/check_status.sh
+sandbox-launcher status --config launcher_dds.yaml
 ```
 
 Status reports calibration progress and whether validation output exists for
@@ -333,6 +350,13 @@ For a normal calibration campaign:
 
 ```text
 <project.output_dir>/
+  launcher/
+    <campaign>_worker.slurm
+  logs/
+    <campaign>_launcher_<job_id>.out
+    <campaign>_launcher_<job_id>.err
+    <worker_job_name>_<job_id>.out
+    <worker_job_name>_<job_id>.err
   <experiment>/
     configs/
       <gage_id>/
@@ -525,13 +549,14 @@ campaign at once.
 | `account` | Optional worker-job Slurm account override. |
 | `partition` | Optional worker-job Slurm partition override. |
 | `mpi_tasks` | Must be `auto` when present. Per-run tasks come from generated partition metadata. |
+| `modules` | Module names loaded in order by the generated worker script. Use an empty list when modules are not needed. |
+| `environment` | Optional fixed environment variables exported by the generated worker script. |
 | `calibration.time` | Required calibration/restart worker wallclock. |
 | `calibration.memory` | Required calibration/restart worker memory. |
 | `validation.time` | Required validation worker wallclock. |
 | `validation.memory` | Required validation worker memory. |
 
-Settings in `launcher_config.yaml` also override matching defaults in
-`submit_gage.slurm`:
+Configure worker resources and runtime dependencies together:
 
 ```yaml
 slurm:
@@ -541,6 +566,14 @@ slurm:
   account: project_account
   partition: shared
   mpi_tasks: auto
+  modules:
+    - openmpi/4.1.6
+    - netcdf-fortran/4.6.1
+    - cmake/3.30.2
+    - sqlite
+    - udunits
+  environment:
+    OMP_NUM_THREADS: "1"
   calibration:
     time: "06:00:00"
     memory: "8G"
@@ -556,11 +589,12 @@ more than `max_total_mpi_tasks` is rejected with an actionable error.
 
 `startup_delay_seconds` staggers the jobs admitted during one launcher cycle.
 For example, a five-second interval assigns delays of 0, 5, 10, and 15 seconds
-to the first four submitted jobs. The delay occurs in `submit_gage.slurm`
-immediately before Sandbox starts.
+to the first four submitted jobs. The delay occurs in the generated worker
+script immediately before Sandbox starts.
 
 `mpi_tasks` currently accepts only `auto`; CPUs per MPI task remain `1`.
-Site-specific module commands still belong in `submit_gage.slurm`.
+Site-specific modules and fixed environment values belong in the `slurm`
+block of the launcher configuration.
 Restart and PSO warm-start jobs use the calibration profile. Before a
 validation worker starts NextGen, it generates the validation-specific model
 configs and configuration manifest from the completed calibration state.
