@@ -379,6 +379,23 @@ Use the detailed view for one line per experiment:
 sandbox-launcher status --detailed --config launcher_dds.yaml
 ```
 
+Filter the report to one status when investigating or managing a campaign:
+
+```bash
+sandbox-launcher status --completed --config launcher_dds.yaml
+sandbox-launcher status --running --config launcher_dds.yaml
+sandbox-launcher status --queued --config launcher_dds.yaml
+sandbox-launcher status --will-be-requeued --config launcher_dds.yaml
+sandbox-launcher status --not-submitted --config launcher_dds.yaml
+sandbox-launcher status --timeout --config launcher_dds.yaml
+sandbox-launcher status --out-of-memory --config launcher_dds.yaml
+sandbox-launcher status --failed --config launcher_dds.yaml
+sandbox-launcher status --cancelled --config launcher_dds.yaml
+```
+
+Each filtered report includes the latest Slurm job ID, gage ID, formulation,
+and calibration scenario. Status filters are mutually exclusive.
+
 The detailed view includes live scheduler state, calibration iteration and
 objective progress, estimated average time per calibration iteration,
 estimated calibration time remaining, and validation status. Values prefixed

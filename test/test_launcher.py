@@ -225,6 +225,23 @@ class TestLauncherSelection(unittest.TestCase):
 
         self.assertEqual(args.status_view, "summary")
 
+    def test_status_accepts_all_state_filters(self):
+        for view_name in launcher.STATUS_FILTERS:
+            with self.subTest(view_name=view_name), patch.object(
+                sys,
+                "argv",
+                [
+                    "sandbox-launcher",
+                    "status",
+                    f"--{view_name.replace('_', '-')}",
+                    "--config",
+                    "launcher.yaml",
+                ],
+            ):
+                args = launcher.parse_args()
+
+            self.assertEqual(args.status_view, view_name)
+
     def test_launcher_stages_are_explicit(self):
         self.assertEqual(
             launcher.load_launcher_stages(
@@ -976,6 +993,18 @@ class TestLauncherSelection(unittest.TestCase):
         )
         self.assertEqual(
             launcher.terminal_campaign_state(
+                progress,
+                launcher.SlurmJobHistory(
+                    "102",
+                    "job",
+                    "OUT_OF_ME",
+                    "0:125",
+                ),
+            ),
+            "OUT_OF_MEMORY",
+        )
+        self.assertEqual(
+            launcher.terminal_campaign_state(
                 launcher.ExperimentProgress(configured=True),
                 None,
             ),
@@ -1024,6 +1053,42 @@ class TestLauncherSelection(unittest.TestCase):
         positions = [report.index(label) for label in labels]
         self.assertEqual(positions, sorted(positions))
         self.assertIn("OUT_OF_MEMORY      | 1", report)
+
+    def test_cancelled_status_prints_job_and_gage_ids(self):
+        statuses = [
+            launcher.CampaignStatus(
+                gage_id="02143500",
+                formulation="nom_cfe_s",
+                scenario="dry",
+                state="CANCELLED",
+                current_iteration=4,
+                max_iterations=40,
+                objective_value=0.5,
+                validation="NO",
+                average_iteration_seconds=None,
+                estimated_remaining_seconds=None,
+                slurm_job_id="20139787",
+            )
+        ]
+        output = StringIO()
+        with (
+            patch.object(
+                launcher,
+                "collect_campaign_status",
+                return_value=(statuses, None),
+            ),
+            redirect_stdout(output),
+        ):
+            launcher.check_status(
+                SimpleNamespace(),
+                state_filter="CANCELLED",
+            )
+
+        report = output.getvalue()
+        self.assertIn("20139787", report)
+        self.assertIn("02143500", report)
+        self.assertIn("nom_cfe_s", report)
+        self.assertNotIn("Campaign Status Summary", report)
 
     def test_parse_sbatch_job_id_supports_parsable_cluster_output(self):
         self.assertEqual(

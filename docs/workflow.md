@@ -94,6 +94,23 @@ NextGenSandbox subset step completed successfully.
 One `gage_<gage_id>.gpkg` should be present for each selected gage under the
 configured resource layout.
 
+Optionally verify that each subset basin agrees with the drainage area reported
+by USGS before preparing forcing or model configurations:
+
+```bash
+python utils/python/check_hydrofabric_basin_area.py \
+  /path/to/input_dir \
+  --threshold-pct 10 \
+  --output-csv basin_area_comparison.csv
+```
+
+The utility finds `*.gpkg` files recursively, extracts the gage ID from each
+filename, sums `areasqkm` in the `divides` layer, and compares that total with
+the NWIS `drain_area_va` value. Use `--threshold-pct 20` for a less restrictive
+20% screen. It returns exit status 1 when any basin is outside the tolerance or
+cannot be compared, and writes the complete pass/fail audit to the requested
+CSV.
+
 If the gage-specific geopackages already exist, use
 `general.gages.option: gpkg` or place the files under the configured resource
 layout. Skip `sandbox --subset`.

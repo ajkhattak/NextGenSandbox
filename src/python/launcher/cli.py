@@ -34,6 +34,17 @@ CAMPAIGN_STATUS_ORDER = (
     "FAILED",
     "CANCELLED",
 )
+STATUS_FILTERS = {
+    "completed": "COMPLETED",
+    "running": "RUNNING",
+    "queued": "QUEUED",
+    "will_be_requeued": "WILL_BE_REQUEUED",
+    "not_submitted": "NOT_SUBMITTED",
+    "timeout": "TIMEOUT",
+    "out_of_memory": "OUT_OF_MEMORY",
+    "failed": "FAILED",
+    "cancelled": "CANCELLED",
+}
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
@@ -148,6 +159,7 @@ class CampaignStatus:
     validation: str
     average_iteration_seconds: float | None
     estimated_remaining_seconds: float | None
+    slurm_job_id: str | None = None
 
 
 def load_yaml(path: Path) -> dict[str, Any]:
@@ -2361,7 +2373,7 @@ def get_slurm_job_history(
             "-j",
             ",".join(chunk),
             "-o",
-            "JobIDRaw,State,ExitCode",
+            "JobIDRaw,State%30,ExitCode",
         ]
         try:
             output = subprocess.check_output(cmd, text=True)
@@ -2402,7 +2414,7 @@ def terminal_campaign_state(
     state = history.state
     if state == "TIMEOUT":
         return "TIMEOUT"
-    if state == "OUT_OF_MEMORY":
+    if state in {"OUT_OF_MEMORY", "OUT_OF_ME", "OOM"}:
         return "OUT_OF_MEMORY"
     if state == "CANCELLED":
         return "CANCELLED"
@@ -2496,6 +2508,7 @@ def collect_campaign_status(
                 scenario_suffix = f"_{scenario.name}" if scenario.name else ""
                 job_name = f"{model_dir}{scenario_suffix}_{gage_id}"
                 active_job = active_by_name.get(job_name)
+                history = history_by_name.get(job_name)
                 if finished:
                     state = "COMPLETED"
                 elif active_job is not None and active_job.state == "PENDING":
@@ -2507,7 +2520,7 @@ def collect_campaign_status(
                 else:
                     state = terminal_campaign_state(
                         progress,
-                        history_by_name.get(job_name),
+                        history,
                     )
 
                 current_iteration = (
@@ -2527,13 +2540,55 @@ def collect_campaign_status(
                         validation=validation,
                         average_iteration_seconds=average_seconds,
                         estimated_remaining_seconds=remaining_seconds,
+                        slurm_job_id=(
+                            active_job.job_id
+                            if active_job is not None
+                            else history.job_id if history is not None else None
+                        ),
                     )
                 )
     return statuses, scheduler_error
 
 
-def check_status(ctx: LauncherContext, *, detailed: bool = False) -> None:
+def print_status_filter(
+    statuses: list[CampaignStatus],
+    state: str,
+) -> None:
+    matches = [status for status in statuses if status.state == state]
+    title = f"{state.replace('_', ' ').title()} Experiments"
+    print(f"\n{title}")
+    print("=" * len(title))
+    if not matches:
+        print(f"No experiments currently have status {state}.")
+        return
+
+    header = (
+        f"{'Job ID':<14} {'Gage':<14} {'Formulation':<24} "
+        f"{'Scenario':<14}"
+    )
+    print(header)
+    print("-" * len(header))
+    for status in matches:
+        print(
+            f"{(status.slurm_job_id or '-'):<14} "
+            f"{status.gage_id:<14} {status.formulation:<24} "
+            f"{status.scenario:<14}"
+        )
+
+
+def check_status(
+    ctx: LauncherContext,
+    *,
+    detailed: bool = False,
+    state_filter: str | None = None,
+) -> None:
     statuses, scheduler_error = collect_campaign_status(ctx)
+    if state_filter is not None:
+        print_status_filter(statuses, state_filter)
+        if scheduler_error is not None:
+            print(f"Scheduler status unavailable: {scheduler_error}")
+        return
+
     counts = {
         state: sum(status.state == state for status in statuses)
         for state in (*CAMPAIGN_STATUS_ORDER, "UNKNOWN")
@@ -3075,6 +3130,17 @@ def parse_args() -> argparse.Namespace:
         const="detailed",
         help="Print campaign totals and one line per resolved experiment.",
     )
+    for view_name, state in STATUS_FILTERS.items():
+        status_view.add_argument(
+            f"--{view_name.replace('_', '-')}",
+            dest="status_view",
+            action="store_const",
+            const=view_name,
+            help=(
+                f"Print only {state.lower().replace('_', ' ')} jobs and "
+                "their gage IDs."
+            ),
+        )
     parser.set_defaults(status_view="summary")
     return parser.parse_args()
 
@@ -3090,7 +3156,11 @@ def main() -> None:
 
     validate_context(ctx)
     if args.mode == "status":
-        check_status(ctx, detailed=args.status_view == "detailed")
+        check_status(
+            ctx,
+            detailed=args.status_view == "detailed",
+            state_filter=STATUS_FILTERS.get(args.status_view),
+        )
         return
     validate_launcher_resources(ctx)
     if args.mode == "submit":
