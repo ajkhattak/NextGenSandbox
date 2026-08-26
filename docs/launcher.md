@@ -540,6 +540,10 @@ Add this block to `launcher_config.yaml`:
 
 ```yaml
 regime_calibration:
+  execution:
+    mode: priority
+    order: [ref, wet, dry]
+
   reference:
     start: "2013-10-01 00:00:00"
     end: "2024-09-30 23:00:00"
@@ -578,6 +582,32 @@ eligible years is an error.
 Wet and dry simulations begin one spinup period before the earliest selected
 year and end after the latest selected year. Intermediate years are simulated
 to keep the run continuous but do not contribute to the objective function.
+
+### Scenario Scheduling
+
+Regime scenarios use priority scheduling by default. The recommended explicit
+configuration is:
+
+```yaml
+regime_calibration:
+  execution:
+    mode: priority
+    order: [ref, wet, dry]
+```
+
+At each launcher coordinator cycle, candidates are considered across the
+entire campaign in the configured order. Reference jobs are admitted first,
+followed by wet and then dry jobs. Both `slurm.max_active_jobs` and
+`slurm.max_total_mpi_tasks` remain hard limits.
+
+Priority scheduling does not create a strict barrier between scenarios. If
+running reference jobs use 40 of a 150-task campaign limit, the launcher may
+use the remaining 110 tasks for additional reference jobs and then wet or dry
+jobs that fit. A reference job that cannot fit the remaining capacity does not
+prevent a smaller lower-priority job from using otherwise idle resources.
+
+Set `mode: parallel` to retain gage-first scheduling. The `order` list must
+contain every configured scenario exactly once.
 
 ## Local Resources
 

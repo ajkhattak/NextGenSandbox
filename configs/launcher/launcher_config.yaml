@@ -110,6 +110,10 @@ slurm:
 # Optional regime calibration. For every selected experiment and gage, the
 # launcher creates independent ref, wet, and dry calibration scenarios.
 regime_calibration:
+   execution:
+     mode: priority
+     order: [ref, wet, dry]
+
    reference:
      start: "2013-10-01 00:00:00"
      end: "2023-09-30 23:00:00"

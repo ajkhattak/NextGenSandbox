@@ -1290,6 +1290,82 @@ class TestLauncherSelection(unittest.TestCase):
 
             submit.assert_called_once_with(context, ("123",))
 
+    def test_priority_scheduler_uses_spare_capacity_for_wet_job(self):
+        gages = ("01109403", "02299950")
+        scenarios = tuple(
+            launcher.CalibrationScenario(name=name, calibration={})
+            for name in ("ref", "wet", "dry")
+        )
+        context = SimpleNamespace(
+            campaign_name="regime",
+            output_dir=Path("/tmp/outputs"),
+            log_dir=Path("/tmp/outputs/logs"),
+            metadata_index_dir_name="metadata",
+            stages=("calibration",),
+            local={"max_workers": 2, "startup_delay_seconds": 0},
+            slurm={
+                "max_active_jobs": 2,
+                "max_total_mpi_tasks": 150,
+                "startup_delay_seconds": 0,
+            },
+            map_cfg={
+                "mapping": {gage_id: ["nom_cfe_s"] for gage_id in gages},
+                "formulations": {
+                    "nom_cfe_s": {"models": "NOM,CFE,T-route"}
+                },
+                "groups": {},
+            },
+            calibration_scenarios={gage_id: scenarios for gage_id in gages},
+            scenario_execution_mode="priority",
+            scenario_order=("ref", "wet", "dry"),
+        )
+
+        def num_cpus(metadata_dir, gage_id):
+            if gage_id == "01109403" and "wet" in str(metadata_dir):
+                return 20
+            return 120
+
+        with (
+            patch.object(launcher, "write_slurm_worker_script"),
+            patch.object(
+                launcher,
+                "get_active_slurm_jobs",
+                return_value=[
+                    launcher.ActiveSlurmJob(
+                        "100",
+                        "nom_cfe_s_ref_01109403",
+                        40,
+                        "RUNNING",
+                    )
+                ],
+            ),
+            patch.object(
+                launcher,
+                "is_experiment_complete",
+                return_value=False,
+            ),
+            patch.object(
+                launcher,
+                "get_experiment_progress",
+                return_value=launcher.ExperimentProgress(configured=True),
+            ),
+            patch.object(launcher, "get_num_cpus", side_effect=num_cpus),
+            patch.object(
+                launcher,
+                "run_experiment",
+                return_value=launcher.ExperimentRun(
+                    Path("/tmp/wet.yaml"),
+                    "200",
+                ),
+            ) as run,
+            patch.object(launcher, "submit_launcher") as submit,
+        ):
+            launcher.runner(context, use_slurm=True)
+
+        self.assertEqual(run.call_count, 1)
+        self.assertEqual(run.call_args.args[3], "nom_cfe_s_wet_01109403")
+        submit.assert_called_once_with(context, ("100", "200"))
+
     def test_slurm_job_limit_defers_submission(self):
         reason = launcher.slurm_limit_reason(
             active_jobs=4,
@@ -1401,6 +1477,51 @@ class TestLauncherSelection(unittest.TestCase):
                 by_name["dry"].calibration["end"],
                 "2023-09-30 23:00:00",
             )
+
+    def test_regime_priority_orders_all_reference_runs_first(self):
+        gages = ("01109403", "02299950")
+        scenarios = tuple(
+            launcher.CalibrationScenario(name=name, calibration={})
+            for name in ("ref", "wet", "dry")
+        )
+        context = SimpleNamespace(
+            map_cfg={
+                "mapping": {gage_id: ["nom_cfe_s"] for gage_id in gages},
+                "formulations": {
+                    "nom_cfe_s": {"models": "NOM,CFE,T-route"}
+                },
+                "groups": {},
+            },
+            calibration_scenarios={gage_id: scenarios for gage_id in gages},
+            scenario_execution_mode="priority",
+            scenario_order=("ref", "wet", "dry"),
+        )
+
+        units = launcher.launcher_run_units(context)
+
+        self.assertEqual(
+            [unit.scenario.display_name for unit in units],
+            ["ref", "ref", "wet", "wet", "dry", "dry"],
+        )
+
+    def test_regime_execution_order_must_include_every_scenario(self):
+        scenarios = {
+            "01109403": tuple(
+                launcher.CalibrationScenario(name=name, calibration={})
+                for name in ("ref", "wet", "dry")
+            )
+        }
+        config = {
+            "regime_calibration": {
+                "execution": {
+                    "mode": "priority",
+                    "order": ["ref", "wet"],
+                }
+            }
+        }
+
+        with self.assertRaisesRegex(ValueError, "missing: dry"):
+            launcher.resolve_scenario_execution(config, scenarios)
 
     def test_regime_scenario_uses_fewer_years_when_five_are_unavailable(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -117,6 +117,8 @@ class LauncherContext:
     local: dict[str, Any]
     selection_summary: dict[str, int]
     calibration_scenarios: dict[str, tuple[CalibrationScenario, ...]]
+    scenario_execution_mode: str
+    scenario_order: tuple[str, ...]
     slurm: dict[str, Any]
 
     @property
@@ -177,6 +179,14 @@ class CampaignStatus:
     average_iteration_seconds: float | None
     estimated_remaining_seconds: float | None
     slurm_job_id: str | None = None
+
+
+@dataclass(frozen=True)
+class LauncherRunUnit:
+    gage_id: str
+    formulation_name: str
+    formulation_spec: dict[str, Any]
+    scenario: CalibrationScenario
 
 
 def load_yaml(path: Path) -> dict[str, Any]:
@@ -793,6 +803,61 @@ def resolve_calibration_scenarios(
     }
 
 
+def resolve_scenario_execution(
+    launcher_cfg: dict[str, Any],
+    calibration_scenarios: dict[str, tuple[CalibrationScenario, ...]],
+) -> tuple[str, tuple[str, ...]]:
+    regime_config = launcher_cfg.get("regime_calibration")
+    if regime_config is None:
+        return "parallel", ("default",)
+
+    execution = regime_config.get("execution") or {}
+    if not isinstance(execution, dict):
+        raise TypeError(
+            "regime_calibration.execution must be a YAML dictionary/object"
+        )
+    unknown = sorted(set(execution) - {"mode", "order"})
+    if unknown:
+        raise ValueError(
+            "regime_calibration.execution contains unsupported field(s): "
+            f"{', '.join(unknown)}"
+        )
+
+    mode = str(execution.get("mode", "priority")).strip().lower()
+    if mode not in {"priority", "parallel"}:
+        raise ValueError(
+            "regime_calibration.execution.mode must be one of: "
+            "priority, parallel"
+        )
+
+    first_scenarios = next(iter(calibration_scenarios.values()))
+    available = tuple(scenario.display_name for scenario in first_scenarios)
+    configured_order = execution.get("order", list(available))
+    if not isinstance(configured_order, list) or not configured_order:
+        raise TypeError(
+            "regime_calibration.execution.order must be a non-empty YAML list"
+        )
+    order = tuple(str(name).strip().lower() for name in configured_order)
+    if any(not name for name in order) or len(order) != len(set(order)):
+        raise ValueError(
+            "regime_calibration.execution.order must contain unique, "
+            "non-empty scenario names"
+        )
+    missing = sorted(set(available) - set(order))
+    unknown_names = sorted(set(order) - set(available))
+    if missing or unknown_names:
+        details = []
+        if missing:
+            details.append(f"missing: {', '.join(missing)}")
+        if unknown_names:
+            details.append(f"unknown: {', '.join(unknown_names)}")
+        raise ValueError(
+            "regime_calibration.execution.order must list every configured "
+            f"scenario exactly once ({'; '.join(details)})"
+        )
+    return mode, order
+
+
 def load_context(config_file: Path) -> LauncherContext:
     config_file = config_file.expanduser()
     if not config_file.is_absolute():
@@ -889,6 +954,10 @@ def load_context(config_file: Path) -> LauncherContext:
         sandbox_cfg,
         launcher_dir,
     )
+    scenario_execution_mode, scenario_order = resolve_scenario_execution(
+        launcher_cfg,
+        calibration_scenarios,
+    )
     slurm_value = launcher_cfg.get("slurm")
     if slurm_value is None:
         slurm = {}
@@ -919,6 +988,8 @@ def load_context(config_file: Path) -> LauncherContext:
         local=local,
         selection_summary=selection_summary,
         calibration_scenarios=calibration_scenarios,
+        scenario_execution_mode=scenario_execution_mode,
+        scenario_order=scenario_order,
         slurm=slurm,
     )
 
@@ -1361,6 +1432,35 @@ def get_calibration_scenarios(
     gage_id: str,
 ) -> tuple[CalibrationScenario, ...]:
     return ctx.calibration_scenarios[gage_id]
+
+
+def launcher_run_units(ctx: LauncherContext) -> list[LauncherRunUnit]:
+    units = [
+        LauncherRunUnit(
+            gage_id=gage_id,
+            formulation_name=formulation_name,
+            formulation_spec=formulation_spec,
+            scenario=scenario,
+        )
+        for gage_id in ctx.map_cfg["mapping"]
+        for formulation_name, formulation_spec in get_formulations_for_gage(
+            ctx,
+            gage_id,
+        )
+        for scenario in get_calibration_scenarios(ctx, gage_id)
+    ]
+    if getattr(ctx, "scenario_execution_mode", "parallel") != "priority":
+        return units
+
+    scenario_order = getattr(ctx, "scenario_order", ())
+    priority = {name: index for index, name in enumerate(scenario_order)}
+    return sorted(
+        units,
+        key=lambda unit: priority.get(
+            unit.scenario.display_name,
+            len(priority),
+        ),
+    )
 
 
 def experiment_output_dir(
@@ -2852,158 +2952,157 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
             f"MPI tasks={active_mpi_tasks}/{max_total_mpi_tasks}"
         )
 
-    for gage_id in ctx.map_cfg["mapping"]:
+    for unit in launcher_run_units(ctx):
+        gage_id = unit.gage_id
+        formulation_name = unit.formulation_name
+        formulation_spec = unit.formulation_spec
+        scenario = unit.scenario
+        model_dir = model_name_to_dir(formulation_name)
+        scenario_suffix = f"_{scenario.name}" if scenario.name else ""
+        job_name = f"{model_dir}{scenario_suffix}_{gage_id}"
+        exp_config_dir, metadata_index_dir = experiment_dirs(
+            ctx,
+            model_dir,
+            scenario.name,
+        )
+
         print("----------------------------------------------")
         print(f"---------  Processing Gage: {gage_id} ---------")
+        print(
+            f"--- Formulation: {formulation_name} | "
+            f"Scenario: {scenario.display_name} ---"
+        )
 
-        formulations_for_gage = get_formulations_for_gage(ctx, gage_id)
-        for index, (formulation_name, formulation_spec) in enumerate(formulations_for_gage):
+        if is_experiment_complete(
+            ctx,
+            gage_id,
+            model_dir,
+            scenario.name,
+        ):
             print(
-                f"\n--- Formulation {index + 1}/{len(formulations_for_gage)} | "
-                f"{formulation_name} ---"
+                f"[{gage_id}] Experiment '{job_name}' already "
+                "completed. Skipping."
             )
+            continue
 
-            model_dir = model_name_to_dir(formulation_name)
-            scenarios = get_calibration_scenarios(ctx, gage_id)
-            for scenario_index, scenario in enumerate(scenarios):
-                scenario_suffix = f"_{scenario.name}" if scenario.name else ""
-                job_name = f"{model_dir}{scenario_suffix}_{gage_id}"
-                exp_config_dir, metadata_index_dir = experiment_dirs(
-                    ctx,
-                    model_dir,
-                    scenario.name,
+        if job_name in active_job_names:
+            print(
+                f"[{gage_id}] Job '{job_name}' is already running "
+                "or pending. Skipping."
+            )
+            incomplete_exists = True
+            continue
+
+        progress = get_experiment_progress(metadata_index_dir, gage_id)
+        if not progress.configured:
+            if "calibration" not in ctx.stages:
+                raise RuntimeError(
+                    f"Validation was requested for gage {gage_id}, "
+                    f"experiment '{job_name}', but no configured "
+                    "calibration run was found. Run calibration first."
+                )
+            print(
+                f"[{gage_id}] Setup step for "
+                f"{scenario.display_name}; generating configs."
+            )
+            generate_config_files_for_gage(
+                ctx,
+                formulation_name,
+                formulation_spec,
+                model_dir,
+                gage_id,
+                exp_config_dir,
+                metadata_index_dir,
+                scenario=scenario,
+                dryrun=dryrun,
+            )
+            if not dryrun:
+                progress = get_experiment_progress(
+                    metadata_index_dir,
+                    gage_id,
                 )
 
-                if is_experiment_complete(
+        incomplete_exists = True
+
+        if use_slurm:
+            requested_mpi_tasks = get_num_cpus(
+                metadata_index_dir,
+                gage_id,
+            )
+            limit_reason = slurm_limit_reason(
+                active_jobs=active_job_count,
+                active_mpi_tasks=active_mpi_tasks,
+                requested_mpi_tasks=requested_mpi_tasks,
+                max_active_jobs=max_active_jobs,
+                max_total_mpi_tasks=max_total_mpi_tasks,
+            )
+            if limit_reason:
+                print(
+                    f"[{gage_id}] Deferring '{job_name}': "
+                    f"{limit_reason}."
+                )
+                continue
+            delay_seconds = startup_delay_seconds(
+                scheduled_run_index,
+                ctx.slurm["startup_delay_seconds"],
+            )
+            run_result = run_experiment(
+                ctx,
+                model_dir,
+                gage_id,
+                job_name,
+                exp_config_dir,
+                metadata_index_dir,
+                progress,
+                delay_seconds,
+                use_slurm=True,
+                dryrun=dryrun,
+            )
+            if run_result.slurm_job_id is not None:
+                dependency_job_ids.add(run_result.slurm_job_id)
+            active_job_names.add(job_name)
+            active_job_count += 1
+            active_mpi_tasks += requested_mpi_tasks
+            scheduled_run_index += 1
+        elif dryrun:
+            delay_seconds = startup_delay_seconds(
+                scheduled_run_index,
+                ctx.local["startup_delay_seconds"],
+                cycle_size=ctx.local["max_workers"],
+            )
+            run_experiment(
+                ctx,
+                model_dir,
+                gage_id,
+                job_name,
+                exp_config_dir,
+                metadata_index_dir,
+                progress,
+                delay_seconds,
+                use_slurm=False,
+                dryrun=True,
+            )
+            scheduled_run_index += 1
+        else:
+            delay_seconds = startup_delay_seconds(
+                scheduled_run_index,
+                ctx.local["startup_delay_seconds"],
+                cycle_size=ctx.local["max_workers"],
+            )
+            local_jobs.append(
+                (
                     ctx,
-                    gage_id,
                     model_dir,
-                    scenario.name,
-                ):
-                    print(
-                        f"[{gage_id}] Experiment '{job_name}' already "
-                        "completed. Skipping."
-                    )
-                    continue
-
-                if job_name in active_job_names:
-                    print(
-                        f"[{gage_id}] Job '{job_name}' is already running "
-                        "or pending. Skipping."
-                    )
-                    incomplete_exists = True
-                    continue
-
-                progress = get_experiment_progress(metadata_index_dir, gage_id)
-                if not progress.configured:
-                    if "calibration" not in ctx.stages:
-                        raise RuntimeError(
-                            f"Validation was requested for gage {gage_id}, "
-                            f"experiment '{job_name}', but no configured "
-                            "calibration run was found. Run calibration first."
-                        )
-                    print(
-                        f"[{gage_id}] Setup step for "
-                        f"{scenario.display_name}; generating configs."
-                    )
-                    generate_config_files_for_gage(
-                        ctx,
-                        formulation_name,
-                        formulation_spec,
-                        model_dir,
-                        gage_id,
-                        exp_config_dir,
-                        metadata_index_dir,
-                        scenario=scenario,
-                        dryrun=dryrun,
-                    )
-                    if not dryrun:
-                        progress = get_experiment_progress(
-                            metadata_index_dir,
-                            gage_id,
-                        )
-
-                incomplete_exists = True
-
-                if use_slurm:
-                    requested_mpi_tasks = get_num_cpus(
-                        metadata_index_dir,
-                        gage_id,
-                    )
-                    limit_reason = slurm_limit_reason(
-                        active_jobs=active_job_count,
-                        active_mpi_tasks=active_mpi_tasks,
-                        requested_mpi_tasks=requested_mpi_tasks,
-                        max_active_jobs=max_active_jobs,
-                        max_total_mpi_tasks=max_total_mpi_tasks,
-                    )
-                    if limit_reason:
-                        print(
-                            f"[{gage_id}] Deferring '{job_name}': "
-                            f"{limit_reason}."
-                        )
-                        continue
-                    delay_seconds = startup_delay_seconds(
-                        scheduled_run_index,
-                        ctx.slurm["startup_delay_seconds"],
-                    )
-                    run_result = run_experiment(
-                        ctx,
-                        model_dir,
-                        gage_id,
-                        job_name,
-                        exp_config_dir,
-                        metadata_index_dir,
-                        progress,
-                        delay_seconds,
-                        use_slurm=True,
-                        dryrun=dryrun,
-                    )
-                    if run_result.slurm_job_id is not None:
-                        dependency_job_ids.add(run_result.slurm_job_id)
-                    active_job_names.add(job_name)
-                    active_job_count += 1
-                    active_mpi_tasks += requested_mpi_tasks
-                    scheduled_run_index += 1
-                elif dryrun:
-                    delay_seconds = startup_delay_seconds(
-                        scheduled_run_index,
-                        ctx.local["startup_delay_seconds"],
-                        cycle_size=ctx.local["max_workers"],
-                    )
-                    run_experiment(
-                        ctx,
-                        model_dir,
-                        gage_id,
-                        job_name,
-                        exp_config_dir,
-                        metadata_index_dir,
-                        progress,
-                        delay_seconds,
-                        use_slurm=False,
-                        dryrun=True,
-                    )
-                    scheduled_run_index += 1
-                else:
-                    delay_seconds = startup_delay_seconds(
-                        scheduled_run_index,
-                        ctx.local["startup_delay_seconds"],
-                        cycle_size=ctx.local["max_workers"],
-                    )
-                    local_jobs.append(
-                        (
-                            ctx,
-                            model_dir,
-                            gage_id,
-                            job_name,
-                            exp_config_dir,
-                            metadata_index_dir,
-                            progress,
-                            delay_seconds,
-                            dryrun,
-                        )
-                    )
-                    scheduled_run_index += 1
+                    gage_id,
+                    job_name,
+                    exp_config_dir,
+                    metadata_index_dir,
+                    progress,
+                    delay_seconds,
+                    dryrun,
+                )
+            )
+            scheduled_run_index += 1
 
     if not use_slurm and local_jobs:
         max_workers = min(ctx.local["max_workers"], multiprocessing.cpu_count())
@@ -3044,6 +3143,11 @@ def print_check_report(ctx: LauncherContext) -> None:
     print(f"Output dir      : {ctx.output_dir}")
     print(f"Slurm logs      : {ctx.log_dir}")
     print(f"Stages          : {', '.join(ctx.stages)}")
+    print(
+        "Scenario order  : "
+        f"{ctx.scenario_execution_mode} "
+        f"({', '.join(ctx.scenario_order)})"
+    )
     print(f"Local workers   : {ctx.local['max_workers']}")
     print(f"Local delay     : {ctx.local['startup_delay_seconds']} sec")
     print(f"Mapped gages    : {len(ctx.map_cfg['mapping'])}")
