@@ -18,7 +18,7 @@ fi
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 mkdir -p "${output_dir}"
 
-python "${script_dir}/python/check_hydrofabric_basin_area.py" \
+python -u "${script_dir}/python/check_hydrofabric_basin_area.py" \
     "${input_pattern}" \
     --hf-nldi-threshold-pct 5 \
     --clean-threshold-pct 10 \
@@ -28,6 +28,8 @@ python "${script_dir}/python/check_hydrofabric_basin_area.py" \
     --cleaned-gpkg-dir "${output_dir}/cleaned_hydrofabric" \
     --delete-outside-fraction-pct 50 \
     --minimum-outside-area-sqkm 0.1 \
+    --nldi-workers 8 \
     --figure-dir "${output_dir}/figures" \
     --figure-format pdf \
+    --figure-scope attention \
     "$@"

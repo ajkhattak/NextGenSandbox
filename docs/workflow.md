@@ -145,7 +145,10 @@ NLDI basin boundary. `--figure-format pdf` writes one multi-page
 `basin_boundary_comparisons.pdf`, ordered with failed basins first and passing
 basins last. `--figure-format jpeg` writes one image per gage. The audit CSV
 records the report path and page number. Omit `--figure-dir` for the faster
-area-only check.
+area-only check. Use `--figure-scope attention` to plot only failures, cleanup
+errors, and basins with removed divides; use `--figure-scope all` for every
+basin. NLDI boundaries downloaded for the area check are reused during cleanup
+and plotting rather than downloaded again.
 
 For the recommended 5%/10%/20% thresholds and a consolidated PDF, the shell
 wrapper keeps the command short:
@@ -158,7 +161,9 @@ bash utils/check_hydrofabric_basin_area.sh \
 Quote a glob so the Python utility, rather than the shell, expands it. The
 wrapper writes the audit, `selected_gages.csv`, `removed_divides.csv`, cleaned
 GeoPackages, and the PDF report beneath the specified output directory.
-Additional utility options may be appended to the wrapper command.
+For faster batch execution, it uses eight NLDI workers and the `attention`
+figure scope. Additional utility options may be appended to the wrapper command;
+append `--figure-scope all` when a page for every basin is required.
 
 If the gage-specific geopackages already exist, use
 `general.gages.option: gpkg` or place the files under the configured resource

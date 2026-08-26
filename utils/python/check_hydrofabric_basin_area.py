@@ -26,9 +26,11 @@ import re
 import shutil
 import sqlite3
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import StringIO
 from pathlib import Path
+from threading import Lock
 from typing import Iterable
 
 import numpy as np
@@ -48,6 +50,8 @@ NLDI_FEATURE_URL = (
 )
 SQUARE_MILES_TO_SQUARE_KM = 2.589988110336
 SELECTED_STATUSES = {"CLEAN_PASS", "ACCEPTABLE_OUTLET_OFFSET"}
+_NLDI_BOUNDARY_CACHE: dict[tuple[str, bool], object] = {}
+_NLDI_BOUNDARY_CACHE_LOCK = Lock()
 
 
 def _classification(
@@ -202,6 +206,11 @@ def fetch_usgs_drainage_areas(
     ids = sorted(set(map(str, gage_ids)))
     session = _nwis_session()
     tables: list[pd.DataFrame] = []
+    batch_count = max(1, (len(ids) + batch_size - 1) // batch_size)
+    print(
+        f"Fetching NWIS metadata for {len(ids)} gage(s) in {batch_count} batch(es)...",
+        flush=True,
+    )
     for start in range(0, len(ids), batch_size):
         batch = ids[start : start + batch_size]
         response = session.get(
@@ -218,6 +227,8 @@ def fetch_usgs_drainage_areas(
         table = _parse_nwis_rdb(response.text)
         if not table.empty:
             tables.append(table)
+        batch_number = start // batch_size + 1
+        print(f"NWIS metadata: batch {batch_number}/{batch_count}", flush=True)
 
     if not tables:
         return pd.DataFrame(columns=["gage_id", "station_name", "usgs_area_sqmi", "usgs_area_sqkm"])
@@ -389,6 +400,22 @@ def fetch_usgs_basin_boundary(
     """Return the network-derived NLDI drainage basin as a GeoDataFrame."""
     import geopandas as gpd
 
+    cache_key = (str(gage_id), bool(simplified))
+    with _NLDI_BOUNDARY_CACHE_LOCK:
+        cached = _NLDI_BOUNDARY_CACHE.get(cache_key)
+        full_resolution = _NLDI_BOUNDARY_CACHE.get((str(gage_id), False))
+    if cached is not None:
+        return cached.copy()
+    if simplified and full_resolution is not None:
+        boundary = full_resolution.copy()
+        boundary.geometry = boundary.geometry.simplify(
+            0.0001,
+            preserve_topology=True,
+        )
+        with _NLDI_BOUNDARY_CACHE_LOCK:
+            _NLDI_BOUNDARY_CACHE[cache_key] = boundary
+        return boundary.copy()
+
     session = session or _nwis_session()
     response = session.get(
         NLDI_BASIN_URL.format(gage_id=gage_id),
@@ -403,7 +430,9 @@ def fetch_usgs_basin_boundary(
     boundary = gpd.GeoDataFrame.from_features(features, crs="EPSG:4326")
     if boundary.empty or boundary.geometry.isna().all():
         raise ValueError(f"NLDI returned an empty basin boundary for USGS-{gage_id}")
-    return boundary
+    with _NLDI_BOUNDARY_CACHE_LOCK:
+        _NLDI_BOUNDARY_CACHE[cache_key] = boundary
+    return boundary.copy()
 
 
 def fetch_nldi_feature(
@@ -456,6 +485,11 @@ def fetch_nldi_basin_areas(
     ids = sorted(set(map(str, gage_ids)))
     if workers < 1:
         raise ValueError("NLDI workers must be at least 1")
+    print(
+        f"Fetching full-resolution NLDI basins for {len(ids)} gage(s) "
+        f"with {workers} worker(s)...",
+        flush=True,
+    )
 
     def fetch_one(gage_id: str) -> dict:
         try:
@@ -982,9 +1016,22 @@ def generate_cleaned_hydrofabrics(
     result["cleanup_error"] = ""
     removed_records: list[dict] = []
     session = _nwis_session()
+    total = len(result)
+    print(
+        f"Cleaning {total} hydrofabric GeoPackage(s) into {output_dir}...",
+        flush=True,
+    )
 
-    for index, row in result.iterrows():
+    for position, (index, row) in enumerate(result.iterrows(), start=1):
+        gage_label = str(row["gage_id"] or Path(row["gpkg_file"]).name)
+        started = time.perf_counter()
+        print(f"Cleanup [{position}/{total}] {gage_label}: starting", flush=True)
         if not row["gage_id"] or row["processing_error"] or pd.isna(row["nldi_area_sqkm"]):
+            print(
+                f"Cleanup [{position}/{total}] {gage_label}: skipped "
+                "because required basin information is unavailable",
+                flush=True,
+            )
             continue
         try:
             boundary = fetch_usgs_basin_boundary(
@@ -1051,6 +1098,12 @@ def generate_cleaned_hydrofabrics(
                         **record,
                     }
                 )
+            elapsed = time.perf_counter() - started
+            print(
+                f"Cleanup [{position}/{total}] {gage_label}: removed "
+                f"{len(divide_ids)} divide(s), {cleaned_status}, {elapsed:.1f}s",
+                flush=True,
+            )
         except Exception as exc:
             result.at[index, "cleaned_status"] = "CLEANUP_ERROR"
             result.at[index, "cleanup_error"] = f"{type(exc).__name__}: {exc}"
@@ -1058,6 +1111,7 @@ def generate_cleaned_hydrofabrics(
                 f"WARNING: cleanup failed for {row['gage_id']}: "
                 f"{type(exc).__name__}: {exc}",
                 file=sys.stderr,
+                flush=True,
             )
 
     removed = pd.DataFrame(
@@ -1246,12 +1300,15 @@ def generate_boundary_figures(
     figure_dir: str | Path,
     *,
     figure_format: str = "jpeg",
+    figure_scope: str = "all",
     timeout_seconds: int = 60,
 ) -> pd.DataFrame:
     """Generate one boundary-comparison figure per comparable GeoPackage."""
     figure_format = figure_format.lower()
     if figure_format not in {"pdf", "jpeg"}:
         raise ValueError("figure_format must be one of: pdf, jpeg")
+    if figure_scope not in {"all", "attention"}:
+        raise ValueError("figure_scope must be one of: all, attention")
     output_dir = Path(figure_dir).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     result = result.copy()
@@ -1275,6 +1332,27 @@ def generate_boundary_figures(
             str(result.at[index, "gage_id"]),
         ),
     )
+    if figure_scope == "attention":
+        ordered_indices = [
+            index
+            for index in ordered_indices
+            if (
+                str(result.at[index, "status"]) not in SELECTED_STATUSES
+                or (
+                    "cleaned_status" in result
+                    and str(result.at[index, "cleaned_status"])
+                    not in SELECTED_STATUSES
+                )
+                or (
+                    "removed_divide_count" in result
+                    and int(result.at[index, "removed_divide_count"] or 0) > 0
+                )
+                or (
+                    "cleanup_error" in result
+                    and bool(result.at[index, "cleanup_error"])
+                )
+            )
+        ]
 
     pdf = None
     consolidated_pdf = output_dir / "basin_boundary_comparisons.pdf"
@@ -1283,11 +1361,25 @@ def generate_boundary_figures(
 
         pdf = PdfPages(consolidated_pdf)
     page_number = 0
+    total = len(ordered_indices)
+    print(
+        f"Rendering {total} boundary comparison(s) as {figure_format}...",
+        flush=True,
+    )
     try:
-        for index in ordered_indices:
+        for position, index in enumerate(ordered_indices, start=1):
             row = result.loc[index]
+            gage_label = str(row["gage_id"] or Path(row["gpkg_file"]).name)
             if not row["gage_id"] or row["processing_error"]:
+                print(
+                    f"Figure [{position}/{total}] {gage_label}: skipped",
+                    flush=True,
+                )
                 continue
+            print(
+                f"Figure [{position}/{total}] {gage_label}: rendering",
+                flush=True,
+            )
             output = (
                 None
                 if figure_format == "pdf"
@@ -1311,12 +1403,17 @@ def generate_boundary_figures(
                     consolidated_pdf.resolve() if pdf is not None else saved
                 )
                 result.at[index, "figure_page"] = page_number
+                print(
+                    f"Figure [{position}/{total}] {gage_label}: saved",
+                    flush=True,
+                )
             except Exception as exc:
                 result.at[index, "visualization_error"] = f"{type(exc).__name__}: {exc}"
                 print(
                     f"WARNING: figure failed for {row['gage_id']}: "
                     f"{type(exc).__name__}: {exc}",
                     file=sys.stderr,
+                    flush=True,
                 )
     finally:
         if pdf is not None:
@@ -1428,12 +1525,23 @@ def _parser() -> argparse.ArgumentParser:
             "image per gage (default: jpeg)"
         ),
     )
+    parser.add_argument(
+        "--figure-scope",
+        choices=("all", "attention"),
+        default="all",
+        help=(
+            "all plots every basin; attention plots only failures, cleanup "
+            "errors, and basins with removed divides (default: all)"
+        ),
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    run_started = time.perf_counter()
     try:
+        print("Discovering GeoPackage inputs...", flush=True)
         files = discover_gpkg_files(args.inputs)
         print(f"Found {len(files)} GeoPackage(s).", flush=True)
         result = compare_basin_areas(
@@ -1467,6 +1575,7 @@ def main(argv: list[str] | None = None) -> int:
             result,
             args.figure_dir,
             figure_format=args.figure_format,
+            figure_scope=args.figure_scope,
             timeout_seconds=args.timeout_seconds,
         )
 
@@ -1527,6 +1636,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.cleaned_gpkg_dir is not None
         else 0
     )
+    print(f"Total elapsed time: {time.perf_counter() - run_started:.1f}s", flush=True)
     return (
         0
         if result[status_column].isin(SELECTED_STATUSES).all()
