@@ -53,6 +53,23 @@ class TestHydrofabricBasinArea(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "multiple possible gage IDs"):
             checker.extract_gage_id("08070500_to_09112500.gpkg")
 
+    def test_discovery_recurses_into_directories_matched_by_quoted_glob(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            expected = []
+            for gage_id in ("08070500", "09112500"):
+                directory = root / gage_id / "hydrofabric"
+                directory.mkdir(parents=True)
+                gpkg = directory / f"gage_{gage_id}.gpkg"
+                write_divides(gpkg, [("cat-1", 1.0)])
+                expected.append(gpkg.resolve())
+
+            discovered = checker.discover_gpkg_files(
+                [str(root / "*" / "hydrofabric")]
+            )
+
+        self.assertEqual(discovered, sorted(expected))
+
     def test_hydrofabric_area_sums_divides(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "gage_08070500.gpkg"
@@ -70,6 +87,116 @@ class TestHydrofabricBasinArea(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "duplicate divide_id"):
                 checker.hydrofabric_area_sqkm(path)
+
+    def test_cleaned_hydrofabric_removes_flagged_divide_and_related_rows(self):
+        import geopandas as gpd
+        from shapely.geometry import LineString, Point, box
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "gage_08070500.gpkg"
+            output = Path(tmp) / "cleaned" / source.name
+            divides = gpd.GeoDataFrame(
+                {
+                    "divide_id": ["cat-in", "cat-out"],
+                    "id": ["wb-in", "wb-out"],
+                    "toid": ["nex-in", "nex-out"],
+                    "areasqkm": [1.0, 1.0],
+                    "tot_drainage_areasqkm": [1.0, 1.0],
+                },
+                geometry=[box(-80.0, 35.0, -79.99, 35.01), box(-79.97, 35.0, -79.96, 35.01)],
+                crs="EPSG:4326",
+            )
+            flowpaths = gpd.GeoDataFrame(
+                {
+                    "id": ["wb-in", "wb-out"],
+                    "toid": ["nex-shared", "nex-shared"],
+                    "divide_id": ["cat-in", "cat-out"],
+                    "areasqkm": [1.0, 1.0],
+                    "tot_drainage_areasqkm": [1.0, 1.0],
+                    "poi_id": ["", "77968"],
+                },
+                geometry=[
+                    LineString([(-79.999, 35.001), (-79.991, 35.009)]),
+                    LineString([(-79.969, 35.001), (-79.961, 35.009)]),
+                ],
+                crs="EPSG:4326",
+            )
+            nexus = gpd.GeoDataFrame(
+                {"id": ["nex-shared"], "toid": [None], "poi_id": ["77968"]},
+                geometry=[Point(-79.985, 35.009)],
+                crs="EPSG:4326",
+            )
+            divides.to_file(source, layer="divides", driver="GPKG")
+            flowpaths.to_file(source, layer="flowpaths", driver="GPKG")
+            nexus.to_file(source, layer="nexus", driver="GPKG")
+            with sqlite3.connect(source) as connection:
+                pd.DataFrame(
+                    {"divide_id": ["cat-in", "cat-out"], "value": [1.0, 2.0]}
+                ).to_sql("divide-attributes", connection, index=False)
+                pd.DataFrame(
+                    {
+                        "link": ["wb-in", "wb-out"],
+                        "id": ["wb-in", "wb-out"],
+                        "gage": ["", "08070500"],
+                        "gage_nex_id": ["", "nex-shared"],
+                    }
+                ).to_sql("flowpath-attributes", connection, index=False)
+                pd.DataFrame(
+                    {
+                        "id": ["wb-in", "wb-out"],
+                        "toid": ["nex-shared", "nex-shared"],
+                        "divide_id": ["cat-in", "cat-out"],
+                        "hf_id": [123.0, 456.0],
+                        "poi_id": ["77968", "77968"],
+                        "tot_drainage_areasqkm": [1.0, 1.0],
+                    }
+                ).to_sql("network", connection, index=False)
+
+            boundary = gpd.GeoDataFrame(
+                geometry=[box(-80.005, 34.995, -79.985, 35.015)],
+                crs="EPSG:4326",
+            )
+            divide_audit = checker.identify_divides_outside_boundary(
+                source,
+                boundary,
+                outside_fraction_pct=50.0,
+                minimum_outside_area_sqkm=0.01,
+            ).set_index("divide_id")
+            checker.write_cleaned_hydrofabric(
+                source,
+                output,
+                divide_audit.index[divide_audit["delete"]],
+                gage_id="08070500",
+                nldi_comid=123,
+            )
+
+            with sqlite3.connect(output) as connection:
+                remaining_divides = pd.read_sql_query(
+                    "SELECT divide_id FROM divides", connection
+                )["divide_id"].tolist()
+                remaining_flowpaths = pd.read_sql_query(
+                    "SELECT id, poi_id FROM flowpaths", connection
+                ).set_index("id")
+                remaining_attributes = pd.read_sql_query(
+                    'SELECT divide_id FROM "divide-attributes"', connection
+                )["divide_id"].tolist()
+                remaining_network = pd.read_sql_query(
+                    "SELECT id FROM network", connection
+                )["id"].tolist()
+                reassigned = pd.read_sql_query(
+                    'SELECT id, gage, gage_nex_id FROM "flowpath-attributes"',
+                    connection,
+                ).set_index("id")
+
+        self.assertFalse(divide_audit.loc["cat-in", "delete"])
+        self.assertTrue(divide_audit.loc["cat-out", "delete"])
+        self.assertEqual(remaining_divides, ["cat-in"])
+        self.assertEqual(remaining_flowpaths.index.tolist(), ["wb-in"])
+        self.assertEqual(remaining_flowpaths.loc["wb-in", "poi_id"], "77968")
+        self.assertEqual(remaining_attributes, ["cat-in"])
+        self.assertEqual(remaining_network, ["wb-in"])
+        self.assertEqual(reassigned.loc["wb-in", "gage"], "08070500")
+        self.assertEqual(reassigned.loc["wb-in", "gage_nex_id"], "nex-shared")
 
     def test_comparison_applies_three_way_classification(self):
         with tempfile.TemporaryDirectory() as tmp:

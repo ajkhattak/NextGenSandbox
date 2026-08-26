@@ -104,6 +104,9 @@ python utils/python/check_hydrofabric_basin_area.py \
   --clean-threshold-pct 10 \
   --threshold-pct 20 \
   --output-csv basin_area_comparison.csv \
+  --cleaned-gpkg-dir cleaned_hydrofabric \
+  --delete-outside-fraction-pct 50 \
+  --minimum-outside-area-sqkm 0.1 \
   --figure-dir basin_boundary_figures \
   --figure-format pdf
 ```
@@ -127,6 +130,16 @@ basin is not selected or cannot be compared, and writes the complete audit to
 the requested CSV. The one-column passed CSV contains `gage_id` values from
 both selected categories: `CLEAN_PASS` and `ACCEPTABLE_OUTLET_OFFSET`.
 Use `--passed-csv /path/to/name.csv` to choose its location or filename.
+When `--cleaned-gpkg-dir` is supplied, the original GeoPackages remain
+unchanged. The utility copies each one, removes divides for which at least 50%
+and at least 0.1 km² lie outside the NLDI boundary, removes their associated
+flowpath and attribute rows, checks that the deletion does not remove a gage
+flowpath or sever a retained downstream connection, and recalculates accumulated
+drainage-area attributes. Configure the two deletion limits with
+`--delete-outside-fraction-pct` and `--minimum-outside-area-sqkm`. The audit
+records original and corrected classifications, while `removed_divides.csv`
+records every deleted divide and its outside-area measurements. Existing
+cleaned files are protected unless `--overwrite-cleaned-gpkg` is supplied.
 When `--figure-dir` is supplied, the utility also retrieves the network-derived
 NLDI basin boundary. `--figure-format pdf` writes one multi-page
 `basin_boundary_comparisons.pdf`, ordered with failed basins first and passing
@@ -143,9 +156,9 @@ bash utils/check_hydrofabric_basin_area.sh \
 ```
 
 Quote a glob so the Python utility, rather than the shell, expands it. The
-wrapper writes the audit, `selected_gages.csv`, and the PDF report beneath the
-specified output directory. Additional utility options may be appended to the
-wrapper command.
+wrapper writes the audit, `selected_gages.csv`, `removed_divides.csv`, cleaned
+GeoPackages, and the PDF report beneath the specified output directory.
+Additional utility options may be appended to the wrapper command.
 
 If the gage-specific geopackages already exist, use
 `general.gages.option: gpkg` or place the files under the configured resource

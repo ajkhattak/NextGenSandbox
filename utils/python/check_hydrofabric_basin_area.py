@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import glob
 import re
+import shutil
 import sqlite3
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -42,8 +43,29 @@ NLDI_BASIN_URL = (
     "https://api.water.usgs.gov/nldi/linked-data/nwissite/"
     "USGS-{gage_id}/basin"
 )
+NLDI_FEATURE_URL = (
+    "https://api.water.usgs.gov/nldi/linked-data/nwissite/USGS-{gage_id}"
+)
 SQUARE_MILES_TO_SQUARE_KM = 2.589988110336
 SELECTED_STATUSES = {"CLEAN_PASS", "ACCEPTABLE_OUTLET_OFFSET"}
+
+
+def _classification(
+    hf_nldi_absolute_difference_pct: float,
+    nldi_nwis_absolute_difference_pct: float,
+    *,
+    hf_nldi_threshold_pct: float,
+    clean_threshold_pct: float,
+    threshold_pct: float,
+) -> str:
+    """Classify one basin from its topology and observation-area differences."""
+    if hf_nldi_absolute_difference_pct > hf_nldi_threshold_pct:
+        return "SUBSETTER_OR_TOPOLOGY_FAILURE"
+    if nldi_nwis_absolute_difference_pct > threshold_pct:
+        return "OBSERVATION_DOMAIN_MISMATCH"
+    if nldi_nwis_absolute_difference_pct > clean_threshold_pct:
+        return "ACCEPTABLE_OUTLET_OFFSET"
+    return "CLEAN_PASS"
 
 
 def extract_gage_id(path: str | Path) -> str:
@@ -76,8 +98,14 @@ def discover_gpkg_files(inputs: Iterable[str]) -> list[Path]:
         elif path.is_dir():
             files.extend(candidate.resolve() for candidate in path.rglob("*.gpkg"))
         else:
-            matches = [Path(match) for match in glob.glob(value, recursive=True)]
-            files.extend(candidate.resolve() for candidate in matches if candidate.is_file() and candidate.suffix.lower() == ".gpkg")
+            matches = [Path(match) for match in glob.glob(str(path), recursive=True)]
+            for match in matches:
+                if match.is_file() and match.suffix.lower() == ".gpkg":
+                    files.append(match.resolve())
+                elif match.is_dir():
+                    files.extend(
+                        candidate.resolve() for candidate in match.rglob("*.gpkg")
+                    )
     unique = sorted(set(files))
     if not unique:
         raise FileNotFoundError("no GeoPackage files matched the supplied input")
@@ -378,6 +406,28 @@ def fetch_usgs_basin_boundary(
     return boundary
 
 
+def fetch_nldi_feature(
+    gage_id: str,
+    *,
+    session: requests.Session | None = None,
+    timeout_seconds: int = 60,
+) -> dict:
+    """Return the NLDI feature properties for an NWIS gage."""
+    session = session or _nwis_session()
+    response = session.get(
+        NLDI_FEATURE_URL.format(gage_id=gage_id),
+        params={"f": "json"},
+        timeout=timeout_seconds,
+    )
+    response.raise_for_status()
+    features = response.json().get("features", [])
+    if len(features) != 1:
+        raise ValueError(
+            f"NLDI returned {len(features)} feature records for USGS-{gage_id}"
+        )
+    return features[0].get("properties", {})
+
+
 def basin_boundary_area_sqkm(boundary) -> float:
     """Calculate geodesic area of an NLDI basin boundary in square kilometers."""
     from pyproj import Geod
@@ -437,6 +487,548 @@ def fetch_nldi_basin_areas(
         records,
         columns=["gage_id", "nldi_area_sqkm", "nldi_error"],
     )
+
+
+def identify_divides_outside_boundary(
+    gpkg_file: str | Path,
+    boundary,
+    *,
+    outside_fraction_pct: float = 50.0,
+    minimum_outside_area_sqkm: float = 0.1,
+) -> pd.DataFrame:
+    """Measure each divide outside an NLDI boundary and flag deletions."""
+    import geopandas as gpd
+
+    if not 0.0 <= outside_fraction_pct <= 100.0:
+        raise ValueError("outside_fraction_pct must be between 0 and 100")
+    if minimum_outside_area_sqkm < 0 or not np.isfinite(minimum_outside_area_sqkm):
+        raise ValueError("minimum_outside_area_sqkm must be finite and non-negative")
+
+    divides = gpd.read_file(gpkg_file, layer="divides")
+    if "divide_id" not in divides:
+        raise KeyError(f"{Path(gpkg_file).name}: divides layer has no 'divide_id'")
+    if divides["divide_id"].isna().any() or divides["divide_id"].duplicated().any():
+        raise ValueError(f"{Path(gpkg_file).name}: divide_id values must be unique and non-null")
+    if divides.crs is None:
+        raise ValueError(f"{Path(gpkg_file).name}: divides layer has no CRS")
+    if boundary.crs is None:
+        boundary = boundary.set_crs("EPSG:4326")
+
+    equal_area_crs = "EPSG:6933"
+    divides_equal_area = divides.to_crs(equal_area_crs)
+    boundary_equal_area = boundary.to_crs(equal_area_crs)
+    boundary_union = (
+        boundary_equal_area.geometry.union_all()
+        if hasattr(boundary_equal_area.geometry, "union_all")
+        else boundary_equal_area.geometry.unary_union
+    )
+    total_area_sqkm = divides_equal_area.geometry.area / 1_000_000.0
+    outside_geometry = divides_equal_area.geometry.difference(boundary_union)
+    outside_area_sqkm = outside_geometry.area / 1_000_000.0
+    outside_fraction = 100.0 * outside_area_sqkm / total_area_sqkm
+    flagged = (
+        outside_fraction.ge(outside_fraction_pct)
+        & outside_area_sqkm.ge(minimum_outside_area_sqkm)
+    )
+    relation = np.select(
+        [outside_fraction.ge(99.999), outside_fraction.gt(0.001)],
+        ["OUTSIDE", "PARTIAL"],
+        default="INSIDE",
+    )
+    return pd.DataFrame(
+        {
+            "divide_id": divides["divide_id"].astype(str),
+            "divide_area_sqkm": total_area_sqkm.to_numpy(),
+            "outside_area_sqkm": outside_area_sqkm.to_numpy(),
+            "outside_fraction_pct": outside_fraction.to_numpy(),
+            "boundary_relation": relation,
+            "delete": flagged.to_numpy(dtype=bool),
+        }
+    ).sort_values(
+        ["delete", "outside_area_sqkm", "divide_id"],
+        ascending=[False, False, True],
+    ).reset_index(drop=True)
+
+
+def _table_columns(connection: sqlite3.Connection, table: str) -> set[str]:
+    escaped = table.replace('"', '""')
+    return {
+        row[1] for row in connection.execute(f'PRAGMA table_info("{escaped}")')
+    }
+
+
+def _table_exists(connection: sqlite3.Connection, table: str) -> bool:
+    return connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type IN ('table', 'view') AND name = ?",
+        (table,),
+    ).fetchone() is not None
+
+
+def _drop_spatial_update_triggers(
+    connection: sqlite3.Connection,
+    tables: Iterable[str],
+) -> list[tuple[str, str]]:
+    table_names = tuple(tables)
+    if not table_names:
+        return []
+    placeholders = ",".join("?" for _ in table_names)
+    triggers = connection.execute(
+        "SELECT name, sql FROM sqlite_master WHERE type = 'trigger' "
+        f"AND tbl_name IN ({placeholders}) AND name LIKE 'rtree_%_update%'",
+        table_names,
+    ).fetchall()
+    for name, _ in triggers:
+        escaped = name.replace('"', '""')
+        connection.execute(f'DROP TRIGGER "{escaped}"')
+    return triggers
+
+
+def _restore_triggers(
+    connection: sqlite3.Connection,
+    triggers: Iterable[tuple[str, str]],
+) -> None:
+    for _, sql in triggers:
+        connection.execute(sql)
+
+
+def _recalculate_accumulated_areas(connection: sqlite3.Connection) -> None:
+    """Recalculate flowpath accumulated drainage areas after branch removal."""
+    if not (_table_exists(connection, "flowpaths") and _table_exists(connection, "nexus")):
+        return
+    flowpaths = pd.read_sql_query(
+        "SELECT id, toid, divide_id, areasqkm FROM flowpaths",
+        connection,
+    )
+    nexus = pd.read_sql_query("SELECT id, toid FROM nexus", connection)
+    if flowpaths.empty:
+        return
+    local_area = dict(
+        zip(
+            flowpaths["id"].astype(str),
+            pd.to_numeric(flowpaths["areasqkm"], errors="coerce").fillna(0.0),
+        )
+    )
+    nexus_downstream = dict(zip(nexus["id"].astype(str), nexus["toid"]))
+    upstream: dict[str, list[str]] = {flowpath_id: [] for flowpath_id in local_area}
+    for row in flowpaths.itertuples(index=False):
+        downstream = nexus_downstream.get(str(row.toid))
+        if pd.notna(downstream) and str(downstream) in upstream:
+            upstream[str(downstream)].append(str(row.id))
+
+    accumulated: dict[str, float] = {}
+    visiting: set[str] = set()
+
+    def total(flowpath_id: str) -> float:
+        if flowpath_id in accumulated:
+            return accumulated[flowpath_id]
+        if flowpath_id in visiting:
+            raise ValueError(f"cycle detected in flowpath network at {flowpath_id}")
+        visiting.add(flowpath_id)
+        value = float(local_area[flowpath_id]) + sum(
+            total(upstream_id) for upstream_id in upstream[flowpath_id]
+        )
+        visiting.remove(flowpath_id)
+        accumulated[flowpath_id] = value
+        return value
+
+    for flowpath_id in local_area:
+        total(flowpath_id)
+
+    updates = [(value, flowpath_id) for flowpath_id, value in accumulated.items()]
+    spatial_update_triggers = _drop_spatial_update_triggers(
+        connection, ("divides", "flowpaths")
+    )
+    try:
+        if "tot_drainage_areasqkm" in _table_columns(connection, "flowpaths"):
+            connection.executemany(
+                "UPDATE flowpaths SET tot_drainage_areasqkm = ? WHERE id = ?",
+                updates,
+            )
+        if _table_exists(connection, "network"):
+            if "tot_drainage_areasqkm" in _table_columns(connection, "network"):
+                connection.executemany(
+                    'UPDATE network SET tot_drainage_areasqkm = ? WHERE id = ?',
+                    updates,
+                )
+        if _table_exists(connection, "divides"):
+            divide_updates = [
+                (accumulated[str(row.id)], str(row.divide_id))
+                for row in flowpaths.itertuples(index=False)
+                if pd.notna(row.divide_id) and str(row.id) in accumulated
+            ]
+            if "tot_drainage_areasqkm" in _table_columns(connection, "divides"):
+                connection.executemany(
+                    "UPDATE divides SET tot_drainage_areasqkm = ? WHERE divide_id = ?",
+                    divide_updates,
+                )
+    finally:
+        _restore_triggers(connection, spatial_update_triggers)
+
+
+def _migrate_removed_gage_associations(
+    connection: sqlite3.Connection,
+    *,
+    gage_id: str | None,
+    nldi_comid: int | None,
+) -> list[str]:
+    """Move a gage POI from a removed branch to its NLDI-indexed flowpath."""
+    if not _table_exists(connection, "flowpaths"):
+        return []
+    flowpath_columns = _table_columns(connection, "flowpaths")
+    if "poi_id" not in flowpath_columns:
+        return []
+    protected = connection.execute(
+        "SELECT id, poi_id, toid FROM flowpaths WHERE id IN "
+        "(SELECT id FROM remove_flowpaths) AND poi_id IS NOT NULL "
+        "AND trim(poi_id) <> ''"
+    ).fetchall()
+    if not protected:
+        return []
+    if not gage_id or nldi_comid is None or not _table_exists(connection, "network"):
+        raise ValueError(
+            "outside branch contains a gage POI, but an NLDI COMID mapping "
+            "is unavailable for safe reassignment"
+        )
+
+    migrations: list[tuple[str, str, str]] = []
+    for removed_id, poi_id, removed_toid in protected:
+        candidates = connection.execute(
+            "SELECT DISTINCT n.id FROM network n JOIN flowpaths f ON n.id = f.id "
+            "WHERE CAST(n.hf_id AS INTEGER) = ? "
+            "AND n.id NOT IN (SELECT id FROM remove_flowpaths) AND f.toid = ?",
+            (int(nldi_comid), removed_toid),
+        ).fetchall()
+        candidate_ids = sorted({str(row[0]) for row in candidates})
+        if len(candidate_ids) != 1:
+            raise ValueError(
+                f"gage POI on {removed_id} maps to {len(candidate_ids)} retained "
+                f"flowpaths for NLDI COMID {nldi_comid}: {candidate_ids}"
+            )
+        target_id = candidate_ids[0]
+        existing_poi = connection.execute(
+            "SELECT poi_id FROM flowpaths WHERE id = ?", (target_id,)
+        ).fetchone()[0]
+        if existing_poi is not None and str(existing_poi).strip() not in {"", str(poi_id)}:
+            raise ValueError(
+                f"NLDI-indexed flowpath {target_id} already has a different POI: "
+                f"{existing_poi}"
+            )
+        migrations.append((str(removed_id), target_id, str(poi_id)))
+
+        triggers = _drop_spatial_update_triggers(connection, ("flowpaths",))
+        try:
+            connection.execute(
+                "UPDATE flowpaths SET poi_id = ? WHERE id = ?",
+                (str(poi_id), target_id),
+            )
+            connection.execute(
+                "UPDATE flowpaths SET poi_id = '' WHERE id = ?",
+                (str(removed_id),),
+            )
+        finally:
+            _restore_triggers(connection, triggers)
+
+        if _table_exists(connection, "flowpath-attributes"):
+            columns = _table_columns(connection, "flowpath-attributes")
+            id_column = "id" if "id" in columns else "link"
+            if id_column in columns and "gage" in columns:
+                has_gage_nexus = "gage_nex_id" in columns
+                selected_columns = (
+                    "gage, gage_nex_id" if has_gage_nexus else "gage"
+                )
+                source = connection.execute(
+                    f'SELECT {selected_columns} FROM "flowpath-attributes" '
+                    f'WHERE "{id_column}" = ? LIMIT 1',
+                    (str(removed_id),),
+                ).fetchone()
+                source_gage = str(source[0]).strip() if source and source[0] else str(gage_id)
+                if has_gage_nexus:
+                    source_nexus = source[1] if source and len(source) > 1 else removed_toid
+                    connection.execute(
+                        f'UPDATE "flowpath-attributes" SET gage = ?, gage_nex_id = ? '
+                        f'WHERE "{id_column}" = ?',
+                        (source_gage, source_nexus, target_id),
+                    )
+                    connection.execute(
+                        f'UPDATE "flowpath-attributes" SET gage = ?, gage_nex_id = ? '
+                        f'WHERE "{id_column}" = ?',
+                        ("", "", str(removed_id)),
+                    )
+                else:
+                    connection.execute(
+                        f'UPDATE "flowpath-attributes" SET gage = ? '
+                        f'WHERE "{id_column}" = ?',
+                        (source_gage, target_id),
+                    )
+    return [f"{removed_id}->{target_id}" for removed_id, target_id, _ in migrations]
+
+
+def write_cleaned_hydrofabric(
+    source_gpkg: str | Path,
+    output_gpkg: str | Path,
+    divide_ids: Iterable[str],
+    *,
+    overwrite: bool = False,
+    gage_id: str | None = None,
+    nldi_comid: int | None = None,
+) -> dict:
+    """Copy a hydrofabric and remove flagged divides and associated features."""
+    source = Path(source_gpkg).expanduser().resolve()
+    output = Path(output_gpkg).expanduser().resolve()
+    removed_divides = sorted(set(map(str, divide_ids)))
+    output.parent.mkdir(parents=True, exist_ok=True)
+    if output.exists() and not overwrite:
+        raise FileExistsError(f"cleaned GeoPackage already exists: {output}")
+    shutil.copy2(source, output)
+    if not removed_divides:
+        return {
+            "cleaned_gpkg_file": str(output),
+            "removed_divide_count": 0,
+            "removed_flowpath_count": 0,
+            "gage_flowpath_migrations": "",
+        }
+
+    try:
+        with sqlite3.connect(output) as connection:
+            gage_migrations: list[str] = []
+            connection.execute("CREATE TEMP TABLE remove_divides (divide_id TEXT PRIMARY KEY)")
+            connection.executemany(
+                "INSERT INTO remove_divides VALUES (?)",
+                [(divide_id,) for divide_id in removed_divides],
+            )
+            connection.execute("CREATE TEMP TABLE remove_flowpaths (id TEXT PRIMARY KEY)")
+            if _table_exists(connection, "flowpaths"):
+                connection.execute(
+                    "INSERT OR IGNORE INTO remove_flowpaths "
+                    "SELECT id FROM flowpaths WHERE divide_id IN "
+                    "(SELECT divide_id FROM remove_divides)"
+                )
+
+                gage_migrations = _migrate_removed_gage_associations(
+                    connection,
+                    gage_id=gage_id,
+                    nldi_comid=nldi_comid,
+                )
+
+                protected = []
+                if "poi_id" in _table_columns(connection, "flowpaths"):
+                    protected = connection.execute(
+                        "SELECT id FROM flowpaths WHERE id IN "
+                        "(SELECT id FROM remove_flowpaths) AND poi_id IS NOT NULL "
+                        "AND trim(poi_id) <> ''"
+                    ).fetchall()
+                if protected:
+                    raise ValueError(
+                        "refusing to remove flowpath(s) containing a point of interest: "
+                        + ", ".join(row[0] for row in protected)
+                    )
+                if _table_exists(connection, "flowpath-attributes"):
+                    attribute_columns = _table_columns(
+                        connection, "flowpath-attributes"
+                    )
+                    id_column = "id" if "id" in attribute_columns else "link"
+                    if id_column in attribute_columns and "gage" in attribute_columns:
+                        protected = connection.execute(
+                            f'SELECT "{id_column}" FROM "flowpath-attributes" '
+                            f'WHERE "{id_column}" IN (SELECT id FROM remove_flowpaths) '
+                            "AND gage IS NOT NULL AND trim(gage) <> ?",
+                            ("",),
+                        ).fetchall()
+                        if protected:
+                            raise ValueError(
+                                "refusing to remove calibrated gage flowpath(s): "
+                                + ", ".join(row[0] for row in protected)
+                            )
+
+                severed = []
+                if _table_exists(connection, "nexus"):
+                    severed = connection.execute(
+                        "SELECT DISTINCT retained.id, retained.toid, n.toid "
+                        "FROM flowpaths retained JOIN nexus n ON retained.toid = n.id "
+                        "WHERE retained.id NOT IN (SELECT id FROM remove_flowpaths) "
+                        "AND n.toid IN (SELECT id FROM remove_flowpaths)"
+                    ).fetchall()
+                if severed:
+                    raise ValueError(
+                        "refusing cleanup because removal would sever retained downstream "
+                        "connectivity at flowpath(s): "
+                        + ", ".join(row[0] for row in severed)
+                    )
+
+            removed_flowpath_count = connection.execute(
+                "SELECT count(*) FROM remove_flowpaths"
+            ).fetchone()[0]
+            if _table_exists(connection, "divide-attributes"):
+                connection.execute(
+                    'DELETE FROM "divide-attributes" WHERE divide_id IN '
+                    "(SELECT divide_id FROM remove_divides)"
+                )
+            if _table_exists(connection, "flowpath-attributes"):
+                columns = _table_columns(connection, "flowpath-attributes")
+                identifiers = [column for column in ("id", "link") if column in columns]
+                if identifiers:
+                    condition = " OR ".join(
+                        f'"{column}" IN (SELECT id FROM remove_flowpaths)'
+                        for column in identifiers
+                    )
+                    connection.execute(
+                        f'DELETE FROM "flowpath-attributes" WHERE {condition}'
+                    )
+            if _table_exists(connection, "network"):
+                connection.execute(
+                    "DELETE FROM network WHERE divide_id IN "
+                    "(SELECT divide_id FROM remove_divides) OR id IN "
+                    "(SELECT id FROM remove_flowpaths)"
+                )
+            if _table_exists(connection, "flowpaths"):
+                connection.execute(
+                    "DELETE FROM flowpaths WHERE id IN (SELECT id FROM remove_flowpaths)"
+                )
+            deleted_divide_count = connection.execute(
+                "SELECT count(*) FROM divides WHERE divide_id IN "
+                "(SELECT divide_id FROM remove_divides)"
+            ).fetchone()[0]
+            connection.execute(
+                "DELETE FROM divides WHERE divide_id IN (SELECT divide_id FROM remove_divides)"
+            )
+            if deleted_divide_count != len(removed_divides):
+                raise ValueError(
+                    f"requested {len(removed_divides)} divide deletions but found "
+                    f"{deleted_divide_count}"
+                )
+            _recalculate_accumulated_areas(connection)
+            if _table_exists(connection, "nexus"):
+                connection.execute(
+                    "DELETE FROM nexus WHERE (poi_id IS NULL OR trim(poi_id) = '') "
+                    "AND id NOT IN (SELECT toid FROM flowpaths WHERE toid IS NOT NULL) "
+                    "AND (toid IS NULL OR toid NOT IN (SELECT id FROM flowpaths))"
+                )
+            integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
+            if integrity != "ok":
+                raise ValueError(f"GeoPackage integrity check failed: {integrity}")
+        return {
+            "cleaned_gpkg_file": str(output),
+            "removed_divide_count": deleted_divide_count,
+            "removed_flowpath_count": removed_flowpath_count,
+            "gage_flowpath_migrations": ",".join(gage_migrations),
+        }
+    except Exception:
+        output.unlink(missing_ok=True)
+        raise
+
+
+def generate_cleaned_hydrofabrics(
+    result: pd.DataFrame,
+    output_dir: str | Path,
+    *,
+    outside_fraction_pct: float = 50.0,
+    minimum_outside_area_sqkm: float = 0.1,
+    overwrite: bool = False,
+    timeout_seconds: int = 60,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Write cleaned GeoPackages and return updated basin/divide audit tables."""
+    output_dir = Path(output_dir).expanduser().resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    result = result.copy()
+    result["cleaned_gpkg_file"] = ""
+    result["removed_divide_count"] = 0
+    result["removed_flowpath_count"] = 0
+    result["removed_area_sqkm"] = 0.0
+    result["corrected_hydrofabric_area_sqkm"] = np.nan
+    result["corrected_hf_nldi_difference_pct"] = np.nan
+    result["cleaned_status"] = result["status"]
+    result["removed_divide_ids"] = ""
+    result["gage_flowpath_migrations"] = ""
+    result["cleanup_error"] = ""
+    removed_records: list[dict] = []
+    session = _nwis_session()
+
+    for index, row in result.iterrows():
+        if not row["gage_id"] or row["processing_error"] or pd.isna(row["nldi_area_sqkm"]):
+            continue
+        try:
+            boundary = fetch_usgs_basin_boundary(
+                str(row["gage_id"]),
+                session=session,
+                timeout_seconds=timeout_seconds,
+                simplified=False,
+            )
+            divide_audit = identify_divides_outside_boundary(
+                row["gpkg_file"],
+                boundary,
+                outside_fraction_pct=outside_fraction_pct,
+                minimum_outside_area_sqkm=minimum_outside_area_sqkm,
+            )
+            flagged = divide_audit.loc[divide_audit["delete"]].copy()
+            divide_ids = flagged["divide_id"].astype(str).tolist()
+            nldi_comid = None
+            if divide_ids:
+                feature = fetch_nldi_feature(
+                    str(row["gage_id"]),
+                    session=session,
+                    timeout_seconds=timeout_seconds,
+                )
+                if feature.get("comid") is not None:
+                    nldi_comid = int(feature["comid"])
+            output_gpkg = output_dir / Path(row["gpkg_file"]).name
+            cleanup = write_cleaned_hydrofabric(
+                row["gpkg_file"],
+                output_gpkg,
+                divide_ids,
+                overwrite=overwrite,
+                gage_id=str(row["gage_id"]),
+                nldi_comid=nldi_comid,
+            )
+            corrected_area, _ = hydrofabric_area_sqkm(output_gpkg)
+            corrected_difference_pct = (
+                100.0 * (corrected_area - row["nldi_area_sqkm"])
+                / row["nldi_area_sqkm"]
+            )
+            cleaned_status = _classification(
+                abs(corrected_difference_pct),
+                row["nldi_nwis_absolute_difference_pct"],
+                hf_nldi_threshold_pct=row["hf_nldi_threshold_pct"],
+                clean_threshold_pct=row["clean_threshold_pct"],
+                threshold_pct=row["threshold_pct"],
+            )
+            result.at[index, "cleaned_gpkg_file"] = cleanup["cleaned_gpkg_file"]
+            result.at[index, "removed_divide_count"] = cleanup["removed_divide_count"]
+            result.at[index, "removed_flowpath_count"] = cleanup["removed_flowpath_count"]
+            result.at[index, "removed_area_sqkm"] = flagged["divide_area_sqkm"].sum()
+            result.at[index, "corrected_hydrofabric_area_sqkm"] = corrected_area
+            result.at[index, "corrected_hf_nldi_difference_pct"] = corrected_difference_pct
+            result.at[index, "cleaned_status"] = cleaned_status
+            result.at[index, "removed_divide_ids"] = ",".join(divide_ids)
+            result.at[index, "gage_flowpath_migrations"] = cleanup[
+                "gage_flowpath_migrations"
+            ]
+            for record in flagged.to_dict("records"):
+                removed_records.append(
+                    {
+                        "gage_id": str(row["gage_id"]),
+                        "source_gpkg_file": row["gpkg_file"],
+                        "cleaned_gpkg_file": cleanup["cleaned_gpkg_file"],
+                        **record,
+                    }
+                )
+        except Exception as exc:
+            result.at[index, "cleaned_status"] = "CLEANUP_ERROR"
+            result.at[index, "cleanup_error"] = f"{type(exc).__name__}: {exc}"
+            print(
+                f"WARNING: cleanup failed for {row['gage_id']}: "
+                f"{type(exc).__name__}: {exc}",
+                file=sys.stderr,
+            )
+
+    removed = pd.DataFrame(
+        removed_records,
+        columns=[
+            "gage_id", "source_gpkg_file", "cleaned_gpkg_file", "divide_id",
+            "divide_area_sqkm", "outside_area_sqkm", "outside_fraction_pct",
+            "boundary_relation", "delete",
+        ],
+    )
+    return result, removed
 
 
 def plot_basin_boundary_comparison(
@@ -518,6 +1110,22 @@ def plot_basin_boundary_comparison(
         linewidth=2.1,
         zorder=4,
     )
+    removed_ids = {
+        value for value in str(comparison_row.get("removed_divide_ids", "")).split(",")
+        if value
+    }
+    if removed_ids and "divide_id" in divides:
+        removed_divides = divides.loc[divides["divide_id"].astype(str).isin(removed_ids)]
+        for divide_id, point in zip(
+            removed_divides["divide_id"].astype(str),
+            removed_divides.geometry.representative_point(),
+        ):
+            ax.text(
+                point.x, point.y, divide_id,
+                color="#7f0000", fontsize=7, ha="center", va="center",
+                bbox={"facecolor": "white", "edgecolor": "#cb181d", "alpha": 0.75},
+                zorder=6,
+            )
 
     combined_bounds = np.vstack([divides.total_bounds, boundary.total_bounds])
     minx, miny = combined_bounds[:, :2].min(axis=0)
@@ -548,6 +1156,14 @@ def plot_basin_boundary_comparison(
         f"maximum ≤{comparison_row['threshold_pct']:.1f}%)\n"
         f"[{comparison_row['status']}]"
     )
+    if comparison_row.get("cleaned_gpkg_file", ""):
+        annotation += (
+            f"\nRemoved divides: {int(comparison_row['removed_divide_count'])} "
+            f"({comparison_row['removed_area_sqkm']:.2f} km²)\n"
+            f"Corrected HF–NLDI: "
+            f"{comparison_row['corrected_hf_nldi_difference_pct']:+.2f}% "
+            f"[{comparison_row['cleaned_status']}]"
+        )
     ax.text(
         0.015,
         0.015,
@@ -734,6 +1350,31 @@ def _parser() -> argparse.ArgumentParser:
         help="Concurrent NLDI basin requests (default: 4)",
     )
     parser.add_argument(
+        "--cleaned-gpkg-dir",
+        type=Path,
+        help=(
+            "Optional directory for new GeoPackages with NLDI-external divides "
+            "and their associated flowpaths removed"
+        ),
+    )
+    parser.add_argument(
+        "--delete-outside-fraction-pct",
+        type=float,
+        default=50.0,
+        help="Delete a divide when at least this percentage lies outside NLDI (default: 50)",
+    )
+    parser.add_argument(
+        "--minimum-outside-area-sqkm",
+        type=float,
+        default=0.1,
+        help="Minimum outside area required to delete a divide (default: 0.1 km²)",
+    )
+    parser.add_argument(
+        "--overwrite-cleaned-gpkg",
+        action="store_true",
+        help="Overwrite GeoPackages already present in --cleaned-gpkg-dir",
+    )
+    parser.add_argument(
         "--figure-dir",
         type=Path,
         help="Optional output directory for boundary-comparison figures/report",
@@ -770,6 +1411,17 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ERROR: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 2
 
+    removed_divides = pd.DataFrame()
+    if args.cleaned_gpkg_dir is not None:
+        result, removed_divides = generate_cleaned_hydrofabrics(
+            result,
+            args.cleaned_gpkg_dir,
+            outside_fraction_pct=args.delete_outside_fraction_pct,
+            minimum_outside_area_sqkm=args.minimum_outside_area_sqkm,
+            overwrite=args.overwrite_cleaned_gpkg,
+            timeout_seconds=args.timeout_seconds,
+        )
+
     if args.figure_dir is not None:
         result = generate_boundary_figures(
             result,
@@ -782,14 +1434,21 @@ def main(argv: list[str] | None = None) -> int:
     args.output_csv.parent.mkdir(parents=True, exist_ok=True)
     result.to_csv(args.output_csv, index=False)
 
+    if args.cleaned_gpkg_dir is not None:
+        removed_divides_csv = args.output_csv.with_name("removed_divides.csv")
+        removed_divides.to_csv(removed_divides_csv, index=False)
+    else:
+        removed_divides_csv = None
+
     passed_csv = (
         args.passed_csv.expanduser().resolve()
         if args.passed_csv is not None
         else args.output_csv.with_name("passed_basin_ids.csv")
     )
     passed_csv.parent.mkdir(parents=True, exist_ok=True)
+    status_column = "cleaned_status" if args.cleaned_gpkg_dir is not None else "status"
     passed = (
-        result.loc[result["status"].isin(SELECTED_STATUSES), ["gage_id"]]
+        result.loc[result[status_column].isin(SELECTED_STATUSES), ["gage_id"]]
         .drop_duplicates()
         .sort_values("gage_id")
         .reset_index(drop=True)
@@ -801,10 +1460,20 @@ def main(argv: list[str] | None = None) -> int:
         "usgs_area_sqkm", "hf_nldi_difference_pct",
         "nldi_nwis_difference_pct",
     ]
+    if args.cleaned_gpkg_dir is not None:
+        display_columns.extend(
+            [
+                "removed_divide_count", "corrected_hydrofabric_area_sqkm",
+                "corrected_hf_nldi_difference_pct", "cleaned_status",
+            ]
+        )
     with pd.option_context("display.max_rows", None, "display.width", 140):
         print(result[display_columns].to_string(index=False, float_format=lambda value: f"{value:.3f}"))
     print(f"\nSaved: {args.output_csv}")
     print(f"Passed basin IDs ({len(passed)}): {passed_csv}")
+    if removed_divides_csv is not None:
+        print(f"Removed-divide audit ({len(removed_divides)}): {removed_divides_csv}")
+        print(f"Cleaned GeoPackages: {args.cleaned_gpkg_dir.expanduser().resolve()}")
     counts = result["status"].value_counts().to_dict()
     print("Status counts: " + ", ".join(f"{key}={value}" for key, value in sorted(counts.items())))
     if args.figure_dir is not None:
@@ -813,7 +1482,18 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Figures: saved={saved_count}, failed={error_count}, directory={args.figure_dir.resolve()}")
     else:
         error_count = 0
-    return 0 if result["status"].isin(SELECTED_STATUSES).all() and error_count == 0 else 1
+    cleanup_error_count = (
+        int(result["cleanup_error"].ne("").sum())
+        if args.cleaned_gpkg_dir is not None
+        else 0
+    )
+    return (
+        0
+        if result[status_column].isin(SELECTED_STATUSES).all()
+        and error_count == 0
+        and cleanup_error_count == 0
+        else 1
+    )
 
 
 if __name__ == "__main__":

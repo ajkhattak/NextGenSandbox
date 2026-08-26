@@ -25,6 +25,9 @@ python "${script_dir}/python/check_hydrofabric_basin_area.py" \
     --threshold-pct 20 \
     --output-csv "${output_dir}/basin_area_comparison.csv" \
     --passed-csv "${output_dir}/selected_gages.csv" \
+    --cleaned-gpkg-dir "${output_dir}/cleaned_hydrofabric" \
+    --delete-outside-fraction-pct 50 \
+    --minimum-outside-area-sqkm 0.1 \
     --figure-dir "${output_dir}/figures" \
     --figure-format pdf \
     "$@"
