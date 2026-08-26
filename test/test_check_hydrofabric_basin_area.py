@@ -198,6 +198,44 @@ class TestHydrofabricBasinArea(unittest.TestCase):
         self.assertEqual(reassigned.loc["wb-in", "gage"], "08070500")
         self.assertEqual(reassigned.loc["wb-in", "gage_nex_id"], "nex-shared")
 
+    def test_fully_external_small_divide_bypasses_minimum_area(self):
+        import geopandas as gpd
+        from shapely.geometry import box
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "gage_08070500.gpkg"
+            divides = gpd.GeoDataFrame(
+                {"divide_id": ["cat-small-out", "cat-small-partial"]},
+                geometry=[
+                    box(-79.97, 35.0, -79.969, 35.001),
+                    box(-79.9905, 35.0, -79.9895, 35.001),
+                ],
+                crs="EPSG:4326",
+            )
+            divides.to_file(source, layer="divides", driver="GPKG")
+            boundary = gpd.GeoDataFrame(
+                geometry=[box(-80.0, 34.99, -79.99, 35.01)],
+                crs="EPSG:4326",
+            )
+
+            audit = checker.identify_divides_outside_boundary(
+                source,
+                boundary,
+                outside_fraction_pct=50.0,
+                minimum_outside_area_sqkm=0.1,
+            ).set_index("divide_id")
+
+        self.assertLess(audit.loc["cat-small-out", "outside_area_sqkm"], 0.1)
+        self.assertEqual(
+            audit.loc["cat-small-out", "boundary_relation"], "OUTSIDE"
+        )
+        self.assertTrue(audit.loc["cat-small-out", "delete"])
+        self.assertLess(audit.loc["cat-small-partial", "outside_area_sqkm"], 0.1)
+        self.assertEqual(
+            audit.loc["cat-small-partial", "boundary_relation"], "PARTIAL"
+        )
+        self.assertFalse(audit.loc["cat-small-partial", "delete"])
+
     def test_comparison_applies_three_way_classification(self):
         with tempfile.TemporaryDirectory() as tmp:
             paths = [

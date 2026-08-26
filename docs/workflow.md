@@ -132,10 +132,15 @@ both selected categories: `CLEAN_PASS` and `ACCEPTABLE_OUTLET_OFFSET`.
 Use `--passed-csv /path/to/name.csv` to choose its location or filename.
 When `--cleaned-gpkg-dir` is supplied, the original GeoPackages remain
 unchanged. The utility copies each one, removes divides for which at least 50%
-and at least 0.1 km² lie outside the NLDI boundary, removes their associated
-flowpath and attribute rows, checks that the deletion does not remove a gage
-flowpath or sever a retained downstream connection, and recalculates accumulated
-drainage-area attributes. Configure the two deletion limits with
+and at least 0.1 km² lie outside the NLDI boundary. These two conditions apply
+to divides that partially overlap the boundary. A divide that is effectively
+100% outside is always removed, even when its total area is less than 0.1 km².
+This exception is important for small external connector divides: retaining
+one can leave a retained flowpath draining into a removed branch and correctly
+trigger the topology safety check. The utility then removes associated
+flowpath and attribute rows, checks that the deletion does not remove the
+target gage or sever retained downstream connectivity, and recalculates
+accumulated drainage-area attributes. Configure the two deletion limits with
 `--delete-outside-fraction-pct` and `--minimum-outside-area-sqkm`. The audit
 records original and corrected classifications, while `removed_divides.csv`
 records every deleted divide and its outside-area measurements. Existing
@@ -164,6 +169,21 @@ GeoPackages, and the PDF report beneath the specified output directory.
 For faster batch execution, it uses eight NLDI workers and the `attention`
 figure scope. Additional utility options may be appended to the wrapper command;
 append `--figure-scope all` when a page for every basin is required.
+
+To rerun cleanup after changing its rules or thresholds, overwrite the earlier
+corrected copies explicitly:
+
+```bash
+bash utils/check_hydrofabric_basin_area.sh \
+  /path/to/inputs basin_area_check \
+  --overwrite-cleaned-gpkg
+```
+
+The source GeoPackages are never overwritten by this option; it replaces only
+files beneath `basin_area_check/cleaned_hydrofabric`. Use `--nldi-workers 1`,
+`2`, or `4` to reduce concurrent network requests when running with limited
+resources. The worker count controls simultaneous web requests, not a required
+number of CPU cores.
 
 If the gage-specific geopackages already exist, use
 `general.gages.option: gpkg` or place the files under the configured resource

@@ -2,16 +2,50 @@
 
 set -euo pipefail
 
+usage() {
+    cat <<EOF
+Usage:
+  $0 <gpkg-file-directory-or-glob> [output-directory] [extra Python options]
+
+Checks hydrofabric area against NLDI and NWIS, cleans NLDI-external divides,
+and writes an attention-only PDF report. Original GeoPackages are unchanged.
+
+Cleanup defaults:
+  --delete-outside-fraction-pct 50
+      A partially overlapping divide is eligible when at least 50% is outside.
+  --minimum-outside-area-sqkm 0.1
+      Partially overlapping divides must also have at least 0.1 km² outside.
+      Divides that are effectively 100% outside are always removed, including
+      very small connector divides below 0.1 km².
+
+Examples:
+  $0 /path/to/inputs basin_area_check
+  $0 '/path/to/inputs/*/hydrofabric' basin_area_check --nldi-workers 2
+  $0 /path/to/inputs basin_area_check --overwrite-cleaned-gpkg
+
+Use --overwrite-cleaned-gpkg when rerunning into an output directory that
+already contains cleaned GeoPackages. Additional options override the wrapper
+defaults because they are passed last. Run the Python utility with --help for
+the complete option list.
+EOF
+}
+
 if [[ $# -lt 1 ]]; then
-    echo "Usage: $0 '<gpkg-file-directory-or-glob>' [output-directory] [extra options]" >&2
+    usage >&2
     exit 2
 fi
 
+if [[ $1 == "-h" || $1 == "--help" ]]; then
+    usage
+    exit 0
+fi
+
 input_pattern=$1
-output_dir=${2:-basin_area_check}
-if [[ $# -ge 2 ]]; then
+if [[ $# -ge 2 && $2 != -* ]]; then
+    output_dir=$2
     shift 2
 else
+    output_dir=basin_area_check
     shift 1
 fi
 

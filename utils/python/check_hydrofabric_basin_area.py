@@ -16,6 +16,19 @@ Check every GeoPackage below a directory with a 20 percent tolerance::
 
     python check_hydrofabric_basin_area.py /path/to/subsetters \
         --threshold-pct 20 --output-csv basin_area_comparison.csv
+
+Create corrected copies by removing divides outside the NLDI boundary::
+
+    python check_hydrofabric_basin_area.py /path/to/subsetters \
+        --cleaned-gpkg-dir cleaned_hydrofabric \
+        --delete-outside-fraction-pct 50 \
+        --minimum-outside-area-sqkm 0.1
+
+The minimum outside-area limit applies only to divides that straddle the NLDI
+boundary. A divide that is effectively 100 percent outside is always removed,
+even when it is smaller than the minimum. This avoids retaining tiny external
+connector divides that would otherwise prevent a topology-consistent cleanup.
+Use ``--overwrite-cleaned-gpkg`` when intentionally replacing prior outputs.
 """
 
 from __future__ import annotations
@@ -530,7 +543,12 @@ def identify_divides_outside_boundary(
     outside_fraction_pct: float = 50.0,
     minimum_outside_area_sqkm: float = 0.1,
 ) -> pd.DataFrame:
-    """Measure each divide outside an NLDI boundary and flag deletions."""
+    """Measure divides outside NLDI and flag safe cleanup candidates.
+
+    Partially intersecting divides must satisfy both configured thresholds.
+    Effectively fully external divides bypass the minimum-area threshold so a
+    tiny external connector cannot block deletion of the surrounding branch.
+    """
     import geopandas as gpd
 
     if not 0.0 <= outside_fraction_pct <= 100.0:
@@ -560,9 +578,9 @@ def identify_divides_outside_boundary(
     outside_geometry = divides_equal_area.geometry.difference(boundary_union)
     outside_area_sqkm = outside_geometry.area / 1_000_000.0
     outside_fraction = 100.0 * outside_area_sqkm / total_area_sqkm
-    flagged = (
-        outside_fraction.ge(outside_fraction_pct)
-        & outside_area_sqkm.ge(minimum_outside_area_sqkm)
+    fully_outside = outside_fraction.ge(99.999)
+    flagged = outside_fraction.ge(outside_fraction_pct) & (
+        outside_area_sqkm.ge(minimum_outside_area_sqkm) | fully_outside
     )
     relation = np.select(
         [outside_fraction.ge(99.999), outside_fraction.gt(0.001)],
@@ -1504,7 +1522,10 @@ def _parser() -> argparse.ArgumentParser:
         "--minimum-outside-area-sqkm",
         type=float,
         default=0.1,
-        help="Minimum outside area required to delete a divide (default: 0.1 km²)",
+        help=(
+            "Minimum outside area required to delete a boundary-straddling "
+            "divide; fully external divides are always deleted (default: 0.1 km²)"
+        ),
     )
     parser.add_argument(
         "--overwrite-cleaned-gpkg",
