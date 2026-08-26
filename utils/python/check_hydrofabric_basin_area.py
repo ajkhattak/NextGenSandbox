@@ -692,6 +692,48 @@ def _migrate_removed_gage_associations(
 
     migrations: list[tuple[str, str, str]] = []
     for removed_id, poi_id, removed_toid in protected:
+        source_gage = ""
+        source_nexus = removed_toid
+        attribute_id_column = None
+        if _table_exists(connection, "flowpath-attributes"):
+            attribute_columns = _table_columns(connection, "flowpath-attributes")
+            attribute_id_column = (
+                "id" if "id" in attribute_columns else "link"
+            )
+            if attribute_id_column in attribute_columns and "gage" in attribute_columns:
+                selected_columns = (
+                    "gage, gage_nex_id"
+                    if "gage_nex_id" in attribute_columns
+                    else "gage"
+                )
+                source = connection.execute(
+                    f'SELECT {selected_columns} FROM "flowpath-attributes" '
+                    f'WHERE "{attribute_id_column}" = ? LIMIT 1',
+                    (str(removed_id),),
+                ).fetchone()
+                source_gage = str(source[0]).strip() if source and source[0] else ""
+                if source and len(source) > 1 and source[1]:
+                    source_nexus = source[1]
+        target_uri = f"gages-{gage_id}"
+        mapped_to_target = False
+        if "hl_uri" in _table_columns(connection, "network"):
+            mapped_to_target = connection.execute(
+                "SELECT 1 FROM network WHERE id = ? AND hl_uri = ? LIMIT 1",
+                (str(removed_id), target_uri),
+            ).fetchone() is not None
+        is_target_gage = source_gage == str(gage_id) or mapped_to_target
+
+        if not is_target_gage:
+            triggers = _drop_spatial_update_triggers(connection, ("flowpaths",))
+            try:
+                connection.execute(
+                    "UPDATE flowpaths SET poi_id = '' WHERE id = ?",
+                    (str(removed_id),),
+                )
+            finally:
+                _restore_triggers(connection, triggers)
+            continue
+
         candidates = connection.execute(
             "SELECT DISTINCT n.id FROM network n JOIN flowpaths f ON n.id = f.id "
             "WHERE CAST(n.hf_id AS INTEGER) = ? "
@@ -728,36 +770,25 @@ def _migrate_removed_gage_associations(
         finally:
             _restore_triggers(connection, triggers)
 
-        if _table_exists(connection, "flowpath-attributes"):
+        if attribute_id_column is not None:
             columns = _table_columns(connection, "flowpath-attributes")
-            id_column = "id" if "id" in columns else "link"
-            if id_column in columns and "gage" in columns:
-                has_gage_nexus = "gage_nex_id" in columns
-                selected_columns = (
-                    "gage, gage_nex_id" if has_gage_nexus else "gage"
-                )
-                source = connection.execute(
-                    f'SELECT {selected_columns} FROM "flowpath-attributes" '
-                    f'WHERE "{id_column}" = ? LIMIT 1',
-                    (str(removed_id),),
-                ).fetchone()
-                source_gage = str(source[0]).strip() if source and source[0] else str(gage_id)
-                if has_gage_nexus:
-                    source_nexus = source[1] if source and len(source) > 1 else removed_toid
+            if "gage" in columns:
+                source_gage = source_gage or str(gage_id)
+                if "gage_nex_id" in columns:
                     connection.execute(
                         f'UPDATE "flowpath-attributes" SET gage = ?, gage_nex_id = ? '
-                        f'WHERE "{id_column}" = ?',
+                        f'WHERE "{attribute_id_column}" = ?',
                         (source_gage, source_nexus, target_id),
                     )
                     connection.execute(
                         f'UPDATE "flowpath-attributes" SET gage = ?, gage_nex_id = ? '
-                        f'WHERE "{id_column}" = ?',
+                        f'WHERE "{attribute_id_column}" = ?',
                         ("", "", str(removed_id)),
                     )
                 else:
                     connection.execute(
                         f'UPDATE "flowpath-attributes" SET gage = ? '
-                        f'WHERE "{id_column}" = ?',
+                        f'WHERE "{attribute_id_column}" = ?',
                         (source_gage, target_id),
                     )
     return [f"{removed_id}->{target_id}" for removed_id, target_id, _ in migrations]
@@ -828,12 +859,21 @@ def write_cleaned_hydrofabric(
                     )
                     id_column = "id" if "id" in attribute_columns else "link"
                     if id_column in attribute_columns and "gage" in attribute_columns:
-                        protected = connection.execute(
-                            f'SELECT "{id_column}" FROM "flowpath-attributes" '
-                            f'WHERE "{id_column}" IN (SELECT id FROM remove_flowpaths) '
-                            "AND gage IS NOT NULL AND trim(gage) <> ?",
-                            ("",),
-                        ).fetchall()
+                        if gage_id:
+                            protected = connection.execute(
+                                f'SELECT "{id_column}" FROM "flowpath-attributes" '
+                                f'WHERE "{id_column}" IN '
+                                "(SELECT id FROM remove_flowpaths) AND trim(gage) = ?",
+                                (str(gage_id),),
+                            ).fetchall()
+                        else:
+                            protected = connection.execute(
+                                f'SELECT "{id_column}" FROM "flowpath-attributes" '
+                                f'WHERE "{id_column}" IN '
+                                "(SELECT id FROM remove_flowpaths) AND gage IS NOT NULL "
+                                "AND trim(gage) <> ?",
+                                ("",),
+                            ).fetchall()
                         if protected:
                             raise ValueError(
                                 "refusing to remove calibrated gage flowpath(s): "
