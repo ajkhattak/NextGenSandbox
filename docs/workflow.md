@@ -100,26 +100,52 @@ by USGS before preparing forcing or model configurations:
 ```bash
 python utils/python/check_hydrofabric_basin_area.py \
   /path/to/input_dir \
-  --threshold-pct 10 \
+  --hf-nldi-threshold-pct 5 \
+  --clean-threshold-pct 10 \
+  --threshold-pct 20 \
   --output-csv basin_area_comparison.csv \
   --figure-dir basin_boundary_figures \
   --figure-format pdf
 ```
 
 The utility finds `*.gpkg` files recursively, extracts the gage ID from each
-filename, sums `areasqkm` in the `divides` layer, and compares that total with
-the NWIS `drain_area_va` value. Use `--threshold-pct 20` for a less restrictive
-20% screen. It returns exit status 1 when any basin is outside the tolerance or
-cannot be compared, and writes the complete pass/fail audit to the requested
-CSV. It also writes a one-column `passed_basin_ids.csv` beside the audit CSV;
-this contains only the `gage_id` values that passed the area check. Use
-`--passed-csv /path/to/name.csv` to choose a different location or filename.
-When `--figure-dir` is supplied, the utility also retrieves the USGS NLDI basin
-boundary. `--figure-format pdf` writes one multi-page
+filename, and evaluates three independently useful areas: the sum of
+`areasqkm` in the hydrofabric `divides` layer, the network-derived NLDI basin
+area, and the documented NWIS `drain_area_va` value. The default classifications
+are:
+
+- `CLEAN_PASS`: hydrofabric–NLDI difference is no more than 5%, and NLDI–NWIS
+  difference is no more than 10%.
+- `ACCEPTABLE_OUTLET_OFFSET`: hydrofabric–NLDI difference is no more than 5%,
+  and NLDI–NWIS difference is greater than 10% but no more than 20%.
+- `OBSERVATION_DOMAIN_MISMATCH`: NLDI–NWIS difference exceeds 20%.
+- `SUBSETTER_OR_TOPOLOGY_FAILURE`: hydrofabric–NLDI difference exceeds 5%.
+
+Change these limits with `--hf-nldi-threshold-pct`, `--clean-threshold-pct`,
+and `--threshold-pct`, respectively. The utility returns exit status 1 when any
+basin is not selected or cannot be compared, and writes the complete audit to
+the requested CSV. The one-column passed CSV contains `gage_id` values from
+both selected categories: `CLEAN_PASS` and `ACCEPTABLE_OUTLET_OFFSET`.
+Use `--passed-csv /path/to/name.csv` to choose its location or filename.
+When `--figure-dir` is supplied, the utility also retrieves the network-derived
+NLDI basin boundary. `--figure-format pdf` writes one multi-page
 `basin_boundary_comparisons.pdf`, ordered with failed basins first and passing
 basins last. `--figure-format jpeg` writes one image per gage. The audit CSV
 records the report path and page number. Omit `--figure-dir` for the faster
 area-only check.
+
+For the recommended 5%/10%/20% thresholds and a consolidated PDF, the shell
+wrapper keeps the command short:
+
+```bash
+bash utils/check_hydrofabric_basin_area.sh \
+  '/path/to/inputs/*/hydrofabric' basin_area_check
+```
+
+Quote a glob so the Python utility, rather than the shell, expands it. The
+wrapper writes the audit, `selected_gages.csv`, and the PDF report beneath the
+specified output directory. Additional utility options may be appended to the
+wrapper command.
 
 If the gage-specific geopackages already exist, use
 `general.gages.option: gpkg` or place the files under the configured resource

@@ -71,43 +71,55 @@ class TestHydrofabricBasinArea(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "duplicate divide_id"):
                 checker.hydrofabric_area_sqkm(path)
 
-    def test_comparison_applies_absolute_percent_threshold(self):
+    def test_comparison_applies_three_way_classification(self):
         with tempfile.TemporaryDirectory() as tmp:
-            passing = Path(tmp) / "gage_08070500.gpkg"
-            failing = Path(tmp) / "gage_09112500.gpkg"
-            write_divides(passing, [("cat-1", 110.0)])
-            write_divides(failing, [("cat-2", 130.0)])
+            paths = [
+                Path(tmp) / f"gage_{gage_id}.gpkg"
+                for gage_id in ("08070500", "09112500", "02146700", "02053500")
+            ]
+            for path, area in zip(paths, (102.0, 115.0, 142.5, 120.0)):
+                write_divides(path, [("cat-1", area)])
             usgs = pd.DataFrame(
                 {
-                    "gage_id": ["08070500", "09112500"],
-                    "station_name": ["Passing site", "Failing site"],
+                    "gage_id": ["08070500", "09112500", "02146700", "02053500"],
+                    "station_name": ["Clean", "Offset", "Mismatch", "Topology"],
                     "usgs_area_sqmi": [
-                        100.0 / checker.SQUARE_MILES_TO_SQUARE_KM,
-                        100.0 / checker.SQUARE_MILES_TO_SQUARE_KM,
-                    ],
-                    "usgs_area_sqkm": [100.0, 100.0],
+                        100.0 / checker.SQUARE_MILES_TO_SQUARE_KM
+                    ] * 4,
+                    "usgs_area_sqkm": [100.0] * 4,
+                }
+            )
+            nldi = pd.DataFrame(
+                {
+                    "gage_id": ["08070500", "09112500", "02146700", "02053500"],
+                    "nldi_area_sqkm": [102.0, 115.0, 142.5, 100.0],
+                    "nldi_error": [""] * 4,
                 }
             )
 
-            with patch.object(
-                checker,
-                "fetch_usgs_drainage_areas",
-                return_value=usgs,
+            with (
+                patch.object(checker, "fetch_usgs_drainage_areas", return_value=usgs),
+                patch.object(checker, "fetch_nldi_basin_areas", return_value=nldi),
             ):
                 result = checker.compare_basin_areas(
-                    [passing, failing],
+                    paths,
                     threshold_pct=20.0,
+                    clean_threshold_pct=10.0,
+                    hf_nldi_threshold_pct=5.0,
                 ).set_index("gage_id")
 
-        self.assertEqual(result.loc["08070500", "status"], "PASS")
-        self.assertAlmostEqual(
-            result.loc["08070500", "difference_pct"],
-            10.0,
+        self.assertEqual(result.loc["08070500", "status"], "CLEAN_PASS")
+        self.assertEqual(
+            result.loc["09112500", "status"],
+            "ACCEPTABLE_OUTLET_OFFSET",
         )
-        self.assertEqual(result.loc["09112500", "status"], "FAIL")
-        self.assertAlmostEqual(
-            result.loc["09112500", "difference_pct"],
-            30.0,
+        self.assertEqual(
+            result.loc["02146700", "status"],
+            "OBSERVATION_DOMAIN_MISMATCH",
+        )
+        self.assertEqual(
+            result.loc["02053500", "status"],
+            "SUBSETTER_OR_TOPOLOGY_FAILURE",
         )
 
     def test_visualization_cli_options(self):
@@ -118,21 +130,32 @@ class TestHydrofabricBasinArea(unittest.TestCase):
                 "figures",
                 "--figure-format",
                 "pdf",
+                "--clean-threshold-pct",
+                "8",
+                "--hf-nldi-threshold-pct",
+                "3",
             ]
         )
 
         self.assertEqual(args.figure_dir, Path("figures"))
         self.assertEqual(args.figure_format, "pdf")
+        self.assertEqual(args.clean_threshold_pct, 8.0)
+        self.assertEqual(args.hf_nldi_threshold_pct, 3.0)
 
     def test_main_writes_only_passing_gage_ids_to_additional_csv(self):
         comparison = pd.DataFrame(
             {
-                "gage_id": ["09112500", "08070500", "08070500"],
-                "status": ["FAIL", "PASS", "PASS"],
+                "gage_id": ["09112500", "08070500", "02053500"],
+                "status": [
+                    "OBSERVATION_DOMAIN_MISMATCH",
+                    "CLEAN_PASS",
+                    "ACCEPTABLE_OUTLET_OFFSET",
+                ],
                 "hydrofabric_area_sqkm": [130.0, 100.0, 100.0],
+                "nldi_area_sqkm": [130.0, 100.0, 115.0],
                 "usgs_area_sqkm": [100.0, 100.0, 100.0],
-                "difference_pct": [30.0, 0.0, 0.0],
-                "threshold_pct": [20.0, 20.0, 20.0],
+                "hf_nldi_difference_pct": [0.0, 0.0, -13.0],
+                "nldi_nwis_difference_pct": [30.0, 0.0, 15.0],
             }
         )
         with tempfile.TemporaryDirectory() as tmp:
@@ -151,7 +174,10 @@ class TestHydrofabricBasinArea(unittest.TestCase):
             )
 
         self.assertEqual(exit_code, 1)
-        self.assertEqual(passed.to_dict("records"), [{"gage_id": "08070500"}])
+        self.assertEqual(
+            passed.to_dict("records"),
+            [{"gage_id": "02053500"}, {"gage_id": "08070500"}],
+        )
 
     def test_boundary_plot_is_written_without_network(self):
         import geopandas as gpd
@@ -177,10 +203,15 @@ class TestHydrofabricBasinArea(unittest.TestCase):
                     "station_name": "Test station",
                     "gpkg_file": str(gpkg),
                     "hydrofabric_area_sqkm": 1.0,
+                    "nldi_area_sqkm": 1.02,
                     "usgs_area_sqkm": 1.1,
                     "difference_pct": -9.0909,
+                    "hf_nldi_difference_pct": -1.9608,
+                    "nldi_nwis_difference_pct": -7.2727,
                     "threshold_pct": 10.0,
-                    "status": "PASS",
+                    "clean_threshold_pct": 5.0,
+                    "hf_nldi_threshold_pct": 3.0,
+                    "status": "ACCEPTABLE_OUTLET_OFFSET",
                 }
             )
 
@@ -217,12 +248,17 @@ class TestHydrofabricBasinArea(unittest.TestCase):
                 {
                     "gage_id": ["08070500", "09112500"],
                     "station_name": ["Passing", "Failing"],
-                    "status": ["PASS", "FAIL"],
+                    "status": ["CLEAN_PASS", "OBSERVATION_DOMAIN_MISMATCH"],
                     "threshold_pct": [20.0, 20.0],
+                    "clean_threshold_pct": [10.0, 10.0],
+                    "hf_nldi_threshold_pct": [5.0, 5.0],
                     "gpkg_file": [str(pass_gpkg), str(fail_gpkg)],
                     "hydrofabric_area_sqkm": [100.0, 130.0],
+                    "nldi_area_sqkm": [100.0, 130.0],
                     "usgs_area_sqkm": [100.0, 100.0],
                     "difference_pct": [0.0, 30.0],
+                    "hf_nldi_difference_pct": [0.0, 0.0],
+                    "nldi_nwis_difference_pct": [0.0, 30.0],
                     "processing_error": ["", ""],
                 }
             )

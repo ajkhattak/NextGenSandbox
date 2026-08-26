@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Compare subsetter GeoPackage basin areas with USGS-reported drainage areas.
+"""Compare hydrofabric, NLDI, and NWIS basin drainage areas.
 
 The hydrofabric area is the sum of ``areasqkm`` in the GeoPackage ``divides``
-layer. USGS drainage area is ``drain_area_va`` from the NWIS site service,
-which is reported in square miles and converted here to square kilometers.
+layer. The NLDI area is calculated from its network-derived basin boundary.
+The documented USGS drainage area is ``drain_area_va`` from the NWIS site
+service, reported in square miles and converted here to square kilometers.
 
 Examples
 --------
-Check one GeoPackage with a 10 percent tolerance::
+Check one GeoPackage with the default 5%/10%/20% classification thresholds::
 
-    python check_hydrofabric_basin_area.py gage_08070500.gpkg --threshold-pct 10
+    python check_hydrofabric_basin_area.py gage_08070500.gpkg
 
 Check every GeoPackage below a directory with a 20 percent tolerance::
 
@@ -24,6 +25,7 @@ import glob
 import re
 import sqlite3
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import StringIO
 from pathlib import Path
 from typing import Iterable
@@ -41,6 +43,7 @@ NLDI_BASIN_URL = (
     "USGS-{gage_id}/basin"
 )
 SQUARE_MILES_TO_SQUARE_KM = 2.589988110336
+SELECTED_STATUSES = {"CLEAN_PASS", "ACCEPTABLE_OUTLET_OFFSET"}
 
 
 def extract_gage_id(path: str | Path) -> str:
@@ -214,14 +217,25 @@ def compare_basin_areas(
     gpkg_files: Iterable[str | Path],
     *,
     threshold_pct: float,
+    clean_threshold_pct: float = 10.0,
+    hf_nldi_threshold_pct: float = 5.0,
     layer: str = "divides",
     area_column: str = "areasqkm",
     batch_size: int = 50,
     timeout_seconds: int = 60,
+    nldi_workers: int = 4,
 ) -> pd.DataFrame:
-    """Compare hydrofabric and USGS areas and return an auditable table."""
-    if not np.isfinite(threshold_pct) or threshold_pct < 0:
-        raise ValueError("threshold_pct must be a finite non-negative number")
+    """Compare hydrofabric, NLDI, and NWIS areas and classify each basin."""
+    thresholds = {
+        "threshold_pct": threshold_pct,
+        "clean_threshold_pct": clean_threshold_pct,
+        "hf_nldi_threshold_pct": hf_nldi_threshold_pct,
+    }
+    for name, value in thresholds.items():
+        if not np.isfinite(value) or value < 0:
+            raise ValueError(f"{name} must be a finite non-negative number")
+    if clean_threshold_pct > threshold_pct:
+        raise ValueError("clean_threshold_pct cannot exceed threshold_pct")
 
     records = []
     for path_value in gpkg_files:
@@ -263,24 +277,76 @@ def compare_basin_areas(
     usgs = fetch_usgs_drainage_areas(
         query_ids, batch_size=batch_size, timeout_seconds=timeout_seconds
     )
+    nldi = fetch_nldi_basin_areas(
+        query_ids,
+        timeout_seconds=timeout_seconds,
+        workers=nldi_workers,
+    )
     result = local.merge(usgs, on="gage_id", how="left", validate="one_to_one")
+    result = result.merge(nldi, on="gage_id", how="left", validate="one_to_one")
+
+    # Preserve the original hydrofabric-minus-NWIS columns for compatibility.
     result["difference_sqkm"] = result["hydrofabric_area_sqkm"] - result["usgs_area_sqkm"]
     result["difference_pct"] = 100.0 * result["difference_sqkm"] / result["usgs_area_sqkm"]
     result["absolute_difference_pct"] = result["difference_pct"].abs()
+
+    result["hf_nldi_difference_sqkm"] = (
+        result["hydrofabric_area_sqkm"] - result["nldi_area_sqkm"]
+    )
+    result["hf_nldi_difference_pct"] = (
+        100.0 * result["hf_nldi_difference_sqkm"] / result["nldi_area_sqkm"]
+    )
+    result["hf_nldi_absolute_difference_pct"] = result[
+        "hf_nldi_difference_pct"
+    ].abs()
+    result["nldi_nwis_difference_sqkm"] = (
+        result["nldi_area_sqkm"] - result["usgs_area_sqkm"]
+    )
+    result["nldi_nwis_difference_pct"] = (
+        100.0 * result["nldi_nwis_difference_sqkm"] / result["usgs_area_sqkm"]
+    )
+    result["nldi_nwis_absolute_difference_pct"] = result[
+        "nldi_nwis_difference_pct"
+    ].abs()
+
     result["threshold_pct"] = float(threshold_pct)
+    result["clean_threshold_pct"] = float(clean_threshold_pct)
+    result["hf_nldi_threshold_pct"] = float(hf_nldi_threshold_pct)
     result["lower_allowed_sqkm"] = result["usgs_area_sqkm"] * (1.0 - threshold_pct / 100.0)
     result["upper_allowed_sqkm"] = result["usgs_area_sqkm"] * (1.0 + threshold_pct / 100.0)
 
     missing_usgs = result["usgs_area_sqkm"].isna() & result["processing_error"].eq("")
-    result["status"] = "PASS"
-    result.loc[result["absolute_difference_pct"].gt(threshold_pct), "status"] = "FAIL"
+    missing_nldi = (
+        result["nldi_area_sqkm"].isna()
+        & result["processing_error"].eq("")
+        & ~missing_usgs
+    )
+    topology_failure = result["hf_nldi_absolute_difference_pct"].gt(
+        hf_nldi_threshold_pct
+    )
+    outlet_offset = result["nldi_nwis_absolute_difference_pct"].gt(
+        clean_threshold_pct
+    )
+    domain_mismatch = result["nldi_nwis_absolute_difference_pct"].gt(threshold_pct)
+
+    result["status"] = "CLEAN_PASS"
+    result.loc[outlet_offset, "status"] = "ACCEPTABLE_OUTLET_OFFSET"
+    result.loc[domain_mismatch, "status"] = "OBSERVATION_DOMAIN_MISMATCH"
+    result.loc[topology_failure, "status"] = "SUBSETTER_OR_TOPOLOGY_FAILURE"
     result.loc[missing_usgs, "status"] = "MISSING_USGS_AREA"
+    result.loc[missing_nldi, "status"] = "MISSING_NLDI_AREA"
     result.loc[result["processing_error"].ne(""), "status"] = "ERROR"
     columns = [
-        "gage_id", "station_name", "status", "threshold_pct", "gpkg_file",
+        "gage_id", "station_name", "status", "threshold_pct",
+        "clean_threshold_pct", "hf_nldi_threshold_pct", "gpkg_file",
         "n_divides", "hydrofabric_area_sqkm", "usgs_area_sqmi", "usgs_area_sqkm",
+        "nldi_area_sqkm",
         "difference_sqkm", "difference_pct", "absolute_difference_pct",
+        "hf_nldi_difference_sqkm", "hf_nldi_difference_pct",
+        "hf_nldi_absolute_difference_pct", "nldi_nwis_difference_sqkm",
+        "nldi_nwis_difference_pct", "nldi_nwis_absolute_difference_pct",
         "lower_allowed_sqkm", "upper_allowed_sqkm", "processing_error",
+        "nldi_error",
     ]
     return result[columns].sort_values(["status", "gage_id", "gpkg_file"]).reset_index(drop=True)
 
@@ -290,14 +356,15 @@ def fetch_usgs_basin_boundary(
     *,
     session: requests.Session | None = None,
     timeout_seconds: int = 60,
+    simplified: bool = True,
 ):
-    """Return the USGS NLDI drainage-basin boundary as a GeoDataFrame."""
+    """Return the network-derived NLDI drainage basin as a GeoDataFrame."""
     import geopandas as gpd
 
     session = session or _nwis_session()
     response = session.get(
         NLDI_BASIN_URL.format(gage_id=gage_id),
-        params={"f": "json"},
+        params={"f": "json", "simplified": str(simplified).lower()},
         timeout=timeout_seconds,
     )
     response.raise_for_status()
@@ -309,6 +376,67 @@ def fetch_usgs_basin_boundary(
     if boundary.empty or boundary.geometry.isna().all():
         raise ValueError(f"NLDI returned an empty basin boundary for USGS-{gage_id}")
     return boundary
+
+
+def basin_boundary_area_sqkm(boundary) -> float:
+    """Calculate geodesic area of an NLDI basin boundary in square kilometers."""
+    from pyproj import Geod
+
+    if boundary.crs is None:
+        boundary = boundary.set_crs("EPSG:4326")
+    boundary = boundary.to_crs("EPSG:4326")
+    geod = Geod(ellps="WGS84")
+    areas = [
+        abs(geod.geometry_area_perimeter(geometry)[0])
+        for geometry in boundary.geometry
+        if geometry is not None and not geometry.is_empty
+    ]
+    if not areas:
+        raise ValueError("NLDI basin boundary has no valid geometry")
+    return float(sum(areas) / 1_000_000.0)
+
+
+def fetch_nldi_basin_areas(
+    gage_ids: Iterable[str],
+    *,
+    timeout_seconds: int = 60,
+    workers: int = 4,
+) -> pd.DataFrame:
+    """Fetch full-resolution NLDI basins and calculate their geodesic areas."""
+    ids = sorted(set(map(str, gage_ids)))
+    if workers < 1:
+        raise ValueError("NLDI workers must be at least 1")
+
+    def fetch_one(gage_id: str) -> dict:
+        try:
+            boundary = fetch_usgs_basin_boundary(
+                gage_id,
+                timeout_seconds=timeout_seconds,
+                simplified=False,
+            )
+            return {
+                "gage_id": gage_id,
+                "nldi_area_sqkm": basin_boundary_area_sqkm(boundary),
+                "nldi_error": "",
+            }
+        except Exception as exc:
+            return {
+                "gage_id": gage_id,
+                "nldi_area_sqkm": np.nan,
+                "nldi_error": f"{type(exc).__name__}: {exc}",
+            }
+
+    records = []
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {executor.submit(fetch_one, gage_id): gage_id for gage_id in ids}
+        for completed, future in enumerate(as_completed(futures), start=1):
+            records.append(future.result())
+            if completed % 25 == 0 or completed == len(ids):
+                print(f"Retrieved NLDI basins: {completed}/{len(ids)}", flush=True)
+    return pd.DataFrame(
+        records,
+        columns=["gage_id", "nldi_area_sqkm", "nldi_error"],
+    )
 
 
 def plot_basin_boundary_comparison(
@@ -405,12 +533,19 @@ def plot_basin_boundary_comparison(
 
     station = comparison_row.get("station_name")
     station = "" if pd.isna(station) else str(station)
-    ax.set_title(f"USGS {gage_id} — {station}\nHydrofabric and USGS basin boundaries")
+    ax.set_title(
+        f"USGS {gage_id} — {station}\n"
+        "Hydrofabric and NLDI network-derived basin"
+    )
     annotation = (
         f"Hydrofabric: {comparison_row['hydrofabric_area_sqkm']:.2f} km²\n"
-        f"USGS: {comparison_row['usgs_area_sqkm']:.2f} km²\n"
-        f"Difference: {comparison_row['difference_pct']:+.2f}%\n"
-        f"Tolerance: ±{comparison_row['threshold_pct']:.1f}%  "
+        f"NLDI: {comparison_row['nldi_area_sqkm']:.2f} km²\n"
+        f"NWIS documented: {comparison_row['usgs_area_sqkm']:.2f} km²\n"
+        f"HF–NLDI: {comparison_row['hf_nldi_difference_pct']:+.2f}% "
+        f"(±{comparison_row['hf_nldi_threshold_pct']:.1f}%)\n"
+        f"NLDI–NWIS: {comparison_row['nldi_nwis_difference_pct']:+.2f}% "
+        f"(clean ≤{comparison_row['clean_threshold_pct']:.1f}%, "
+        f"maximum ≤{comparison_row['threshold_pct']:.1f}%)\n"
         f"[{comparison_row['status']}]"
     )
     ax.text(
@@ -426,7 +561,10 @@ def plot_basin_boundary_comparison(
     )
     handles = [
         Patch(facecolor="#9ecae1", edgecolor="#2171b5", alpha=0.5, label="Hydrofabric divides"),
-        Line2D([0], [0], color="#cb181d", linewidth=2.1, label="USGS NLDI basin"),
+        Line2D(
+            [0], [0], color="#cb181d", linewidth=2.1,
+            label="NLDI network-derived basin",
+        ),
     ]
     if "flowpaths" in optional_layers:
         handles.append(Line2D([0], [0], color="#238b45", linewidth=1.2, label="Hydrofabric flowpaths"))
@@ -465,7 +603,15 @@ def generate_boundary_figures(
     result["figure_page"] = pd.Series(pd.NA, index=result.index, dtype="Int64")
     result["visualization_error"] = ""
     session = _nwis_session()
-    priority = {"FAIL": 0, "ERROR": 1, "MISSING_USGS_AREA": 2, "PASS": 3}
+    priority = {
+        "SUBSETTER_OR_TOPOLOGY_FAILURE": 0,
+        "OBSERVATION_DOMAIN_MISMATCH": 1,
+        "ERROR": 2,
+        "MISSING_USGS_AREA": 3,
+        "MISSING_NLDI_AREA": 4,
+        "ACCEPTABLE_OUTLET_OFFSET": 5,
+        "CLEAN_PASS": 6,
+    }
     ordered_indices = sorted(
         result.index,
         key=lambda index: (
@@ -525,8 +671,8 @@ def generate_boundary_figures(
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Compare hydrofabric subsetter basin area with USGS/NWIS reported "
-            "drainage area. Returns exit code 1 when any basin is outside tolerance."
+            "Compare hydrofabric, NLDI network-derived, and NWIS documented "
+            "drainage areas. Returns exit code 1 when any basin is not selected."
         )
     )
     parser.add_argument(
@@ -538,7 +684,25 @@ def _parser() -> argparse.ArgumentParser:
         "--threshold-pct",
         type=float,
         default=20.0,
-        help="Allowed absolute percent difference relative to USGS area (default: 20)",
+        help=(
+            "Maximum allowed absolute NLDI-to-NWIS area difference "
+            "(default: 20)"
+        ),
+    )
+    parser.add_argument(
+        "--clean-threshold-pct",
+        type=float,
+        default=10.0,
+        help="Maximum NLDI-to-NWIS difference for CLEAN_PASS (default: 10)",
+    )
+    parser.add_argument(
+        "--hf-nldi-threshold-pct",
+        type=float,
+        default=5.0,
+        help=(
+            "Maximum hydrofabric-to-NLDI difference before declaring a "
+            "subsetter/topology failure (default: 5)"
+        ),
     )
     parser.add_argument(
         "--output-csv",
@@ -557,11 +721,22 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--layer", default="divides", help="GeoPackage divides layer")
     parser.add_argument("--area-column", default="areasqkm", help="Per-divide area column in km²")
     parser.add_argument("--batch-size", type=int, default=50, help="Gages per NWIS request")
-    parser.add_argument("--timeout-seconds", type=int, default=60, help="NWIS request timeout")
+    parser.add_argument(
+        "--timeout-seconds",
+        type=int,
+        default=60,
+        help="NWIS and NLDI request timeout (default: 60)",
+    )
+    parser.add_argument(
+        "--nldi-workers",
+        type=int,
+        default=4,
+        help="Concurrent NLDI basin requests (default: 4)",
+    )
     parser.add_argument(
         "--figure-dir",
         type=Path,
-        help="Optional directory for one USGS/hydrofabric boundary figure per gage",
+        help="Optional output directory for boundary-comparison figures/report",
     )
     parser.add_argument(
         "--figure-format",
@@ -583,10 +758,13 @@ def main(argv: list[str] | None = None) -> int:
         result = compare_basin_areas(
             files,
             threshold_pct=args.threshold_pct,
+            clean_threshold_pct=args.clean_threshold_pct,
+            hf_nldi_threshold_pct=args.hf_nldi_threshold_pct,
             layer=args.layer,
             area_column=args.area_column,
             batch_size=args.batch_size,
             timeout_seconds=args.timeout_seconds,
+            nldi_workers=args.nldi_workers,
         )
     except Exception as exc:
         print(f"ERROR: {type(exc).__name__}: {exc}", file=sys.stderr)
@@ -611,7 +789,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     passed_csv.parent.mkdir(parents=True, exist_ok=True)
     passed = (
-        result.loc[result["status"].eq("PASS"), ["gage_id"]]
+        result.loc[result["status"].isin(SELECTED_STATUSES), ["gage_id"]]
         .drop_duplicates()
         .sort_values("gage_id")
         .reset_index(drop=True)
@@ -619,8 +797,9 @@ def main(argv: list[str] | None = None) -> int:
     passed.to_csv(passed_csv, index=False)
 
     display_columns = [
-        "gage_id", "status", "hydrofabric_area_sqkm", "usgs_area_sqkm",
-        "difference_pct", "threshold_pct",
+        "gage_id", "status", "hydrofabric_area_sqkm", "nldi_area_sqkm",
+        "usgs_area_sqkm", "hf_nldi_difference_pct",
+        "nldi_nwis_difference_pct",
     ]
     with pd.option_context("display.max_rows", None, "display.width", 140):
         print(result[display_columns].to_string(index=False, float_format=lambda value: f"{value:.3f}"))
@@ -634,7 +813,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Figures: saved={saved_count}, failed={error_count}, directory={args.figure_dir.resolve()}")
     else:
         error_count = 0
-    return 0 if result["status"].eq("PASS").all() and error_count == 0 else 1
+    return 0 if result["status"].isin(SELECTED_STATUSES).all() and error_count == 0 else 1
 
 
 if __name__ == "__main__":
