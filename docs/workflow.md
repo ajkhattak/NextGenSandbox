@@ -103,6 +103,7 @@ python utils/python/check_hydrofabric_basin_area.py \
   --hf-nldi-threshold-pct 5 \
   --clean-threshold-pct 10 \
   --threshold-pct 20 \
+  --hf-nwis-fallback-threshold-pct 10 \
   --output-csv basin_area_comparison.csv \
   --cleaned-gpkg-dir cleaned_hydrofabric \
   --delete-outside-fraction-pct 50 \
@@ -123,12 +124,19 @@ are:
   and NLDI–NWIS difference is greater than 10% but no more than 20%.
 - `OBSERVATION_DOMAIN_MISMATCH`: NLDI–NWIS difference exceeds 20%.
 - `SUBSETTER_OR_TOPOLOGY_FAILURE`: hydrofabric–NLDI difference exceeds 5%.
+- `HF_NWIS_AGREEMENT_NLDI_OUTLIER`: NLDI–NWIS exceeds 20%, but hydrofabric–
+  NWIS is no more than 10%. This accepts the hydrofabric using agreement with
+  the documented USGS area while retaining an explicit NLDI-outlier flag.
 
 Change these limits with `--hf-nldi-threshold-pct`, `--clean-threshold-pct`,
-and `--threshold-pct`, respectively. The utility returns exit status 1 when any
+`--threshold-pct`, and `--hf-nwis-fallback-threshold-pct`, respectively. The
+NLDI-outlier fallback is deliberately strict: it is used only when NLDI exceeds
+the maximum NLDI–NWIS tolerance, not merely when the NLDI boundary differs from
+the hydrofabric. The utility returns exit status 1 when any
 basin is not selected or cannot be compared, and writes the complete audit to
 the requested CSV. The one-column passed CSV contains `gage_id` values from
-both selected categories: `CLEAN_PASS` and `ACCEPTABLE_OUTLET_OFFSET`.
+all selected categories: `CLEAN_PASS`, `ACCEPTABLE_OUTLET_OFFSET`, and
+`HF_NWIS_AGREEMENT_NLDI_OUTLIER`.
 Use `--passed-csv /path/to/name.csv` to choose its location or filename.
 When `--cleaned-gpkg-dir` is supplied, the original GeoPackages remain
 unchanged. The utility copies each one, removes divides for which at least 50%
@@ -154,6 +162,11 @@ area-only check. Use `--figure-scope attention` to plot only failures, cleanup
 errors, and basins with removed divides; use `--figure-scope all` for every
 basin. NLDI boundaries downloaded for the area check are reused during cleanup
 and plotting rather than downloaded again.
+Accepted `HF_NWIS_AGREEMENT_NLDI_OUTLIER` basins remain in the attention report
+because the fallback should be visible and reviewable even though the gage is
+included in `selected_gages.csv`. When NLDI is larger than an agreeing HF/NWIS
+pair, cleanup does not attempt to invent or add missing divides; the copied
+hydrofabric remains unchanged.
 
 For the recommended 5%/10%/20% thresholds and a consolidated PDF, the shell
 wrapper keeps the command short:

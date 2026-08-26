@@ -62,7 +62,11 @@ NLDI_FEATURE_URL = (
     "https://api.water.usgs.gov/nldi/linked-data/nwissite/USGS-{gage_id}"
 )
 SQUARE_MILES_TO_SQUARE_KM = 2.589988110336
-SELECTED_STATUSES = {"CLEAN_PASS", "ACCEPTABLE_OUTLET_OFFSET"}
+SELECTED_STATUSES = {
+    "CLEAN_PASS",
+    "ACCEPTABLE_OUTLET_OFFSET",
+    "HF_NWIS_AGREEMENT_NLDI_OUTLIER",
+}
 _NLDI_BOUNDARY_CACHE: dict[tuple[str, bool], object] = {}
 _NLDI_BOUNDARY_CACHE_LOCK = Lock()
 
@@ -70,13 +74,20 @@ _NLDI_BOUNDARY_CACHE_LOCK = Lock()
 def _classification(
     hf_nldi_absolute_difference_pct: float,
     nldi_nwis_absolute_difference_pct: float,
+    hf_nwis_absolute_difference_pct: float,
     *,
     hf_nldi_threshold_pct: float,
     clean_threshold_pct: float,
     threshold_pct: float,
+    hf_nwis_fallback_threshold_pct: float,
 ) -> str:
     """Classify one basin from its topology and observation-area differences."""
     if hf_nldi_absolute_difference_pct > hf_nldi_threshold_pct:
+        if (
+            nldi_nwis_absolute_difference_pct > threshold_pct
+            and hf_nwis_absolute_difference_pct <= hf_nwis_fallback_threshold_pct
+        ):
+            return "HF_NWIS_AGREEMENT_NLDI_OUTLIER"
         return "SUBSETTER_OR_TOPOLOGY_FAILURE"
     if nldi_nwis_absolute_difference_pct > threshold_pct:
         return "OBSERVATION_DOMAIN_MISMATCH"
@@ -271,6 +282,7 @@ def compare_basin_areas(
     threshold_pct: float,
     clean_threshold_pct: float = 10.0,
     hf_nldi_threshold_pct: float = 5.0,
+    hf_nwis_fallback_threshold_pct: float = 10.0,
     layer: str = "divides",
     area_column: str = "areasqkm",
     batch_size: int = 50,
@@ -282,6 +294,7 @@ def compare_basin_areas(
         "threshold_pct": threshold_pct,
         "clean_threshold_pct": clean_threshold_pct,
         "hf_nldi_threshold_pct": hf_nldi_threshold_pct,
+        "hf_nwis_fallback_threshold_pct": hf_nwis_fallback_threshold_pct,
     }
     for name, value in thresholds.items():
         if not np.isfinite(value) or value < 0:
@@ -364,6 +377,9 @@ def compare_basin_areas(
     result["threshold_pct"] = float(threshold_pct)
     result["clean_threshold_pct"] = float(clean_threshold_pct)
     result["hf_nldi_threshold_pct"] = float(hf_nldi_threshold_pct)
+    result["hf_nwis_fallback_threshold_pct"] = float(
+        hf_nwis_fallback_threshold_pct
+    )
     result["lower_allowed_sqkm"] = result["usgs_area_sqkm"] * (1.0 - threshold_pct / 100.0)
     result["upper_allowed_sqkm"] = result["usgs_area_sqkm"] * (1.0 + threshold_pct / 100.0)
 
@@ -380,17 +396,26 @@ def compare_basin_areas(
         clean_threshold_pct
     )
     domain_mismatch = result["nldi_nwis_absolute_difference_pct"].gt(threshold_pct)
+    nldi_outlier_fallback = (
+        topology_failure
+        & domain_mismatch
+        & result["absolute_difference_pct"].le(hf_nwis_fallback_threshold_pct)
+    )
 
     result["status"] = "CLEAN_PASS"
     result.loc[outlet_offset, "status"] = "ACCEPTABLE_OUTLET_OFFSET"
     result.loc[domain_mismatch, "status"] = "OBSERVATION_DOMAIN_MISMATCH"
     result.loc[topology_failure, "status"] = "SUBSETTER_OR_TOPOLOGY_FAILURE"
+    result.loc[
+        nldi_outlier_fallback, "status"
+    ] = "HF_NWIS_AGREEMENT_NLDI_OUTLIER"
     result.loc[missing_usgs, "status"] = "MISSING_USGS_AREA"
     result.loc[missing_nldi, "status"] = "MISSING_NLDI_AREA"
     result.loc[result["processing_error"].ne(""), "status"] = "ERROR"
     columns = [
         "gage_id", "station_name", "status", "threshold_pct",
-        "clean_threshold_pct", "hf_nldi_threshold_pct", "gpkg_file",
+        "clean_threshold_pct", "hf_nldi_threshold_pct",
+        "hf_nwis_fallback_threshold_pct", "gpkg_file",
         "n_divides", "hydrofabric_area_sqkm", "usgs_area_sqmi", "usgs_area_sqkm",
         "nldi_area_sqkm",
         "difference_sqkm", "difference_pct", "absolute_difference_pct",
@@ -1028,6 +1053,7 @@ def generate_cleaned_hydrofabrics(
     result["removed_area_sqkm"] = 0.0
     result["corrected_hydrofabric_area_sqkm"] = np.nan
     result["corrected_hf_nldi_difference_pct"] = np.nan
+    result["corrected_hf_nwis_difference_pct"] = np.nan
     result["cleaned_status"] = result["status"]
     result["removed_divide_ids"] = ""
     result["gage_flowpath_migrations"] = ""
@@ -1089,12 +1115,20 @@ def generate_cleaned_hydrofabrics(
                 100.0 * (corrected_area - row["nldi_area_sqkm"])
                 / row["nldi_area_sqkm"]
             )
+            corrected_hf_nwis_difference_pct = (
+                100.0 * (corrected_area - row["usgs_area_sqkm"])
+                / row["usgs_area_sqkm"]
+            )
             cleaned_status = _classification(
                 abs(corrected_difference_pct),
                 row["nldi_nwis_absolute_difference_pct"],
+                abs(corrected_hf_nwis_difference_pct),
                 hf_nldi_threshold_pct=row["hf_nldi_threshold_pct"],
                 clean_threshold_pct=row["clean_threshold_pct"],
                 threshold_pct=row["threshold_pct"],
+                hf_nwis_fallback_threshold_pct=row[
+                    "hf_nwis_fallback_threshold_pct"
+                ],
             )
             result.at[index, "cleaned_gpkg_file"] = cleanup["cleaned_gpkg_file"]
             result.at[index, "removed_divide_count"] = cleanup["removed_divide_count"]
@@ -1102,6 +1136,9 @@ def generate_cleaned_hydrofabrics(
             result.at[index, "removed_area_sqkm"] = flagged["divide_area_sqkm"].sum()
             result.at[index, "corrected_hydrofabric_area_sqkm"] = corrected_area
             result.at[index, "corrected_hf_nldi_difference_pct"] = corrected_difference_pct
+            result.at[index, "corrected_hf_nwis_difference_pct"] = (
+                corrected_hf_nwis_difference_pct
+            )
             result.at[index, "cleaned_status"] = cleaned_status
             result.at[index, "removed_divide_ids"] = ",".join(divide_ids)
             result.at[index, "gage_flowpath_migrations"] = cleanup[
@@ -1266,6 +1303,8 @@ def plot_basin_boundary_comparison(
         f"NLDI–NWIS: {comparison_row['nldi_nwis_difference_pct']:+.2f}% "
         f"(clean ≤{comparison_row['clean_threshold_pct']:.1f}%, "
         f"maximum ≤{comparison_row['threshold_pct']:.1f}%)\n"
+        f"HF–NWIS: {comparison_row['difference_pct']:+.2f}% "
+        f"(fallback ≤{comparison_row.get('hf_nwis_fallback_threshold_pct', 10.0):.1f}%)\n"
         f"[{comparison_row['status']}]"
     )
     if comparison_row.get("cleaned_gpkg_file", ""):
@@ -1274,6 +1313,8 @@ def plot_basin_boundary_comparison(
             f"({comparison_row['removed_area_sqkm']:.2f} km²)\n"
             f"Corrected HF–NLDI: "
             f"{comparison_row['corrected_hf_nldi_difference_pct']:+.2f}% "
+            f"| HF–NWIS: "
+            f"{comparison_row['corrected_hf_nwis_difference_pct']:+.2f}% "
             f"[{comparison_row['cleaned_status']}]"
         )
     ax.text(
@@ -1340,8 +1381,9 @@ def generate_boundary_figures(
         "ERROR": 2,
         "MISSING_USGS_AREA": 3,
         "MISSING_NLDI_AREA": 4,
-        "ACCEPTABLE_OUTLET_OFFSET": 5,
-        "CLEAN_PASS": 6,
+        "HF_NWIS_AGREEMENT_NLDI_OUTLIER": 5,
+        "ACCEPTABLE_OUTLET_OFFSET": 6,
+        "CLEAN_PASS": 7,
     }
     ordered_indices = sorted(
         result.index,
@@ -1356,6 +1398,8 @@ def generate_boundary_figures(
             for index in ordered_indices
             if (
                 str(result.at[index, "status"]) not in SELECTED_STATUSES
+                or str(result.at[index, "status"])
+                == "HF_NWIS_AGREEMENT_NLDI_OUTLIER"
                 or (
                     "cleaned_status" in result
                     and str(result.at[index, "cleaned_status"])
@@ -1476,6 +1520,16 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--hf-nwis-fallback-threshold-pct",
+        type=float,
+        default=10.0,
+        help=(
+            "Accept an NLDI outlier when hydrofabric and documented NWIS "
+            "areas agree within this percentage and NLDI–NWIS exceeds "
+            "--threshold-pct (default: 10)"
+        ),
+    )
+    parser.add_argument(
         "--output-csv",
         type=Path,
         default=Path("basin_area_comparison.csv"),
@@ -1570,6 +1624,7 @@ def main(argv: list[str] | None = None) -> int:
             threshold_pct=args.threshold_pct,
             clean_threshold_pct=args.clean_threshold_pct,
             hf_nldi_threshold_pct=args.hf_nldi_threshold_pct,
+            hf_nwis_fallback_threshold_pct=args.hf_nwis_fallback_threshold_pct,
             layer=args.layer,
             area_column=args.area_column,
             batch_size=args.batch_size,
@@ -1629,6 +1684,7 @@ def main(argv: list[str] | None = None) -> int:
         "gage_id", "status", "hydrofabric_area_sqkm", "nldi_area_sqkm",
         "usgs_area_sqkm", "hf_nldi_difference_pct",
         "nldi_nwis_difference_pct",
+        "difference_pct",
     ]
     if args.cleaned_gpkg_dir is not None:
         display_columns.extend(

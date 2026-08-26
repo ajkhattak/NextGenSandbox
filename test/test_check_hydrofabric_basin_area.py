@@ -240,25 +240,33 @@ class TestHydrofabricBasinArea(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             paths = [
                 Path(tmp) / f"gage_{gage_id}.gpkg"
-                for gage_id in ("08070500", "09112500", "02146700", "02053500")
+                for gage_id in (
+                    "08070500", "09112500", "02146700", "02053500", "08158840"
+                )
             ]
-            for path, area in zip(paths, (102.0, 115.0, 142.5, 120.0)):
+            for path, area in zip(paths, (102.0, 115.0, 142.5, 120.0, 94.0)):
                 write_divides(path, [("cat-1", area)])
             usgs = pd.DataFrame(
                 {
-                    "gage_id": ["08070500", "09112500", "02146700", "02053500"],
-                    "station_name": ["Clean", "Offset", "Mismatch", "Topology"],
+                    "gage_id": [
+                        "08070500", "09112500", "02146700", "02053500", "08158840"
+                    ],
+                    "station_name": [
+                        "Clean", "Offset", "Mismatch", "Topology", "NLDI outlier"
+                    ],
                     "usgs_area_sqmi": [
                         100.0 / checker.SQUARE_MILES_TO_SQUARE_KM
-                    ] * 4,
-                    "usgs_area_sqkm": [100.0] * 4,
+                    ] * 5,
+                    "usgs_area_sqkm": [100.0] * 5,
                 }
             )
             nldi = pd.DataFrame(
                 {
-                    "gage_id": ["08070500", "09112500", "02146700", "02053500"],
-                    "nldi_area_sqkm": [102.0, 115.0, 142.5, 100.0],
-                    "nldi_error": [""] * 4,
+                    "gage_id": [
+                        "08070500", "09112500", "02146700", "02053500", "08158840"
+                    ],
+                    "nldi_area_sqkm": [102.0, 115.0, 142.5, 100.0, 160.0],
+                    "nldi_error": [""] * 5,
                 }
             )
 
@@ -286,6 +294,10 @@ class TestHydrofabricBasinArea(unittest.TestCase):
             result.loc["02053500", "status"],
             "SUBSETTER_OR_TOPOLOGY_FAILURE",
         )
+        self.assertEqual(
+            result.loc["08158840", "status"],
+            "HF_NWIS_AGREEMENT_NLDI_OUTLIER",
+        )
 
     def test_visualization_cli_options(self):
         args = checker._parser().parse_args(
@@ -299,6 +311,8 @@ class TestHydrofabricBasinArea(unittest.TestCase):
                 "8",
                 "--hf-nldi-threshold-pct",
                 "3",
+                "--hf-nwis-fallback-threshold-pct",
+                "7",
             ]
         )
 
@@ -306,21 +320,24 @@ class TestHydrofabricBasinArea(unittest.TestCase):
         self.assertEqual(args.figure_format, "pdf")
         self.assertEqual(args.clean_threshold_pct, 8.0)
         self.assertEqual(args.hf_nldi_threshold_pct, 3.0)
+        self.assertEqual(args.hf_nwis_fallback_threshold_pct, 7.0)
 
     def test_main_writes_only_passing_gage_ids_to_additional_csv(self):
         comparison = pd.DataFrame(
             {
-                "gage_id": ["09112500", "08070500", "02053500"],
+                "gage_id": ["09112500", "08070500", "02053500", "08158840"],
                 "status": [
                     "OBSERVATION_DOMAIN_MISMATCH",
                     "CLEAN_PASS",
                     "ACCEPTABLE_OUTLET_OFFSET",
+                    "HF_NWIS_AGREEMENT_NLDI_OUTLIER",
                 ],
-                "hydrofabric_area_sqkm": [130.0, 100.0, 100.0],
-                "nldi_area_sqkm": [130.0, 100.0, 115.0],
-                "usgs_area_sqkm": [100.0, 100.0, 100.0],
-                "hf_nldi_difference_pct": [0.0, 0.0, -13.0],
-                "nldi_nwis_difference_pct": [30.0, 0.0, 15.0],
+                "hydrofabric_area_sqkm": [130.0, 100.0, 100.0, 94.0],
+                "nldi_area_sqkm": [130.0, 100.0, 115.0, 160.0],
+                "usgs_area_sqkm": [100.0, 100.0, 100.0, 100.0],
+                "hf_nldi_difference_pct": [0.0, 0.0, -13.0, -41.25],
+                "nldi_nwis_difference_pct": [30.0, 0.0, 15.0, 60.0],
+                "difference_pct": [30.0, 0.0, 0.0, -6.0],
             }
         )
         with tempfile.TemporaryDirectory() as tmp:
@@ -341,7 +358,11 @@ class TestHydrofabricBasinArea(unittest.TestCase):
         self.assertEqual(exit_code, 1)
         self.assertEqual(
             passed.to_dict("records"),
-            [{"gage_id": "02053500"}, {"gage_id": "08070500"}],
+            [
+                {"gage_id": "02053500"},
+                {"gage_id": "08070500"},
+                {"gage_id": "08158840"},
+            ],
         )
 
     def test_boundary_plot_is_written_without_network(self):

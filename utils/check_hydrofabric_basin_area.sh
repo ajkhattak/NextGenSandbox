@@ -10,6 +10,14 @@ Usage:
 Checks hydrofabric area against NLDI and NWIS, cleans NLDI-external divides,
 and writes an attention-only PDF report. Original GeoPackages are unchanged.
 
+Area-classification defaults:
+  --hf-nldi-threshold-pct 5
+  --clean-threshold-pct 10
+  --threshold-pct 20
+  --hf-nwis-fallback-threshold-pct 10
+      If NLDI differs from NWIS by more than 20%, but hydrofabric and NWIS
+      agree within 10%, accept the basin as HF_NWIS_AGREEMENT_NLDI_OUTLIER.
+
 Cleanup defaults:
   --delete-outside-fraction-pct 50
       A partially overlapping divide is eligible when at least 50% is outside.
@@ -57,6 +65,7 @@ python -u "${script_dir}/python/check_hydrofabric_basin_area.py" \
     --hf-nldi-threshold-pct 5 \
     --clean-threshold-pct 10 \
     --threshold-pct 20 \
+    --hf-nwis-fallback-threshold-pct 10 \
     --output-csv "${output_dir}/basin_area_comparison.csv" \
     --passed-csv "${output_dir}/selected_gages.csv" \
     --cleaned-gpkg-dir "${output_dir}/cleaned_hydrofabric" \
