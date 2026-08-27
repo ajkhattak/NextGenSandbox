@@ -1,441 +1,332 @@
 # Sandbox Launcher
 
-The Sandbox Launcher expands one reusable Sandbox configuration into many
-gage, formulation, and calibration experiments. Use it after a normal
-single-gage Sandbox run works and the required hydrofabric, forcing, and
-observation resources are available.
+Sandbox Launcher expands one project configuration into independent Sandbox
+runs across many gages, formulations, and optional calibration scenarios. Use
+it after a normal single-gage `sandbox --conf` and `sandbox --run` succeeds.
+The launcher prepares configuration files, resumes incomplete calibrations,
+submits Slurm jobs when requested, and reports campaign progress. It does not
+subset hydrofabric or download forcing data.
 
-The launcher can:
+## One Configuration File
 
-- run small campaigns locally;
-- submit independent experiments to Slurm;
-- generate a Sandbox config for every gage and experiment;
-- resume incomplete DDS calibrations or warm-start PSO from its global best;
-- run validation after calibration;
-- expand a reference period into reference, wet, and dry calibrations; and
-- report campaign status from run metadata.
+Launcher YAML uses the same top-level blocks as a normal Sandbox
+configuration. This means an existing Sandbox configuration can be copied into
+a launcher configuration and then extended with `formulations` and `launcher`.
+There is no separate `project`, `sandbox`, `experiments`, or `stages` language.
 
-## How Configuration Works
+| Block | Purpose |
+| --- | --- |
+| `general` | Project paths, resource layout, and the full gage universe. |
+| `subsetting`, `forcings`, `observations`, `calibration` | Normal Sandbox settings copied into generated runs. |
+| `formulations` | Named model formulations and their gage selections. |
+| `simulation` | Campaign tasks, optional gage filter, time windows, and partitioning. |
+| `launcher` | Local or Slurm scheduling and optional regime-calibration expansion. |
 
-The launcher uses one self-contained YAML file. Its name and location are up
-to the user; examples include `launcher_dds.yaml` and `launcher_pso.yaml`.
-The file describes the campaign and contains the reusable Sandbox settings
-copied into every generated run.
-
-The main sections are:
-
-| Section | Defines |
-|---|---|
-| `project` | Shared input and output locations, resource layout, and campaign gages. |
-| `stages` | Explicitly selects calibration, validation, or both in that order. |
-| `sandbox` | Forcing, observations, calibration, simulation time, partitioning, and output settings. |
-| `experiments` | Formulations, optional model instances, and the gages selected for each experiment. |
-| `local` and `slurm` | Backend concurrency, scheduling, and resource limits. |
-| `regime_calibration` | Optional reference, wet, and dry calibration expansion. |
-
-### Project Settings
-
-Define the paths once under `project`:
-
-```yaml
-project:
-  name: regime_dds
-  input_dir: "/path/to/project/inputs"
-  output_dir: "/path/to/project/outputs"
-  resource_layout: gage
-  gages:
-    option: ids
-    ids:
-      - "02299950"
-      - "08070500"
-```
-
-Paths may be absolute or relative. Relative paths are resolved from the
-directory containing the launcher YAML, so a project-local configuration can
-use `./inputs`, `./outputs`, and `./clusters/...` regardless of the directory
-from which `sandbox-launcher` is invoked.
-
-The launcher injects these values, plus the current gage, formulation, model
-instances, and calibration scenario, into each generated Sandbox config.
-They do not need placeholders under `sandbox`.
-
-`project.name` is optional. When omitted, the launcher uses the configuration
-filename without `.yaml` as the campaign name.
-
-## Required Files
-
-| File | Purpose |
-|---|---|
-| Project launcher YAML | Complete campaign and shared Sandbox configuration; always required. It may have any filename. |
-| `models_gages_map.yaml` | Optional advanced mapping format; not needed for the recommended setup. |
-
-The launcher program and its Slurm scripts remain managed by NextGenSandbox.
-Users configure Slurm resources, modules, and environment variables in the
-project launcher YAML instead of maintaining a separate submission script.
-
-The repository layout separates those responsibilities:
-
-```text
-src/python/launcher/       installed launcher implementation
-configs/launcher/          editable launcher YAML examples
-docs/launcher.md           this user guide
-```
-
-## Before You Start
-
-Confirm that:
-
-1. NextGenSandbox is installed and `./bootstrap.sh --check` succeeds.
-2. A normal `sandbox --conf` and `sandbox --run` succeeds for at least one of
-   the intended gages and formulations.
-3. Hydrofabric, forcing, observations, and any trained model data already
-   exist. The launcher does not download or subset resources.
-4. The installed `sandbox-launcher` command is available.
-5. For Slurm, the `slurm.modules` list contains the modules required by the
-   target HPC system.
-
-Run `./bootstrap.sh --sandbox` again after updating NextGenSandbox so the
-installed `sandbox-launcher` command matches the repository.
-
-## Minimal Setup
-
-This example runs one formulation over two gages using one calibration
-window from one configuration file.
-
-### 1. Configure the Campaign and Sandbox
-
-Copy the example into the project and give it a descriptive name:
+Copy the shipped example to a project directory and rename it as needed:
 
 ```bash
 cp "$SANDBOX_DIR/configs/launcher/launcher_config.yaml" launcher_dds.yaml
 ```
 
-Then edit `launcher_dds.yaml`:
+Relative paths are resolved from the directory containing the launcher YAML.
+
+## Minimal Campaign
 
 ```yaml
-project:
-  name: regime_dds
-  input_dir: "/path/to/project/inputs"
-  output_dir: "/path/to/project/outputs"
+general:
+  input_dir: "./inputs"
+  output_dir: "./outputs/dds"
   resource_layout: gage
   gages:
     option: ids
-    ids:
-      - "02299950"
-      - "08070500"
+    ids: ["02299950", "08070500"]
 
-sandbox:
-  forcings:
-    format: ".nc"
-    time:
-      start: "2015-10-01"
-      end: "2022-09-30 23:00:00"
-    gages: all
+forcings:
+  format: ".nc"
+  use_corrected: true
+  rechunk: true
+  time:
+    start: "2015-10-01"
+    end: "2022-09-30 23:00:00"
+  gages: all
 
-  observations: {}
+observations: {}
 
-  calibration:
-    optimizer:
-      algorithm: dds
-      iterations: 400
-      random_seed: 444
-    objective:
-      function: kge
+calibration:
+  optimizer:
+    algorithm: dds
+    iterations: 400
+    random_seed: 444
+  objective:
+    function: kge
 
-  simulation:
-    time:
-      calibration:
-        start: "2015-10-01 00:00:00"
-        spinup: "12 months"
-        evaluation: "4 years"
-      validations:
-        - name: validation
-          start: "2020-10-01 00:00:00"
-          spinup: "12 months"
-          evaluation: "1 year"
-    partitioning:
-      mode: parallel
-      max_nexus_per_proc: 15
-      max_procs: 3
-    outputs:
-      metadata:
-        enabled: true
-        index_dir: metadata
-        file: simulation_metadata.yml
-
-stages: [calibration, validation]
-
-local:
-  max_workers: 2
-  startup_delay_seconds: 5
-
-slurm:
-  max_active_jobs: 10
-  max_total_mpi_tasks: 64
-  max_total_allocated_cpus: 128
-  startup_delay_seconds: 5
-  modules:
-    - openmpi/4.1.6
-    - netcdf-fortran/4.6.1
-    - cmake/3.30.2
-    - sqlite
-    - udunits
-  environment:
-    OMP_NUM_THREADS: "1"
-  calibration:
-    time: "12:00:00"
-    memory: "8G"
-  validation:
-    time: "12:00:00"
-    memory: "64G"
-
-experiments:
-  pet_cfe_s:
-    models: "PET, CFE, T-route"
+formulations:
+  nom_cfe_s:
+    models: "NOM, CFE, T-ROUTE"
+    verbosity: 0
     selection: all
+    model_instances:
+      CFE:
+        - name: cfe-s
+          basefile: "config_cfe-s.yaml"
+          repo_name: cfe
+          calib_params_block: cfes_params
+
+simulation:
+  tasks: [calibration, validation]
+  gages: all
+  time:
+    calibration:
+      start: "2015-10-01"
+      spinup: "12 months"
+      evaluation: "4 years"
+    validations:
+      - name: validation
+        start: "2020-10-01"
+        spinup: "12 months"
+        evaluation: "1 year"
+  partitioning:
+    mode: parallel
+    max_nexus_per_proc: 15
+    max_procs: 5
+
+launcher:
+  campaign_name: dds_example
+  local:
+    max_workers: 2
+    startup_delay_seconds: 5
 ```
 
-This means: run the `pet_cfe_s` experiment for every gage listed under
-`project.gages`, completing calibration and then validation.
-
-The launcher requires an explicit stage selection:
+`simulation.tasks` must be exactly one of:
 
 ```yaml
-# Start or resume calibration, then stop.
-stages: [calibration]
-
-# Run validation from an already completed calibration.
-stages: [validation]
-
-# Start or resume calibration, then run validation.
-stages: [calibration, validation]
+tasks: [calibration]
+tasks: [validation]
+tasks: [calibration, validation]
 ```
 
-Calibration selection includes restart behavior. An incomplete DDS run uses
-its restart configuration. An incomplete PSO run starts a new swarm from the
-saved global-best parameters. Validation-only execution fails with a clear
-error when no completed calibration checkpoint is available.
+Restart is automatic, rather than a task to list. An incomplete DDS
+calibration resumes from its checkpoint. An incomplete PSO calibration starts
+a new swarm from its saved global-best parameters. Validation-only work
+requires an available completed calibration state.
 
-The `local` block applies only to `--backend local`; the `slurm` block applies
-only to `--backend slurm`. A local-only campaign may omit `slurm`. Local
-settings default to two workers and a five-second startup delay when omitted.
+The launcher automatically enables `simulation.outputs.metadata`. Do not add
+that block merely for the launcher unless a non-default metadata location is
+needed.
 
-Keep `simulation.outputs.metadata.enabled: true`. The launcher uses each
-`metadata/run_<gage_id>.yml` file to detect progress, select restart behavior,
-request MPI tasks, and find validation output.
+## Gage and Formulation Selection
 
-### 2. Configure the Slurm Environment
+Selection happens in three clear steps:
 
-Skip this step for local execution. Before using Slurm, replace the example
-`slurm.modules` entries with the modules used when ngen and its model
-libraries were built on the target HPC system. Put simple fixed environment
-variables under `slurm.environment`. Environment values are exported as
-literal values; shell expressions and arbitrary setup commands are not
-evaluated.
+1. `general.gages` defines every gage available to the campaign.
+2. `simulation.gages` optionally narrows that set for this run.
+3. Each `formulations.<name>.selection` assigns one or more remaining gages
+   to that formulation.
 
-The launcher generates one shared worker script under
-`<project.output_dir>/launcher/<campaign>_worker.slurm`. All gage jobs in that
-campaign reuse this script. Values such as `slurm.account` and
-`slurm.partition`, together with the stage-specific `slurm.calibration` and
-`slurm.validation` profiles, are passed to `sbatch` for each job. Both
-profiles require explicit `time` and `memory` values.
+Every selected gage must be assigned to at least one formulation. The launcher
+errors rather than quietly omitting a gage.
 
-### 3. Check the Campaign
+Use `selection: all` for every campaign gage. For explicit gages or CSV
+groups, use a selection mapping:
 
-Run the read-only preflight check:
+```yaml
+general:
+  gages:
+    option: file
+    file:
+      path: "./gages.csv"
+      column: gage_id
+      group_column: group_name
+
+simulation:
+  gages: ["02299950", "08070500"]
+
+formulations:
+  nom_cfe_s:
+    models: "NOM, CFE, T-ROUTE"
+    selection:
+      groups: [snowy]
+      ids: ["08070500"]
+```
+
+`groups` and `ids` are combined. A gage may occur on several rows in the CSV
+and therefore belong to several groups.
+
+Each named entry under `formulations` is a normal formulation definition plus
+the required `selection`. Keep `model_instances` as a wrapper: it is the same
+shape used in normal Sandbox configuration files and supports multiple
+instances for one model family.
+
+## Check, Preview, and Run
+
+Before submitting work, run the read-only check:
 
 ```bash
 sandbox-launcher check --config launcher_dds.yaml
 ```
 
-Expected result:
+It validates the configuration, selected gages and formulations, hydrofabric,
+forcing, observations, time windows, and launcher resources. It does not
+create output directories, write generated configurations, run models, or
+submit jobs.
 
-- the resolved launcher configuration and inline Sandbox settings;
-- input and output directories;
-- gage and experiment counts;
-- resolved gage count for each experiment;
-- calibration scenarios and selected years;
-- the resolved hydrofabric and forcing resource for every gage;
-- observation file paths and required columns; and
-- `Launcher configuration and required resources look valid.`
-
-`check` does not generate configs, create output directories, run Sandbox, or
-submit jobs. The same resource preflight runs automatically before `submit`,
-`run`, and `dryrun`.
-
-### 4. Preview the Work
-
-Preview local execution:
+Preview the resolved work without writing anything:
 
 ```bash
 sandbox-launcher dryrun --backend local --config launcher_dds.yaml
-```
-
-Preview Slurm submissions:
-
-```bash
 sandbox-launcher dryrun --backend slurm --config launcher_dds.yaml
 ```
 
-Expected result: one `Would generate configs` and one `Would run locally` or
-`Would submit` message for each resolved gage/experiment/scenario. `dryrun`
-does not write files, create output directories, execute Sandbox, or submit
-jobs. A Slurm preview starts from an empty launcher budget and does not query
-the live queue.
-
-### 5. Run the Campaign
-
-For local execution:
+Run a small campaign locally:
 
 ```bash
 sandbox-launcher run --backend local --config launcher_dds.yaml
 ```
 
-Local mode runs at most `local.max_workers` experiments concurrently. Its
-startup delay cycles across worker slots so each new group of local runs is
-staggered without imposing progressively longer waits on a large campaign.
-Each local worker continues through the experiment stages: it completes or
-resumes calibration, reloads the resulting checkpoint, and then runs
-validation. One launcher command therefore completes both stages when they
-succeed.
+`launcher.local.max_workers` limits simultaneous local experiments.
+`launcher.local.startup_delay_seconds` staggers their starts.
 
-For Slurm, submit the campaign from a login node:
+Submit a Slurm campaign from a login node:
 
 ```bash
 sandbox-launcher submit --config launcher_dds.yaml
 ```
 
-The command validates the configuration, creates
-`<project.output_dir>/logs`, submits the coordinator with absolute paths, and
-prints the resulting Slurm job ID. During each coordinator cycle, Slurm mode
-generates missing configs and submits the generated worker script once per
-admitted gage/experiment/scenario. It then submits a lightweight follow-up
-coordinator with OR-separated `afterany` dependencies on the active worker
-job IDs and exits. Slurm starts that follow-up when any admitted worker
-terminates. The coordinator recognizes workers that remain running or pending,
-fills the newly available campaign capacity, and schedules its next dependent
-successor. Running or pending workers are not submitted again. Calibration,
-restarts, and validation are separate Slurm submissions selected across
-dependency-driven coordinator cycles.
+The launcher writes its worker script, logs, generated configuration files,
+and submission history below `general.output_dir`. It submits a lightweight
+coordinator, which admits workers within the configured campaign limits and
+schedules a successor after active workers finish. Do not submit generated
+worker scripts manually.
 
-The coordinator defaults to a 10-minute wallclock and 2 GB of memory. This
-provides time to scan a large campaign while keeping the lightweight job short
-enough for scheduler backfill. `sandbox-launcher status` reports the active
-coordinator job separately from experiment workers and warns when campaign
-work remains but no coordinator is active.
+## Slurm Settings
 
-Do not call `sbatch` directly for the normal workflow. The
-`sandbox-launcher submit` command supplies the configuration, output log
-paths, account, partition, and dependency settings needed by the coordinator.
+Add this to the `launcher` block when using Slurm:
 
-### Multiple Campaign Configurations
-
-Configuration filenames are unrestricted. Keep independent optimizer setups
-in separate files and give each one a separate output directory:
-
-```text
-regime_calibration/
-  launcher_dds.yaml
-  launcher_pso.yaml
-  outputs/
-    dds/
-    pso/
+```yaml
+launcher:
+  slurm:
+    account: project_account
+    partition: shared
+    max_active_jobs: 10
+    max_total_mpi_tasks: 64
+    max_total_allocated_cpus: 128
+    startup_delay_seconds: 5
+    coordinator:
+      time: "00:10:00"
+      memory: "2G"
+    modules:
+      - openmpi/4.1.6
+      - netcdf-fortran/4.6.1
+      - cmake/3.30.2
+      - sqlite
+      - udunits
+    environment:
+      OMP_NUM_THREADS: "1"
+    calibration:
+      time: "12:00:00"
+      memory: "8G"
+    validation:
+      time: "12:00:00"
+      memory: "64G"
 ```
 
-Submit them independently:
+Set `modules` to the same HPC modules used to build `ngen` and its model
+libraries. `environment` is for literal environment values such as
+`OMP_NUM_THREADS`; it does not run shell commands.
 
-```bash
-sandbox-launcher submit --config launcher_dds.yaml
-sandbox-launcher submit --config launcher_pso.yaml
+The three campaign limits protect different resources:
+
+| Setting | Limits |
+| --- | --- |
+| `max_active_jobs` | Launcher workers running or pending in Slurm. |
+| `max_total_mpi_tasks` | Sum of requested MPI ranks (`--ntasks`). |
+| `max_total_allocated_cpus` | Sum of Slurm CPUs requested by jobs (`NumCPUs`). |
+
+For standard Sandbox MPI execution each rank requests one CPU, so the last two
+limits are often equal. Keep both because cluster configuration or a future
+worker profile may allocate more CPUs than MPI tasks. Slurm can still leave a
+submitted job pending because of its own priority, node, memory, and account
+limits.
+
+## Regime Calibration
+
+An optional `launcher.regime_calibration` block expands every assigned
+formulation/gage into reference, wet, and dry calibration scenarios. Reference
+uses every post-spinup year; wet and dry select regime years from the supplied
+CSV and create the smallest simulation window that includes the selected years
+and spinup.
+
+```yaml
+launcher:
+  regime_calibration:
+    execution:
+      mode: priority
+      order: [ref, wet, dry]
+    reference:
+      start: "2013-10-01 00:00:00"
+      end: "2023-09-30 23:00:00"
+      spinup: "12 months"
+      year_type: water_year
+    source:
+      file: "./clusters/<gage_id>_annual_signatures_clusters.csv"
+      year_column: Water_Year
+      regime_column: Regime
+    selection:
+      max_years: 5
+      order: earliest
+      regimes:
+        wet: Wet
+        dry: Dry
 ```
 
-Separate output directories prevent calibration checkpoints, metadata, worker
-directories, and logs from the two optimizers from being mixed.
+`priority` admits scenarios in the listed order while still using remaining
+campaign capacity when an earlier scenario cannot fit its job limits.
 
-### 6. Check Status
+## Status and Resume
 
-The default view prints a compact campaign summary:
+Use the compact campaign report:
 
 ```bash
 sandbox-launcher status --summary --config launcher_dds.yaml
 ```
 
-Omitting `--summary` produces the same compact view.
-
-The summary separates normal campaign progress from Slurm termination states:
-
-| Status | Meaning |
-|---|---|
-| `COMPLETED` | Every requested stage for the experiment is complete. |
-| `RUNNING` | A worker is currently running in Slurm. |
-| `QUEUED` | A worker is pending in Slurm. |
-| `WILL_BE_REQUEUED` | A prior worker completed or produced restart progress, but another calibration restart or validation submission is still required. |
-| `NOT_SUBMITTED` | No worker submission or calibration progress has been recorded. |
-| `TIMEOUT` | The latest worker reached its Slurm wall-clock limit. |
-| `OUT_OF_MEMORY` | Slurm killed the latest worker for exceeding its memory allocation. |
-| `FAILED` | The latest worker ended in another failure state, including node failure or preemption. |
-| `CANCELLED` | The latest worker was cancelled. |
-
-An experiment is one resolved gage, formulation, and calibration scenario;
-calibration restarts are not counted as additional experiments. The categories
-are mutually exclusive, so their counts add up to `TOTAL`.
-
-Use the detailed view for one line per experiment:
+Use one row per gage/formulation/scenario when diagnosing work:
 
 ```bash
 sandbox-launcher status --detailed --config launcher_dds.yaml
 ```
 
-Filter the report to one status when investigating or managing a campaign:
+Filter either view to one state:
 
 ```bash
-sandbox-launcher status --completed --config launcher_dds.yaml
 sandbox-launcher status --running --config launcher_dds.yaml
-sandbox-launcher status --queued --config launcher_dds.yaml
-sandbox-launcher status --will-be-requeued --config launcher_dds.yaml
-sandbox-launcher status --not-submitted --config launcher_dds.yaml
-sandbox-launcher status --timeout --config launcher_dds.yaml
 sandbox-launcher status --out-of-memory --config launcher_dds.yaml
 sandbox-launcher status --failed --config launcher_dds.yaml
 sandbox-launcher status --cancelled --config launcher_dds.yaml
 ```
 
-Each filtered report includes the latest Slurm job ID, gage ID, formulation,
-and calibration scenario. Status filters are mutually exclusive.
+The summary distinguishes `COMPLETED`, `RUNNING`, `QUEUED`,
+`WILL_BE_REQUEUED`, `NOT_SUBMITTED`, `TIMEOUT`, `OUT_OF_MEMORY`, `FAILED`, and
+`CANCELLED`. The detailed view also reports calibration iteration progress and
+estimated remaining calibration time when enough progress has been recorded.
 
-The detailed view includes live scheduler state, calibration iteration and
-objective progress, estimated average time per calibration iteration,
-estimated calibration time remaining, and validation status. Estimated times
-are rounded to the nearest minute and are based on completed worker objective
-logs; PSO uses its completed-generation progress. The estimate includes worker
-startup and model execution overhead, is recalculated as progress changes, and
-is unavailable until enough calibration progress has been written. It does
-not estimate validation runtime. Rows are grouped by status, with running,
-completed, failed, and not-submitted experiments shown first in that order.
-Terminal `FAILED`, `OUT_OF_MEMORY`, and `CANCELLED` rows retain their historical
-average iteration time but do not show an estimated remaining time.
+Re-run `sandbox-launcher run` or `sandbox-launcher submit` with the same
+configuration after a failure or wall-clock limit. Existing completed work is
+left alone; incomplete calibrations use their available restart state.
 
-Status combines current `squeue` data, completed-job accounting from `sacct`,
-existing metadata, and output files; it does not start or submit work. The
-launcher records submitted job IDs for new campaigns and can recover older job
-IDs from existing launcher log filenames. If Slurm cannot be queried,
-unfinished experiments are reported as `UNKNOWN` rather than guessed.
+## Generated Files
 
-## Generated Layout
-
-For a normal calibration campaign:
+For one formulation and calibration scenario, launcher artifacts look like:
 
 ```text
-<project.output_dir>/
+<general.output_dir>/
   launcher/
     <campaign>_worker.slurm
     <campaign>_submitted_jobs.jsonl
   logs/
     <campaign>_launcher_<job_id>.out
-    <campaign>_launcher_<job_id>.err
     <worker_job_name>_<job_id>.out
-    <worker_job_name>_<job_id>.err
-  <experiment>/
+  <formulation>/
     configs/
       <gage_id>/
         sandbox_config_<gage_id>.yaml
@@ -443,294 +334,21 @@ For a normal calibration campaign:
         sandbox_config_<gage_id>_validation.yaml
     metadata/
       run_<gage_id>.yml
-    <gage run output>/
+    <gage_id>_<formulation>/
 ```
 
-For regime calibration, the scenario separates the generated files and run
-outputs:
+Regime scenarios add `ref`, `wet`, and `dry` below each formulation before
+their `configs`, `metadata`, and model outputs.
 
-```text
-<project.output_dir>/
-  <experiment>/
-    ref/
-      configs/
-      metadata/
-    wet/
-      configs/
-      metadata/
-    dry/
-      configs/
-      metadata/
-```
+## Migration From Earlier Launcher YAML
 
-## Multiple Experiments and Groups
+| Earlier block | New location |
+| --- | --- |
+| `project` | `general` |
+| `sandbox.forcings`, `sandbox.observations`, `sandbox.calibration`, `sandbox.simulation` | Top-level Sandbox blocks |
+| `experiments` | `formulations` |
+| `stages` | `simulation.tasks` |
+| `local`, `slurm`, `regime_calibration` | `launcher.local`, `launcher.slurm`, `launcher.regime_calibration` |
 
-Add experiments by name under `experiments`. Model variants belong with the
-experiment that uses them. Every experiment must define `selection`:
-
-```yaml
-experiments:
-  pet_cfe_s:
-    models: "PET, CFE, T-route"
-    selection: all
-
-  pet_cfe_x:
-    models: "PET, CFE, T-route"
-    selection:
-      groups:
-        - snowy
-        - benchmark
-      ids:
-        - "02299950"
-    model_instances:
-      CFE:
-        - name: cfe-x
-          basefile: "config_cfe-x.yaml"
-          repo_name: "cfe"
-          calib_params_block: cfex_params
-```
-
-`selection: all` uses every gage in `project.gages`. A selection mapping may
-contain `groups`, `ids`, or both. When both are present, the launcher uses
-their union and removes duplicates.
-
-For grouped campaigns, load the project gages and group names from CSV:
-
-```yaml
-project:
-  gages:
-    option: file
-    file:
-      path: "/path/to/gages.csv"
-      id_column: gage_id
-      group_column: group_name
-
-experiments:
-  snow17_sacsma:
-    models: "SNOW17, PET, SAC-SMA, T-route"
-    selection:
-      groups: [snowy]
-
-  pet_topmodel:
-    models: "PET, TopModel, T-route"
-    selection:
-      groups: [arid]
-```
-
-```csv
-gage_id,group_name
-01109403,snowy
-01109403,benchmark
-02299950,arid
-08070500,non-snowy|benchmark
-```
-
-A gage may belong to multiple groups through repeated rows or comma-,
-semicolon-, or pipe-separated group names. It receives every experiment whose
-selection matches any of those groups.
-
-The preflight check rejects unknown IDs or groups, an experiment matching no
-gages, and project gages selected by no experiment. This keeps omitted work
-from passing silently. To run an experiment everywhere, specify
-`selection: all` explicitly.
-
-## Regime Calibration
-
-Regime calibration expands every selected gage/experiment pair into three
-independent scenarios:
-
-- `ref` evaluates all post-spinup values in the reference period;
-- `wet` evaluates only selected wet years; and
-- `dry` evaluates only selected dry years.
-
-Add this block to `launcher_config.yaml`:
-
-```yaml
-regime_calibration:
-  execution:
-    mode: priority
-    order: [ref, wet, dry]
-
-  reference:
-    start: "2013-10-01 00:00:00"
-    end: "2024-09-30 23:00:00"
-    spinup: "12 months"
-    year_type: water_year
-
-  source:
-    file: "/path/to/clusters/<gage_id>_annual_signatures_clusters.csv"
-    year_column: Water_Year
-    regime_column: Regime
-
-  selection:
-    max_years: 5
-    order: earliest
-    regimes:
-      wet: Wet
-      dry: Dry
-```
-
-The CSV contains one row per year:
-
-```csv
-Water_Year,Regime
-2015,Wet
-2016,Wet
-2017,Wet
-2018,Dry
-```
-
-`<gage_id>` is replaced for each gage and is required in the source path for
-a multi-gage campaign. Only complete post-spinup years inside the reference
-window are eligible. The launcher selects up to `max_years` for each regime,
-using all available matching years when fewer exist. A regime with no
-eligible years is an error.
-
-Wet and dry simulations begin one spinup period before the earliest selected
-year and end after the latest selected year. Intermediate years are simulated
-to keep the run continuous but do not contribute to the objective function.
-
-### Scenario Scheduling
-
-Regime scenarios use priority scheduling by default. The recommended explicit
-configuration is:
-
-```yaml
-regime_calibration:
-  execution:
-    mode: priority
-    order: [ref, wet, dry]
-```
-
-At each launcher coordinator cycle, candidates are considered across the
-entire campaign in the configured order. Reference jobs are admitted first,
-followed by wet and then dry jobs. The configured active-job, MPI-task, and
-allocated-CPU limits remain in effect.
-
-Priority scheduling does not create a strict barrier between scenarios. If
-running reference jobs use 40 of a 150-task campaign limit, the launcher may
-use the remaining 110 tasks for additional reference jobs and then wet or dry
-jobs that fit. A reference job that cannot fit the remaining capacity does not
-prevent a smaller lower-priority job from using otherwise idle resources.
-
-Set `mode: parallel` to retain gage-first scheduling. The `order` list must
-contain every configured scenario exactly once.
-
-## Local Resources
-
-The launcher expands the campaign into run units. One run unit is one
-gage/experiment/scenario combination. For example, ten gages assigned to two
-experiments produce 20 run units; enabling reference, wet, and dry scenarios
-expands that campaign to 60 run units.
-
-| Setting | Meaning |
-|---|---|
-| `max_workers` | Maximum run units executed concurrently by the local backend. The effective value cannot exceed the machine's detected CPU count. |
-| `startup_delay_seconds` | Delay interval distributed across local worker slots to stagger filesystem access. |
-
-```yaml
-local:
-  max_workers: 2
-  startup_delay_seconds: 5
-```
-
-With two workers and a five-second interval, queued runs receive delays in the
-cycle `0, 5, 0, 5, ...`. This staggers each pair without making later runs
-wait progressively longer.
-
-## Slurm Resources
-
-The launcher reads generated partition metadata and requests one MPI task per
-resolved NextGen partition. Basin size may therefore produce a different task
-count for every submitted job.
-
-Each run unit is submitted as a separate worker job and requests one MPI task
-per resolved NextGen partition. Launcher limits admit only a bounded set of
-worker jobs, even when the cluster has enough resources to run the entire
-campaign at once.
-
-| Setting | Meaning |
-|---|---|
-| `max_active_jobs` | Required. Maximum number of this campaign's running plus pending worker jobs. |
-| `max_total_mpi_tasks` | Required. Maximum aggregate NextGen MPI ranks requested by running plus pending campaign jobs. |
-| `max_total_allocated_cpus` | Required. Maximum aggregate Slurm CPUs requested by running plus pending campaign jobs, including CPUs assigned to satisfy memory requests. |
-| `startup_delay_seconds` | Delay interval assigned across jobs admitted in one launcher cycle: `0`, one interval, two intervals, and so on. |
-| `coordinator.time` | Optional coordinator wallclock. Defaults to `00:10:00`. |
-| `coordinator.memory` | Optional coordinator memory. Defaults to `2G`. |
-| `account` | Optional worker-job Slurm account override. |
-| `partition` | Optional worker-job Slurm partition override. |
-| `mpi_tasks` | Must be `auto` when present. Per-run tasks come from generated partition metadata. |
-| `modules` | Module names loaded in order by the generated worker script. Use an empty list when modules are not needed. |
-| `environment` | Optional fixed environment variables exported by the generated worker script. |
-| `calibration.time` | Required calibration/restart worker wallclock. |
-| `calibration.memory` | Required calibration/restart worker memory. |
-| `validation.time` | Required validation worker wallclock. |
-| `validation.memory` | Required validation worker memory. |
-
-Configure worker resources and runtime dependencies together:
-
-```yaml
-slurm:
-  max_active_jobs: 10
-  max_total_mpi_tasks: 64
-  max_total_allocated_cpus: 128
-  startup_delay_seconds: 5
-  coordinator:
-    time: "00:10:00"
-    memory: "2G"
-  account: project_account
-  partition: shared
-  mpi_tasks: auto
-  modules:
-    - openmpi/4.1.6
-    - netcdf-fortran/4.6.1
-    - cmake/3.30.2
-    - sqlite
-    - udunits
-  environment:
-    OMP_NUM_THREADS: "1"
-  calibration:
-    time: "06:00:00"
-    memory: "8G"
-  validation:
-    time: "12:00:00"
-    memory: "64G"
-```
-
-With these limits, the launcher admits up to ten worker jobs, 64 aggregate MPI
-tasks, or 128 aggregate Slurm CPUs from this campaign. Work that does not fit
-is deferred until the next dependency-driven coordinator cycle. A single run
-whose known MPI request exceeds its limit is rejected with an actionable
-error.
-
-The launcher reads both Slurm values. `NumTasks` enforces the MPI-rank limit,
-while `NumCPUs` enforces the allocated-CPU limit. Some clusters allocate
-additional CPUs to satisfy a large `--mem` request; those CPUs count toward
-`max_total_allocated_cpus` but do not represent additional NextGen MPI ranks.
-Both running and pending campaign jobs count because pending requests can
-start as soon as Slurm finds suitable capacity. The final `NumCPUs` value is
-available only after Slurm accepts a job. If Slurm increases that value to
-satisfy memory, one newly submitted job can cross the CPU limit; the launcher
-reports this and admits no more work until the campaign falls below the limit.
-
-`startup_delay_seconds` staggers the jobs admitted during one launcher cycle.
-For example, a five-second interval assigns delays of 0, 5, 10, and 15 seconds
-to the first four submitted jobs. The delay occurs in the generated worker
-script immediately before Sandbox starts.
-
-`mpi_tasks` currently accepts only `auto`; CPUs per MPI task remain `1`.
-Site-specific modules and fixed environment values belong in the `slurm`
-block of the launcher configuration.
-Restart and PSO warm-start jobs use the calibration profile. Before a
-validation worker starts NextGen, it generates the validation-specific model
-configs and configuration manifest from the completed calibration state.
-
-## Advanced Direct Mapping
-
-`models_gages_map.yaml` can provide an already-resolved `formulations` and
-`mapping` structure. The launcher uses it only when `launcher_config.yaml`
-does not contain an `experiments` block.
-
-The launcher config is still required in direct-mapping mode because it
-contains project paths, shared Sandbox settings, backend controls, and the
-mapping-file location.
+The older wrapper blocks are deliberately rejected, so a campaign cannot run
+with an accidentally mixed configuration.

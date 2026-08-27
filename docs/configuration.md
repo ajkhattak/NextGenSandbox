@@ -67,6 +67,35 @@ field in the `general` block and may be referred to as `general.input_dir`.
 YAML indentation defines which fields belong to a block. Use spaces rather than
 tabs and preserve the indentation shown in the distributed sample.
 
+## Launcher Configuration
+
+Sandbox Launcher uses one YAML file that keeps these normal Sandbox blocks at
+the top level. It adds two blocks rather than wrapping the configuration in a
+separate launcher language:
+
+```yaml
+formulations:
+  nom_cfe_s:
+    models: "NOM, CFE, T-ROUTE"
+    selection: all
+
+launcher:
+  local:
+    max_workers: 2
+```
+
+For launcher configurations, `formulations` replaces the normal singular
+`formulation` block because each named formulation can select a different set
+of gages. `simulation.tasks` replaces `simulation.task_type` and accepts
+`[calibration]`, `[validation]`, or `[calibration, validation]`. The launcher
+translates each selected formulation and task into the normal per-gage Sandbox
+configuration it executes.
+
+Start from
+[configs/launcher/launcher_config.yaml](https://github.com/ajkhattak/NextGenSandbox/blob/main/configs/launcher/launcher_config.yaml)
+and see the [Sandbox Launcher guide](launcher.md) for selection rules, Slurm
+settings, regime calibration, and campaign status.
+
 ## Which Settings Each Command Uses
 
 NextGenSandbox runs in stages. Each command reads the sections relevant to that

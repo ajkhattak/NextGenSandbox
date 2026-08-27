@@ -107,7 +107,6 @@ class LauncherContext:
     launcher_dir: Path
     launcher_config_file: Path
     campaign_name: str
-    map_config_file: Path | None
     sandbox_cfg: dict[str, Any]
     map_cfg: dict[str, Any]
     output_dir: Path
@@ -233,12 +232,13 @@ def unique_ordered(values: list[str]) -> list[str]:
     return result
 
 
-def load_launcher_stages(launcher_cfg: dict[str, Any]) -> tuple[str, ...]:
-    stages = launcher_cfg.get("stages")
+def load_launcher_stages(sandbox_cfg: dict[str, Any]) -> tuple[str, ...]:
+    simulation = sandbox_cfg.get("simulation") or {}
+    stages = simulation.get("tasks")
     if not isinstance(stages, list) or not stages:
         raise ValueError(
-            "launcher_config.yaml must explicitly define stages as one of: "
-            "[calibration], [validation], or [calibration, validation]"
+            "simulation.tasks must explicitly be one of: [calibration], "
+            "[validation], or [calibration, validation]"
         )
 
     normalized = tuple(str(stage).strip().lower() for stage in stages)
@@ -249,8 +249,8 @@ def load_launcher_stages(launcher_cfg: dict[str, Any]) -> tuple[str, ...]:
     }
     if normalized not in supported:
         raise ValueError(
-            "stages must be one of: [calibration], [validation], or "
-            "[calibration, validation]"
+            "simulation.tasks must be one of: [calibration], [validation], "
+            "or [calibration, validation]"
         )
     return normalized
 
@@ -267,41 +267,44 @@ def split_group_value(value: Any) -> list[str]:
     ]
 
 
-def load_launcher_gages(launcher_cfg: dict[str, Any], launcher_dir: Path) -> dict[str, list[str]]:
-    project = launcher_cfg.get("project")
-    if not isinstance(project, dict):
-        raise ValueError("launcher_config.yaml must define a project block")
+def load_launcher_gages(
+    sandbox_cfg: dict[str, Any],
+    launcher_dir: Path,
+) -> dict[str, list[str]]:
+    general = sandbox_cfg.get("general")
+    if not isinstance(general, dict):
+        raise ValueError("launcher_config.yaml must define a general block")
 
-    gages_cfg = project.get("gages")
+    gages_cfg = general.get("gages")
     if not isinstance(gages_cfg, dict):
-        raise ValueError("launcher_config.yaml must define project.gages")
+        raise ValueError("launcher_config.yaml must define general.gages")
 
     option = str(gages_cfg.get("option", "")).lower()
     if option == "ids":
         gage_ids = unique_ordered(
             [
                 gage.strip()
-                for gage in as_list(gages_cfg.get("ids"), "project.gages.ids")
+                for gage in as_list(gages_cfg.get("ids"), "general.gages.ids")
                 if gage.strip()
             ]
         )
         return {gage: [] for gage in gage_ids}
 
     if option != "file":
-        raise ValueError("project.gages.option must be one of: ids, file")
+        raise ValueError("general.gages.option must be one of: ids, file")
 
     file_cfg = gages_cfg.get("file") or {}
     if not isinstance(file_cfg, dict):
-        raise TypeError("project.gages.file must be a mapping")
+        raise TypeError("general.gages.file must be a mapping")
     path_value = file_cfg.get("path")
     if not isinstance(path_value, str) or not path_value.strip():
-        raise ValueError("project.gages.file.path must be provided")
+        raise ValueError("general.gages.file.path must be provided")
     path = resolve_path(launcher_dir, path_value)
     id_column = file_cfg.get("id_column") or file_cfg.get("column", "gage_id")
     group_column = file_cfg.get("group_column")
 
     if not path.exists():
-        raise FileNotFoundError(f"project.gages.file.path not found: {path}")
+        raise FileNotFoundError(f"general.gages.file.path not found: {path}")
 
     gage_groups: dict[str, list[str]] = {}
     with path.open(newline="") as file:
@@ -322,13 +325,37 @@ def load_launcher_gages(launcher_cfg: dict[str, Any], launcher_dir: Path) -> dic
     return {gage: unique_ordered(groups) for gage, groups in gage_groups.items()}
 
 
-def resolve_experiment_gages(
-    experiment_name: str,
-    experiment: dict[str, Any],
+def resolve_simulation_gages(
+    sandbox_cfg: dict[str, Any],
+    gage_groups: dict[str, list[str]],
+) -> dict[str, list[str]]:
+    selected = (sandbox_cfg.get("simulation") or {}).get("gages", "all")
+    if isinstance(selected, str) and selected.strip().lower() == "all":
+        return gage_groups
+    if isinstance(selected, (list, tuple, set)):
+        selected_ids = unique_ordered([str(item).strip() for item in selected])
+    elif isinstance(selected, str):
+        selected_ids = [selected.strip()]
+    else:
+        raise TypeError(
+            "simulation.gages must be all, a gage ID string, or a list of IDs"
+        )
+    unknown = sorted(set(selected_ids) - set(gage_groups))
+    if unknown:
+        raise ValueError(
+            "simulation.gages contains gages outside general.gages: "
+            + ", ".join(unknown)
+        )
+    return {gage_id: gage_groups[gage_id] for gage_id in selected_ids}
+
+
+def resolve_formulation_gages(
+    formulation_name: str,
+    formulation: dict[str, Any],
     gage_groups: dict[str, list[str]],
 ) -> list[str]:
-    field_name = f"experiments.{experiment_name}.selection"
-    selection = experiment.get("selection")
+    field_name = f"formulations.{formulation_name}.selection"
+    selection = formulation.get("selection")
 
     if isinstance(selection, str):
         if selection.strip().lower() != "all":
@@ -365,7 +392,8 @@ def resolve_experiment_gages(
     unknown_ids = sorted(set(selected_ids) - set(gage_groups))
     if unknown_ids:
         raise ValueError(
-            f"{field_name}.ids contains gages outside project.gages: "
+            f"{field_name}.ids contains gages outside the selected "
+            "general/simulation gages: "
             f"{', '.join(unknown_ids)}"
         )
 
@@ -377,7 +405,7 @@ def resolve_experiment_gages(
     unknown_groups = sorted(set(selected_groups) - known_groups)
     if unknown_groups:
         raise ValueError(
-            f"{field_name}.groups references unknown project gage group(s): "
+            f"{field_name}.groups references unknown gage group(s): "
             f"{', '.join(unknown_groups)}"
         )
 
@@ -393,46 +421,50 @@ def resolve_experiment_gages(
     return resolved
 
 
-def build_map_from_launcher_config(
-    launcher_cfg: dict[str, Any],
+def build_map_from_formulations(
+    sandbox_cfg: dict[str, Any],
     launcher_dir: Path,
 ) -> tuple[dict[str, Any], dict[str, int]]:
-    experiments = launcher_cfg.get("experiments")
-    if not isinstance(experiments, dict) or not experiments:
-        raise ValueError("launcher_config.yaml must define a non-empty experiments block")
+    configured_formulations = sandbox_cfg.get("formulations")
+    if not isinstance(configured_formulations, dict) or not configured_formulations:
+        raise ValueError("launcher_config.yaml must define a non-empty formulations block")
 
-    gage_groups = load_launcher_gages(launcher_cfg, launcher_dir)
+    gage_groups = load_launcher_gages(sandbox_cfg, launcher_dir)
     if not gage_groups:
-        raise ValueError("No gages were resolved from project.gages")
+        raise ValueError("No gages were resolved from general.gages")
+    gage_groups = resolve_simulation_gages(sandbox_cfg, gage_groups)
+    if not gage_groups:
+        raise ValueError("simulation.gages resolves to zero general.gages")
 
     mapping: dict[str, list[str]] = {gage_id: [] for gage_id in gage_groups}
     formulations: dict[str, dict[str, Any]] = {}
     summary: dict[str, int] = {}
 
-    for experiment_name, experiment in experiments.items():
-        if not isinstance(experiment, dict):
-            raise TypeError(f"experiments.{experiment_name} must be a mapping")
-        if not experiment.get("models"):
-            raise ValueError(f"experiments.{experiment_name}.models must be provided")
+    for formulation_name, formulation in configured_formulations.items():
+        if not isinstance(formulation, dict):
+            raise TypeError(f"formulations.{formulation_name} must be a mapping")
+        if not formulation.get("models"):
+            raise ValueError(f"formulations.{formulation_name}.models must be provided")
 
-        selected_gages = resolve_experiment_gages(
-            experiment_name,
-            experiment,
+        selected_gages = resolve_formulation_gages(
+            formulation_name,
+            formulation,
             gage_groups,
         )
-        summary[experiment_name] = len(selected_gages)
-        formulations[experiment_name] = {
+        summary[formulation_name] = len(selected_gages)
+        formulations[formulation_name] = {
             key: copy.deepcopy(value)
-            for key, value in experiment.items()
+            for key, value in formulation.items()
             if key != "selection"
         }
         for gage_id in selected_gages:
-            mapping[gage_id].append(experiment_name)
+            mapping[gage_id].append(formulation_name)
 
     unassigned = [gage_id for gage_id, selected in mapping.items() if not selected]
     if unassigned:
         raise ValueError(
-            "project.gages contains gages not selected by any experiment: "
+            "The selected general/simulation gages are not assigned to any "
+            "formulation: "
             f"{', '.join(unassigned)}"
         )
 
@@ -440,22 +472,6 @@ def build_map_from_launcher_config(
         "formulations": formulations,
         "mapping": mapping,
     }, summary
-
-
-def apply_project_overrides(
-    sandbox_settings: dict[str, Any],
-    launcher_cfg: dict[str, Any],
-) -> dict[str, Any]:
-    sandbox_cfg = copy.deepcopy(sandbox_settings)
-    project = launcher_cfg.get("project") or {}
-    if not project:
-        return sandbox_cfg
-
-    general = sandbox_cfg.setdefault("general", {})
-    for key in ("input_dir", "output_dir", "resource_layout"):
-        if key in project:
-            general[key] = project[key]
-    return sandbox_cfg
 
 
 def resolve_project_paths(
@@ -466,7 +482,7 @@ def resolve_project_paths(
     for field_name in ("input_dir", "output_dir"):
         value = general.get(field_name)
         if not isinstance(value, (str, Path)) or not str(value).strip():
-            raise ValueError(f"project.{field_name} must be a non-empty path")
+            raise ValueError(f"general.{field_name} must be a non-empty path")
         general[field_name] = str(resolve_path(launcher_dir, value).resolve())
 
 
@@ -486,6 +502,20 @@ def absolutize_launcher_resource_paths(
         path = settings.get("path")
         if path and not Path(str(path)).expanduser().is_absolute():
             settings["path"] = str(resolve_path(launcher_dir, path))
+
+
+def enable_launcher_metadata(sandbox_cfg: dict[str, Any]) -> None:
+    """Enable the metadata required to resume and monitor launcher jobs."""
+    simulation = sandbox_cfg.setdefault("simulation", {})
+    outputs = simulation.setdefault("outputs", {})
+    if not isinstance(outputs, dict):
+        raise TypeError("simulation.outputs must be a mapping")
+    metadata = outputs.setdefault("metadata", {})
+    if not isinstance(metadata, dict):
+        raise TypeError("simulation.outputs.metadata must be a mapping")
+    metadata["enabled"] = True
+    metadata.setdefault("index_dir", "metadata")
+    metadata.setdefault("file", "simulation_metadata.yml")
 
 
 def _complete_evaluation_years(
@@ -769,13 +799,13 @@ def resolve_regime_scenarios(
 
 
 def resolve_calibration_scenarios(
-    launcher_cfg: dict[str, Any],
+    launcher_settings: dict[str, Any],
     map_cfg: dict[str, Any],
     sandbox_cfg: dict[str, Any],
     launcher_dir: Path,
 ) -> dict[str, tuple[CalibrationScenario, ...]]:
     gage_ids = list(map_cfg["mapping"])
-    regime_config = launcher_cfg.get("regime_calibration")
+    regime_config = launcher_settings.get("regime_calibration")
     if regime_config is None:
         calibration = (
             sandbox_cfg.get("simulation", {})
@@ -784,8 +814,7 @@ def resolve_calibration_scenarios(
         )
         if not isinstance(calibration, dict):
             raise ValueError(
-                "launcher_config.yaml sandbox.simulation.time must define "
-                "calibration"
+                "simulation.time must define calibration"
             )
         scenario = CalibrationScenario(
             name=None,
@@ -805,10 +834,10 @@ def resolve_calibration_scenarios(
 
 
 def resolve_scenario_execution(
-    launcher_cfg: dict[str, Any],
+    launcher_settings: dict[str, Any],
     calibration_scenarios: dict[str, tuple[CalibrationScenario, ...]],
 ) -> tuple[str, tuple[str, ...]]:
-    regime_config = launcher_cfg.get("regime_calibration")
+    regime_config = launcher_settings.get("regime_calibration")
     if regime_config is None:
         return "parallel", ("default",)
 
@@ -874,72 +903,94 @@ def load_context(config_file: Path) -> LauncherContext:
     launcher_dir = config_file.parent
     launcher_cfg = load_yaml(config_file)
 
-    if "execution" in launcher_cfg:
-        raise ValueError(
-            "launcher_config.yaml execution is no longer supported. Use "
-            "local.max_workers and local.startup_delay_seconds for local "
-            "runs, and slurm.startup_delay_seconds for Slurm runs."
-        )
-
-    if "templates" in launcher_cfg or "sandbox_config" in launcher_cfg:
-        raise ValueError(
-            "External Sandbox templates are no longer supported. Move the "
-            "forcing, observations, calibration, and simulation settings "
-            "into launcher_config.yaml under sandbox."
-        )
-
     legacy_fields = [
         field_name
-        for field_name in ("gages", "assignment", "submit_script")
+        for field_name in (
+            "project",
+            "sandbox",
+            "experiments",
+            "stages",
+            "local",
+            "slurm",
+            "regime_calibration",
+            "mapping_config",
+            "templates",
+            "sandbox_config",
+            "gages",
+            "assignment",
+            "submit_script",
+            "execution",
+        )
         if field_name in launcher_cfg
     ]
     if legacy_fields:
         raise ValueError(
-            "Top-level launcher field(s) are no longer supported: "
-            f"{', '.join(legacy_fields)}. Move gages under project.gages, "
-            "define selection within each experiment, and configure the "
-            "generated worker under slurm."
+            "Unsupported legacy launcher field(s): "
+            f"{', '.join(legacy_fields)}. Keep Sandbox settings at the top "
+            "level, use formulations for model assignments, and put "
+            "launcher-only settings under launcher."
         )
 
-    sandbox_settings = launcher_cfg.get("sandbox")
-    if not isinstance(sandbox_settings, dict) or not sandbox_settings:
+    supported_blocks = {
+        "general",
+        "subsetting",
+        "forcings",
+        "observations",
+        "calibration",
+        "simulation",
+        "formulations",
+        "launcher",
+    }
+    unsupported_blocks = sorted(set(launcher_cfg) - supported_blocks)
+    if unsupported_blocks:
         raise ValueError(
-            "launcher_config.yaml must define a non-empty sandbox mapping"
+            "Unsupported launcher configuration block(s): "
+            f"{', '.join(unsupported_blocks)}. Use normal Sandbox blocks, "
+            "formulations, and launcher."
         )
-    stages = load_launcher_stages(launcher_cfg)
 
-    local = launcher_cfg.get("local") or {}
+    launcher_settings = launcher_cfg.get("launcher")
+    if not isinstance(launcher_settings, dict):
+        raise ValueError("launcher_config.yaml must define a launcher block")
+
+    sandbox_cfg = {
+        key: copy.deepcopy(value)
+        for key, value in launcher_cfg.items()
+        if key not in {"formulations", "launcher"}
+    }
+    if not sandbox_cfg:
+        raise ValueError("launcher_config.yaml must include Sandbox configuration blocks")
+    if "formulation" in sandbox_cfg:
+        raise ValueError(
+            "Launcher configs use formulations, not formulation. Move the "
+            "model definition into formulations.<name>."
+        )
+    stages = load_launcher_stages(sandbox_cfg)
+
+    local = launcher_settings.get("local") or {}
     if not isinstance(local, dict):
-        raise TypeError("local must be a YAML dictionary/object")
+        raise TypeError("launcher.local must be a YAML dictionary/object")
     local = copy.deepcopy(local)
     local.setdefault("max_workers", 2)
     local.setdefault("startup_delay_seconds", 5)
 
-    sandbox_cfg = apply_project_overrides(
-        sandbox_settings,
-        launcher_cfg,
-    )
     resolve_project_paths(sandbox_cfg, launcher_dir)
     absolutize_launcher_resource_paths(sandbox_cfg, launcher_dir)
+    enable_launcher_metadata(sandbox_cfg)
     absolutize_optimizer_settings_file(
         sandbox_cfg,
         config_file,
     )
     validate_sandbox_config(sandbox_cfg)
 
-    if "experiments" in launcher_cfg:
-        map_config_file = None
-        map_cfg, selection_summary = build_map_from_launcher_config(
-            launcher_cfg,
-            launcher_dir,
-        )
-    else:
-        map_config_file = resolve_path(
-            launcher_dir,
-            launcher_cfg.get("mapping_config", "models_gages_map.yaml"),
-        )
-        map_cfg = load_yaml(map_config_file)
-        selection_summary = {}
+    formulation_config = copy.deepcopy(sandbox_cfg)
+    formulation_config["formulations"] = copy.deepcopy(
+        launcher_cfg.get("formulations")
+    )
+    map_cfg, selection_summary = build_map_from_formulations(
+        formulation_config,
+        launcher_dir,
+    )
 
     output_dir = Path(sandbox_cfg["general"]["output_dir"]).expanduser()
     input_dir = Path(sandbox_cfg["general"]["input_dir"]).expanduser()
@@ -950,16 +1001,16 @@ def load_context(config_file: Path) -> LauncherContext:
     )
     metadata_index_dir_name = metadata.get("index_dir", "metadata")
     calibration_scenarios = resolve_calibration_scenarios(
-        launcher_cfg,
+        launcher_settings,
         map_cfg,
         sandbox_cfg,
         launcher_dir,
     )
     scenario_execution_mode, scenario_order = resolve_scenario_execution(
-        launcher_cfg,
+        launcher_settings,
         calibration_scenarios,
     )
-    slurm_value = launcher_cfg.get("slurm")
+    slurm_value = launcher_settings.get("slurm")
     if slurm_value is None:
         slurm = {}
     elif not isinstance(slurm_value, dict):
@@ -968,18 +1019,19 @@ def load_context(config_file: Path) -> LauncherContext:
         slurm = copy.deepcopy(slurm_value)
         slurm.setdefault("startup_delay_seconds", 5)
 
-    project = launcher_cfg.get("project") or {}
-    campaign_name = model_name_to_dir(project.get("name") or config_file.stem)
+    campaign_name = model_name_to_dir(
+        launcher_settings.get("campaign_name") or config_file.stem
+    )
     if not campaign_name:
         raise ValueError(
-            "project.name or the launcher config filename must contain a usable name"
+            "launcher.campaign_name or the launcher config filename must "
+            "contain a usable name"
         )
 
     return LauncherContext(
         launcher_dir=launcher_dir,
         launcher_config_file=config_file,
         campaign_name=campaign_name,
-        map_config_file=map_config_file,
         sandbox_cfg=sandbox_cfg,
         map_cfg=map_cfg,
         output_dir=output_dir,
@@ -1013,14 +1065,14 @@ def validate_sandbox_config(config: dict[str, Any]) -> None:
         )
     if "input_dir" not in general or "output_dir" not in general:
         raise ValueError(
-            "Project paths are missing. Define project.input_dir and "
-            "project.output_dir in launcher_config.yaml."
+            "Project paths are missing. Define general.input_dir and "
+            "general.output_dir in launcher_config.yaml."
         )
     metadata = simulation.get("outputs", {}).get("metadata", {})
     if not metadata.get("enabled"):
         raise ValueError(
             "Launcher requires simulation.outputs.metadata.enabled: true "
-            "under launcher_config.yaml sandbox"
+            "in the generated Sandbox configuration"
         )
     if not metadata.get("index_dir"):
         raise ValueError("Launcher requires simulation.outputs.metadata.index_dir")
@@ -1030,9 +1082,9 @@ def validate_mapping_config(map_cfg: dict[str, Any]) -> None:
     formulations = map_cfg.get("formulations")
     mapping = map_cfg.get("mapping")
     if not isinstance(formulations, dict) or not formulations:
-        raise ValueError("models_gages_map.yaml must define a non-empty formulations mapping")
+        raise ValueError("Resolved launcher formulations must be a non-empty mapping")
     if not isinstance(mapping, dict) or not mapping:
-        raise ValueError("models_gages_map.yaml must define a non-empty mapping block")
+        raise ValueError("Resolved launcher gage assignments must be a non-empty mapping")
 
     groups = map_cfg.get("groups", {}) or {}
     for name, spec in formulations.items():
@@ -1062,10 +1114,6 @@ def validate_mapping_config(map_cfg: dict[str, Any]) -> None:
 
 
 def validate_context(ctx: LauncherContext) -> None:
-    if ctx.map_config_file is not None and not ctx.map_config_file.exists():
-        raise FileNotFoundError(
-            f"Required launcher file not found: {ctx.map_config_file}"
-        )
     unknown_local = sorted(
         set(ctx.local) - {"max_workers", "startup_delay_seconds"}
     )
@@ -1098,19 +1146,19 @@ def validate_context(ctx: LauncherContext) -> None:
 def validate_project_paths(ctx: LauncherContext) -> None:
     if not ctx.input_dir.exists():
         raise FileNotFoundError(
-            "project.input_dir does not exist: "
-            f"{ctx.input_dir}. Update project.input_dir in "
+            "general.input_dir does not exist: "
+            f"{ctx.input_dir}. Update general.input_dir in "
             f"{ctx.launcher_config_file}."
         )
     if not ctx.input_dir.is_dir():
         raise NotADirectoryError(
-            f"project.input_dir is not a directory: {ctx.input_dir}"
+            f"general.input_dir is not a directory: {ctx.input_dir}"
         )
 
     if ctx.output_dir.exists():
         if not ctx.output_dir.is_dir():
             raise NotADirectoryError(
-                f"project.output_dir is not a directory: {ctx.output_dir}"
+                f"general.output_dir is not a directory: {ctx.output_dir}"
             )
         return
 
@@ -1122,9 +1170,9 @@ def validate_project_paths(ctx: LauncherContext) -> None:
         existing_parent = existing_parent.parent
     if not existing_parent.is_dir() or not os.access(existing_parent, os.W_OK):
         raise PermissionError(
-            "project.output_dir cannot be created: "
+            "general.output_dir cannot be created: "
             f"{ctx.output_dir}. The nearest existing parent is not writable: "
-            f"{existing_parent}. Update project.output_dir in "
+            f"{existing_parent}. Update general.output_dir in "
             f"{ctx.launcher_config_file}."
         )
 
@@ -1549,6 +1597,7 @@ def generate_config_files_for_gage(
     }
     formulation = sandbox_cfg.setdefault("formulation", {})
     formulation["models"] = formulation_spec["models"]
+    formulation["verbosity"] = formulation_spec.get("verbosity", 0)
     if "model_instances" in formulation_spec:
         formulation["model_instances"] = copy.deepcopy(
             formulation_spec["model_instances"]
@@ -1557,14 +1606,13 @@ def generate_config_files_for_gage(
         formulation.pop("model_instances", None)
     simulation = sandbox_cfg.setdefault("simulation", {})
     simulation["gages"] = [gage_id]
+    simulation.pop("tasks", None)
     simulation["task_type"] = "calibration"
+    simulation["label"] = formulation_name
     if scenario is not None:
         simulation.setdefault("time", {})["calibration"] = (
             copy.deepcopy(scenario.calibration)
         )
-    if scenario_name:
-        simulation.pop("label", None)
-
     paths = generated_config_paths(exp_config_dir, gage_id)
 
     if dryrun:
@@ -2052,7 +2100,7 @@ def submit_launcher(
         ctx.log_dir.mkdir(parents=True, exist_ok=True)
     except OSError as error:
         raise RuntimeError(
-            f"Unable to create project.output_dir {ctx.output_dir}: {error}"
+            f"Unable to create general.output_dir {ctx.output_dir}: {error}"
         ) from error
     worker_script = write_slurm_worker_script(ctx)
     print(f"Generated Slurm worker script: {worker_script}")
@@ -2103,8 +2151,8 @@ def select_experiment_config(
         if not calibration_requested:
             raise RuntimeError(
                 "Validation was requested, but calibration has not started. "
-                "Run the launcher with stages: [calibration] or "
-                "stages: [calibration, validation] first."
+                "Run the launcher with simulation.tasks: [calibration] or "
+                "simulation.tasks: [calibration, validation] first."
             )
         return paths["sandbox_main"]
 
@@ -3267,13 +3315,13 @@ def print_check_report(ctx: LauncherContext) -> None:
     print("==============")
     print(f"Launcher config : {ctx.launcher_config_file}")
     print(f"Campaign name   : {ctx.campaign_name}")
-    print(f"Sandbox settings: {ctx.launcher_config_file}:sandbox")
-    print(f"Mapping config  : {ctx.map_config_file or 'resolved from launcher_config.yaml'}")
+    print("Sandbox settings: top-level blocks in the launcher configuration")
+    print("Formulations    : resolved from the formulations block")
     print(f"Worker script   : {worker_script_path(ctx)} (generated for Slurm runs)")
     print(f"Input dir       : {ctx.input_dir}")
     print(f"Output dir      : {ctx.output_dir}")
     print(f"Slurm logs      : {ctx.log_dir}")
-    print(f"Stages          : {', '.join(ctx.stages)}")
+    print(f"Tasks           : {', '.join(ctx.stages)}")
     print(
         "Scenario order  : "
         f"{ctx.scenario_execution_mode} "
@@ -3282,7 +3330,7 @@ def print_check_report(ctx: LauncherContext) -> None:
     print(f"Local workers   : {ctx.local['max_workers']}")
     print(f"Local delay     : {ctx.local['startup_delay_seconds']} sec")
     print(f"Mapped gages    : {len(ctx.map_cfg['mapping'])}")
-    print(f"Experiments     : {len(ctx.map_cfg['formulations'])}")
+    print(f"Formulations    : {len(ctx.map_cfg['formulations'])}")
     if ctx.slurm:
         common_slurm = {
             key: value
@@ -3318,10 +3366,10 @@ def print_check_report(ctx: LauncherContext) -> None:
                 f"memory={settings['memory']}"
             )
     if ctx.selection_summary:
-        print("\nResolved experiment selection")
-        print("-----------------------------")
-        for experiment_name, gage_count in ctx.selection_summary.items():
-            print(f"{experiment_name}: {gage_count} gage(s)")
+        print("\nResolved formulation selection")
+        print("-------------------------------")
+        for formulation_name, gage_count in ctx.selection_summary.items():
+            print(f"{formulation_name}: {gage_count} gage(s)")
     print("\nResolved calibration plan")
     print("-------------------------")
     for gage_id in ctx.map_cfg["mapping"]:
@@ -3355,7 +3403,7 @@ def print_check_report(ctx: LauncherContext) -> None:
                 f"{simulation_time['start_time']} to "
                 f"{simulation_time['end_time']} | "
                 f"years: {years} | MPI tasks: {tasks} | "
-                f"experiments: {len(formulations)}"
+                f"formulations: {len(formulations)}"
             )
     validate_launcher_resources(ctx, verbose=True)
     print("Launcher configuration and required resources look valid.")

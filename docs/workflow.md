@@ -418,24 +418,16 @@ long calibration jobs. It can also expand a reference period and per-gage
 year/regime CSV into independent reference, wet, and dry calibration scenarios.
 
 Launcher uses one self-contained YAML configuration with any user-selected
-filename, such as `launcher_dds.yaml` or `launcher_pso.yaml`. It defines project
-paths and gages, reusable Sandbox settings, experiment selections, and
-local/Slurm controls. The required `stages` list explicitly selects
-calibration, validation, or calibration followed by validation. Calibration
-selection also resumes incomplete work. Each experiment explicitly selects
-all project gages or a set of gage groups/IDs. The launcher expands this into
-per-gage/per-experiment Sandbox configs and then runs locally or submits jobs
-through Slurm. In local mode, one worker continues from calibration through
-validation. In Slurm mode, calibration and validation are submitted as
-separate jobs over dependency-driven coordinator cycles. Each coordinator
-submits a successor that Slurm holds until any active worker job terminates.
-The successor then fills newly available capacity while leaving other active
-workers alone, so no coordinator allocation waits throughout a long
-calibration. Coordinator jobs use a 30-minute, 2 GB default allocation so
-large campaigns have enough time to scan state and schedule their successor.
-The launcher configuration
-requires separate Slurm wallclock and memory settings for calibration and
-validation, allowing long validation periods to request a larger allocation.
+filename, such as `launcher_dds.yaml` or `launcher_pso.yaml`. It keeps normal
+Sandbox blocks such as `general`, `forcings`, `observations`, `calibration`,
+and `simulation` at the top level. Add `formulations` to assign model setups
+to gages and `launcher` for local or Slurm scheduling. The required
+`simulation.tasks` list selects calibration, validation, or both; calibration
+automatically resumes incomplete work. The launcher expands this into
+per-gage/per-formulation Sandbox configurations and then runs locally or
+submits jobs through Slurm. In local mode, one worker continues from
+calibration through validation. In Slurm mode, calibration and validation are
+separate jobs managed through dependency-driven coordinator cycles.
 
 The launcher is installed with NextGenSandbox. For Slurm, submit an arbitrary
 campaign configuration with:
@@ -445,7 +437,7 @@ sandbox-launcher submit --config launcher_dds.yaml
 ```
 
 Launcher and worker logs are written under
-`<project.output_dir>/logs`; launcher source files remain in the
+`<general.output_dir>/logs`; launcher source files remain in the
 NextGenSandbox repository.
 
 Continue to the

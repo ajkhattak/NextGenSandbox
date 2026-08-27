@@ -29,7 +29,7 @@ class TestLauncherSelection(unittest.TestCase):
             yaml.safe_dump({"output_dir": str(output_dir)})
         )
 
-    def test_experiment_selections_merge_for_repeated_gage_groups(self):
+    def test_formulation_selections_merge_for_repeated_gage_groups(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             csv_path = tmp_path / "gages.csv"
@@ -41,7 +41,7 @@ class TestLauncherSelection(unittest.TestCase):
             )
 
             config = {
-                "project": {
+                "general": {
                     "gages": {
                         "option": "file",
                         "file": {
@@ -51,7 +51,8 @@ class TestLauncherSelection(unittest.TestCase):
                         },
                     }
                 },
-                "experiments": {
+                "simulation": {"gages": "all"},
+                "formulations": {
                     "pet_cfe_s": {
                         "models": "PET, CFE, T-route",
                         "selection": {"groups": ["snowy"]},
@@ -67,7 +68,7 @@ class TestLauncherSelection(unittest.TestCase):
                 },
             }
 
-            map_config, summary = launcher.build_map_from_launcher_config(
+            map_config, summary = launcher.build_map_from_formulations(
                 config,
                 tmp_path,
             )
@@ -87,14 +88,14 @@ class TestLauncherSelection(unittest.TestCase):
                 map_config["formulations"]["pet_cfe_s"],
             )
 
-    def test_experiment_selection_combines_groups_and_ids(self):
+    def test_formulation_selection_combines_groups_and_ids(self):
         gage_groups = {
             "01109403": ["snowy"],
             "02299950": ["arid"],
             "03366500": ["humid"],
         }
 
-        selected = launcher.resolve_experiment_gages(
+        selected = launcher.resolve_formulation_gages(
             "pet_cfe",
             {
                 "models": "PET, CFE, T-route",
@@ -108,17 +109,17 @@ class TestLauncherSelection(unittest.TestCase):
 
         self.assertEqual(selected, ["01109403", "03366500"])
 
-    def test_experiment_selection_is_required(self):
+    def test_formulation_selection_is_required(self):
         with self.assertRaisesRegex(ValueError, "selection.*required"):
-            launcher.resolve_experiment_gages(
+            launcher.resolve_formulation_gages(
                 "pet_cfe",
                 {"models": "PET, CFE, T-route"},
                 {"01109403": []},
             )
 
-    def test_experiment_selection_rejects_unknown_ids(self):
-        with self.assertRaisesRegex(ValueError, "outside project.gages"):
-            launcher.resolve_experiment_gages(
+    def test_formulation_selection_rejects_unknown_ids(self):
+        with self.assertRaisesRegex(ValueError, "outside the selected"):
+            launcher.resolve_formulation_gages(
                 "pet_cfe",
                 {
                     "models": "PET, CFE, T-route",
@@ -127,9 +128,9 @@ class TestLauncherSelection(unittest.TestCase):
                 {"01109403": []},
             )
 
-    def test_experiment_selection_rejects_unknown_groups(self):
-        with self.assertRaisesRegex(ValueError, "unknown project gage group"):
-            launcher.resolve_experiment_gages(
+    def test_formulation_selection_rejects_unknown_groups(self):
+        with self.assertRaisesRegex(ValueError, "unknown gage group"):
+            launcher.resolve_formulation_gages(
                 "pet_cfe",
                 {
                     "models": "PET, CFE, T-route",
@@ -138,15 +139,41 @@ class TestLauncherSelection(unittest.TestCase):
                 {"01109403": ["arid"]},
             )
 
-    def test_project_gages_must_all_receive_an_experiment(self):
+    def test_simulation_gages_limits_formulation_assignments(self):
         config = {
-            "project": {
+            "general": {
                 "gages": {
                     "option": "ids",
                     "ids": ["01109403", "02299950"],
                 }
             },
-            "experiments": {
+            "simulation": {"gages": ["02299950"]},
+            "formulations": {
+                "pet_cfe": {
+                    "models": "PET, CFE, T-route",
+                    "selection": "all",
+                }
+            },
+        }
+
+        map_config, summary = launcher.build_map_from_formulations(
+            config,
+            Path("/tmp"),
+        )
+
+        self.assertEqual(map_config["mapping"], {"02299950": ["pet_cfe"]})
+        self.assertEqual(summary, {"pet_cfe": 1})
+
+    def test_selected_gages_must_all_receive_a_formulation(self):
+        config = {
+            "general": {
+                "gages": {
+                    "option": "ids",
+                    "ids": ["01109403", "02299950"],
+                }
+            },
+            "simulation": {"gages": "all"},
+            "formulations": {
                 "pet_cfe": {
                     "models": "PET, CFE, T-route",
                     "selection": {"ids": ["01109403"]},
@@ -154,8 +181,8 @@ class TestLauncherSelection(unittest.TestCase):
             },
         }
 
-        with self.assertRaisesRegex(ValueError, "not selected.*02299950"):
-            launcher.build_map_from_launcher_config(
+        with self.assertRaisesRegex(ValueError, "not assigned.*02299950"):
+            launcher.build_map_from_formulations(
                 config,
                 Path("/tmp"),
             )
@@ -245,19 +272,19 @@ class TestLauncherSelection(unittest.TestCase):
     def test_launcher_stages_are_explicit(self):
         self.assertEqual(
             launcher.load_launcher_stages(
-                {"stages": ["calibration", "validation"]}
+                {"simulation": {"tasks": ["calibration", "validation"]}}
             ),
             ("calibration", "validation"),
         )
 
     def test_launcher_rejects_missing_stages(self):
-        with self.assertRaisesRegex(ValueError, "explicitly define stages"):
+        with self.assertRaisesRegex(ValueError, "simulation.tasks must explicitly"):
             launcher.load_launcher_stages({})
 
     def test_launcher_rejects_validation_before_calibration(self):
-        with self.assertRaisesRegex(ValueError, "stages must be one of"):
+        with self.assertRaisesRegex(ValueError, "simulation.tasks must be one of"):
             launcher.load_launcher_stages(
-                {"stages": ["validation", "calibration"]}
+                {"simulation": {"tasks": ["validation", "calibration"]}}
             )
 
     def test_dryrun_mode_previews_without_running(self):
@@ -321,54 +348,42 @@ class TestLauncherSelection(unittest.TestCase):
 
         launcher.validate_sandbox_config(config)
 
-    def test_launcher_loads_sandbox_settings_from_same_file(self):
+    def test_launcher_loads_single_file_sandbox_settings(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             config_file = root / "launcher_dds.yaml"
             config_file.write_text(
                 yaml.safe_dump(
                     {
-                        "project": {
+                        "general": {
                             "input_dir": "inputs",
                             "output_dir": "outputs",
                             "resource_layout": "gage",
-                            "gages": {
-                                "option": "ids",
-                                "ids": ["01109403"],
+                            "gages": {"option": "ids", "ids": ["01109403"]},
+                        },
+                        "forcings": {"gages": "all"},
+                        "calibration": {
+                            "optimizer": {"algorithm": "dds", "iterations": 25},
+                            "objective": {"function": "kge"},
+                        },
+                        "simulation": {
+                            "tasks": ["calibration", "validation"],
+                            "gages": "all",
+                            "time": {
+                                "calibration": {
+                                    "start": "2015-10-01",
+                                    "spinup": "12 months",
+                                    "evaluation": "2 years",
+                                }
                             },
                         },
-                        "sandbox": {
-                            "forcings": {"gages": "all"},
-                            "calibration": {
-                                "optimizer": {
-                                    "algorithm": "dds",
-                                    "iterations": 25,
-                                },
-                                "objective": {"function": "kge"},
-                            },
-                            "simulation": {
-                                "time": {
-                                    "calibration": {
-                                        "start": "2015-10-01",
-                                        "spinup": "12 months",
-                                        "evaluation": "2 years",
-                                    }
-                                },
-                                "outputs": {
-                                    "metadata": {
-                                        "enabled": True,
-                                        "index_dir": "metadata",
-                                    }
-                                },
-                            },
-                        },
-                        "stages": ["calibration", "validation"],
-                        "experiments": {
+                        "formulations": {
                             "pet_cfe": {
                                 "models": "PET, CFE, T-route",
                                 "selection": "all",
                             }
                         },
+                        "launcher": {"campaign_name": "launcher_dds"},
                     }
                 )
             )
@@ -384,12 +399,16 @@ class TestLauncherSelection(unittest.TestCase):
                 25,
             )
             self.assertEqual(context.campaign_name, "launcher_dds")
+            self.assertEqual(context.stages, ("calibration", "validation"))
+            self.assertTrue(
+                context.sandbox_cfg["simulation"]["outputs"]["metadata"]["enabled"]
+            )
             self.assertEqual(
                 context.log_dir,
                 (root / "outputs").resolve() / "logs",
             )
 
-    def test_project_path_validation_reports_missing_input_directory(self):
+    def test_general_path_validation_reports_missing_input_directory(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             context = SimpleNamespace(
@@ -400,7 +419,7 @@ class TestLauncherSelection(unittest.TestCase):
 
             with self.assertRaisesRegex(
                 FileNotFoundError,
-                "project.input_dir does not exist",
+                "general.input_dir does not exist",
             ):
                 launcher.validate_project_paths(context)
 
@@ -482,7 +501,7 @@ class TestLauncherSelection(unittest.TestCase):
             ):
                 launcher.validate_launcher_resources(context)
 
-    def test_project_path_validation_rejects_unwritable_output_parent(self):
+    def test_general_path_validation_rejects_unwritable_output_parent(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             input_dir = root / "inputs"
@@ -496,26 +515,26 @@ class TestLauncherSelection(unittest.TestCase):
             with patch.object(launcher.os, "access", return_value=False):
                 with self.assertRaisesRegex(
                     PermissionError,
-                    "project.output_dir cannot be created",
+                    "general.output_dir cannot be created",
                 ):
                     launcher.validate_project_paths(context)
 
-    def test_launcher_requires_inline_sandbox_settings(self):
+    def test_launcher_rejects_legacy_project_settings(self):
         with tempfile.TemporaryDirectory() as tmp:
             config_file = Path(tmp) / "launcher_config.yaml"
             config_file.write_text("project: {}\n")
 
-            with self.assertRaisesRegex(ValueError, "non-empty sandbox mapping"):
+            with self.assertRaisesRegex(ValueError, "Unsupported legacy launcher field"):
                 launcher.load_context(config_file)
 
-    def test_launcher_rejects_external_sandbox_template(self):
+    def test_launcher_rejects_unrecognized_template_block(self):
         with tempfile.TemporaryDirectory() as tmp:
             config_file = Path(tmp) / "launcher_config.yaml"
             config_file.write_text(
                 "templates:\n  sandbox_config: sandbox_config.yaml\n"
             )
 
-            with self.assertRaisesRegex(ValueError, "no longer supported"):
+            with self.assertRaisesRegex(ValueError, "Unsupported legacy launcher field"):
                 launcher.load_context(config_file)
 
     def test_launcher_rejects_top_level_gages_and_assignment(self):
@@ -523,7 +542,7 @@ class TestLauncherSelection(unittest.TestCase):
             config_file = Path(tmp) / "launcher_config.yaml"
             config_file.write_text("gages: {}\nassignment: {}\n")
 
-            with self.assertRaisesRegex(ValueError, "project.gages"):
+            with self.assertRaisesRegex(ValueError, "Unsupported legacy launcher field"):
                 launcher.load_context(config_file)
 
     def test_generated_configs_use_only_sandbox_files(self):
@@ -581,7 +600,7 @@ class TestLauncherSelection(unittest.TestCase):
             )
             self.assertEqual(
                 restart["simulation"]["restart_dir"],
-                str(root / "outputs" / "pet_cfe" / "01109403"),
+                str(root / "outputs" / "pet_cfe" / "01109403_pet_cfe"),
             )
             self.assertNotIn("-j", run.call_args.args[0])
 
@@ -651,11 +670,17 @@ class TestLauncherSelection(unittest.TestCase):
                 generated["simulation"]["time"]["calibration"],
                 scenario.calibration,
             )
-            self.assertNotIn("label", generated["simulation"])
+            self.assertEqual(generated["simulation"]["label"], "pet_cfe")
             restart = yaml.safe_load(paths["sandbox_restart"].read_text())
             self.assertEqual(
                 restart["simulation"]["restart_dir"],
-                str(root / "outputs" / "pet_cfe" / "dry" / "01109403"),
+                str(
+                    root
+                    / "outputs"
+                    / "pet_cfe"
+                    / "dry"
+                    / "01109403_pet_cfe"
+                ),
             )
 
     def test_max_iterations_comes_from_sandbox_calibration_block(self):

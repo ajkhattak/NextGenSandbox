@@ -1,188 +1,139 @@
-project:
-  # Optional; defaults to this configuration filename without .yaml.
-  # name: example_campaign
+# Sandbox Launcher configuration.
+# See https://ajkhattak.github.io/NextGenSandbox/launcher/ for all options.
+
+general:
   input_dir: "./inputs"
   output_dir: "./outputs"
   resource_layout: gage
-
   gages:
     option: ids
     ids:
-      #- "02299950"
       - "08070500"
-      #- "03574500"
-      #- "04231000"
-      #- "03366500"
-      #- "04282000"
-      #- "05061000"
-      #- "09504420"
-      #- "11264500"
-
-    # For grouped experiments over many gages, use a CSV instead:
+    # For grouped campaign assignments, use:
     # option: file
     # file:
-    #   path: "/path/to/gages.csv"
-    #   id_column: gage_id
+    #   path: "./gages.csv"
+    #   column: gage_id
     #   group_column: group_name
-    #
-    # A gage may belong to more than one group by repeating rows or by
-    # separating groups in one cell with comma, semicolon, or pipe.
 
-sandbox:
-  forcings:
-    format: ".nc"
-    time:
-      start: "2000-10-01"
-      end: "2023-09-30"
-    domain: conus
-    gages: all
+# Resource preparation is run separately with sandbox --subset and sandbox --forc.
+subsetting: {}
 
-  observations: {}
+forcings:
+  format: ".nc"
+  use_corrected: true
+  rechunk: true
+  time:
+    start: "2000-10-01"
+    end: "2023-09-30 23:00:00"
+  domain: conus
+  gages: all
 
-  calibration:
-    optimizer:
-      algorithm: dds
-      iterations: 2
-      random_seed: 444
-    objective:
-      function: kge
+observations: {}
 
-  simulation:
-    time:
-      calibration:
-        start: "2015-10-01 00:00:00"
-        spinup: "12 months"
-        evaluation: "1 years"
-      validations:
-        - name: validation
-          start: "2020-10-01 00:00:00"
-          spinup: "12 months"
-          evaluation: "1 year"
+calibration:
+  optimizer:
+    algorithm: dds
+    iterations: 400
+    random_seed: 444
+  objective:
+    function: kge
 
-    partitioning:
-      mode: parallel
-      max_nexus_per_proc: 15
-      max_procs: 3
+# Each entry is a formulation to run. Its selection is applied after
+# general.gages and simulation.gages.
+formulations:
+  nom_cfe_s:
+    models: "NOM, CFE, T-ROUTE"
+    verbosity: 0
+    selection: all
+    model_instances:
+      CFE:
+        - name: cfe-s
+          basefile: "config_cfe-s.yaml"
+          repo_name: cfe
+          calib_params_block: cfes_params
 
-    outputs:
-      metadata:
-        enabled: true
-        index_dir: metadata
-        file: simulation_metadata.yml
-
-# Select exactly which experiment stages this launcher invocation manages.
-stages: [calibration, validation]
-
-local:
-  max_workers: 2
-  startup_delay_seconds: 5
-
-# Slurm execution requires all three limits. MPI tasks control NextGen ranks;
-# allocated CPUs also include CPUs Slurm assigns to satisfy memory requests.
-# Set calibration and validation resources separately. Validation commonly
-# needs more memory when its simulation period is longer.
-slurm:
-  max_active_jobs: 10
-  max_total_mpi_tasks: 64
-  max_total_allocated_cpus: 128
-  startup_delay_seconds: 5
-  # The coordinator scans campaign state and submits worker jobs. The default
-  # is 10 minutes and 1G; increase these only for unusually large campaigns.
-  coordinator:
-    time: "00:10:00"
-    memory: "1G"
-#   account: project_account
-#   partition: shared
-#   mpi_tasks: auto
-
-  # Replace these examples with the modules required on the target HPC system.
-  modules:
-    - openmpi/4.1.6
-    - netcdf-fortran/4.6.1
-    - cmake/3.30.2
-    - sqlite
-    - udunits
-
-  environment:
-    OMP_NUM_THREADS: "1"
-
-  calibration:
-    time: "12:00:00"
-    memory: "8G"
-  validation:
-    time: "12:00:00"
-    memory: "64G"
-
-# Optional regime calibration. For every selected experiment and gage, the
-# launcher creates independent ref, wet, and dry calibration scenarios.
-regime_calibration:
-   execution:
-     mode: priority
-     order: [ref, wet, dry]
-
-   reference:
-     start: "2013-10-01 00:00:00"
-     end: "2023-09-30 23:00:00"
-     spinup: "12 months"
-     year_type: water_year
-
-   source:
-     file: "./clusters/<gage_id>_annual_signatures_clusters.csv"
-     year_column: Water_Year
-     regime_column: Regime
-
-   selection:
-     max_years: 5
-     order: earliest
-     regimes:
-       wet: Wet
-       dry: Dry
-
-experiments:
-  #pet_cfe_s:
-  #  models: "PET, CFE, T-route"
-  #  selection: all
-  #  model_instances:
-  #    CFE:
-  #      - name: cfe-s
-  #        basefile: "config_cfe-s.yaml"
-  #        repo_name: "cfe"
-  #        calib_params_block: "cfes_params"
-
-  #pet_cfe_x:
-  #  models: "PET, CFE, T-route"
+  #nom_cfe_x:
+  #  models: "NOM, CFE, T-ROUTE"
+  #  verbosity: 0
   #  selection:
   #    groups: [snowy]
   #  model_instances:
   #    CFE:
   #      - name: cfe-x
   #        basefile: "config_cfe-x.yaml"
-  #        repo_name: "cfe"
-  #       calib_params_block: "cfex_params"
+  #        repo_name: cfe
+  #        calib_params_block: cfex_params
 
-  #pet_topmodel:
-  #  models: "PET, TopModel, T-route"
-  #  selection:
-  #    groups: [arid]
+simulation:
+  tasks: [calibration, validation]
+  gages: all
+  time:
+    calibration:
+      start: "2015-10-01"
+      spinup: "12 months"
+      evaluation: "4 years"
+    validations:
+      - name: validation
+        start: "2020-10-01"
+        spinup: "12 months"
+        evaluation: "1 year"
+  partitioning:
+    mode: parallel
+    max_nexus_per_proc: 15
+    max_procs: 5
 
-  nom_cfe_s:
-    models: "NOM, CFE, T-route"
-    selection: all
-    model_instances:
-      CFE:
-        - name: cfe-s
-          basefile: "config_cfe-s.yaml"
-          repo_name: "cfe"
-          calib_params_block: "cfes_params"
+# Scheduling and campaign expansion are the only launcher-specific settings.
+launcher:
+  campaign_name: regime_dds
 
-  #nom_cfe_x:
-  #  models: "NOM, CFE, T-route"
-  #  selection:
-  #    groups: [snowy, benchmark]
-  #    ids: ["02299950"]
-  #  model_instances:
-  #    CFE:
-  #      - name: cfe-x
-  #        basefile: "config_cfe-x.yaml"
-  #        repo_name: "cfe"
-  #        calib_params_block: "cfex_params"
+  local:
+    max_workers: 2
+    startup_delay_seconds: 5
+
+  slurm:
+    max_active_jobs: 10
+    max_total_mpi_tasks: 64
+    max_total_allocated_cpus: 128
+    startup_delay_seconds: 5
+    coordinator:
+      time: "00:10:00"
+      memory: "1G"
+    # account: project_account
+    # partition: shared
+    modules:
+      - openmpi/4.1.6
+      - netcdf-fortran/4.6.1
+      - cmake/3.30.2
+      - sqlite
+      - udunits
+    environment:
+      OMP_NUM_THREADS: "1"
+    calibration:
+      time: "12:00:00"
+      memory: "8G"
+    validation:
+      time: "12:00:00"
+      memory: "64G"
+
+  # Optional regime expansion. It creates ref, wet, and dry calibration
+  # scenarios for every assigned gage and formulation.
+  regime_calibration:
+    execution:
+      mode: priority
+      order: [ref, wet, dry]
+    reference:
+      start: "2013-10-01 00:00:00"
+      end: "2023-09-30 23:00:00"
+      spinup: "12 months"
+      year_type: water_year
+    source:
+      file: "./clusters/<gage_id>_annual_signatures_clusters.csv"
+      year_column: Water_Year
+      regime_column: Regime
+    selection:
+      max_years: 5
+      order: earliest
+      regimes:
+        wet: Wet
+        dry: Dry
