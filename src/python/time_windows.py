@@ -8,6 +8,38 @@ import pandas as pd
 NGEN_TIMESTEP = pd.Timedelta(hours=1)
 
 
+def normalize_simulation_tasks(simulation_config):
+    """Validate public simulation tasks and return tasks plus the run mode."""
+    if not isinstance(simulation_config, dict):
+        raise TypeError("simulation must be a YAML dictionary/object")
+    if "task_type" in simulation_config:
+        raise ValueError(
+            "simulation.task_type is no longer supported; use simulation.tasks"
+        )
+
+    tasks = simulation_config.get("tasks")
+    if not isinstance(tasks, list) or not tasks:
+        raise ValueError(
+            "simulation.tasks must be one of: [control], [calibration], "
+            "[validation], [restart], or [calibration, validation]"
+        )
+
+    normalized = tuple(str(task).strip().lower() for task in tasks)
+    task_modes = {
+        ("control",): "control",
+        ("calibration",): "calibration",
+        ("validation",): "validation",
+        ("restart",): "restart",
+        ("calibration", "validation"): "calibvalid",
+    }
+    if normalized not in task_modes:
+        raise ValueError(
+            "simulation.tasks must be one of: [control], [calibration], "
+            "[validation], [restart], or [calibration, validation]"
+        )
+    return normalized, task_modes[normalized]
+
+
 def normalize_forcing_time_config(time_config):
     if not isinstance(time_config, dict):
         raise TypeError("forcings.time must be a YAML dictionary/object")
@@ -51,7 +83,10 @@ def normalize_simulation_time_config(dsim, task_type, config_dir=None):
 
     if task_type == "control":
         if "control" not in time_config:
-            raise ValueError("simulation.time.control is required for task_type control")
+            raise ValueError(
+                "simulation.time.control is required for simulation.tasks: "
+                "[control]"
+            )
         dsim["simulation_time"] = resolve_time_period(
             time_config["control"],
             "simulation.time.control",
@@ -60,9 +95,14 @@ def normalize_simulation_time_config(dsim, task_type, config_dir=None):
 
     if task_type in ["calibration", "calibvalid", "restart"]:
         if "calibration" not in time_config:
+            task_label = (
+                "[calibration, validation]"
+                if task_type == "calibvalid"
+                else f"[{task_type}]"
+            )
             raise ValueError(
-                "simulation.time.calibration is required for task_type "
-                f"{task_type}"
+                "simulation.time.calibration is required for simulation.tasks: "
+                f"{task_label}"
             )
 
         calibration = resolve_time_period(

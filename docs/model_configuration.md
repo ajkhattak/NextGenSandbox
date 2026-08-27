@@ -5,11 +5,13 @@ and special setup for ML-based models.
 
 ## Formulations
 
-The `formulation.models` value lists the model components used by a run.
+The `formulations.<name>.models` value lists the model components used by a
+run. A regular Sandbox configuration contains one named formulation.
 
 ```yaml
-formulation:
-  models: "NOM,CFE,T-ROUTE"
+formulations:
+  nom_cfe:
+    models: "NOM,CFE,T-ROUTE"
 ```
 
 Run this command to list supported formulations:
@@ -33,20 +35,21 @@ For example, use `CFE` in `models`, then select the CFE-X, CFE with
 Xinanjiang scheme, instance through `model_instances`:
 
 ```yaml
-formulation:
-  models: "NOM,CFE,T-ROUTE"
+formulations:
+  nom_cfe_x:
+    models: "NOM,CFE,T-ROUTE"
 
-  model_instances:
-    CFE:
-      - name: cfe-x
-        basefile: "config_cfe-x.yaml"
-        repo_name: "cfe"
-        calib_params_block: "cfex_params"
+    model_instances:
+      CFE:
+        - name: cfe-x
+          basefile: "config_cfe-x.yaml"
+          repo_name: "cfe"
+          calib_params_block: "cfex_params"
 ```
 
 Do not put `CFE-S` or `CFE-X` in `models`. `CFE` defaults to the
-`cfe-s`/Schaake instance. Use `model_instances.CFE` to select another
-configured instance such as `cfe-x`.
+`cfe-s`/Schaake instance. Use `formulations.<name>.model_instances.CFE` to
+select another configured instance such as `cfe-x`.
 
 Official variant names are validated by family. For example, `cfe-s` fields
 must contain CFE-S markers such as `cfe-s`/`cfes`, while `cfe-x` fields must
@@ -54,12 +57,15 @@ contain CFE-X markers such as `cfe-x`/`cfex`. Custom files and parameter blocks
 are allowed within the same family:
 
 ```yaml
-model_instances:
-  CFE:
-    - name: cfe-x
-      basefile: "config_cfe-x_custom.yaml"
-      calib_params_block: "cfex_params_custom"
-      calib_params_file: "cfe-x-custom.yaml"
+formulations:
+  nom_cfe_x:
+    models: "NOM,CFE,T-ROUTE"
+    model_instances:
+      CFE:
+        - name: cfe-x
+          basefile: "config_cfe-x_custom.yaml"
+          calib_params_block: "cfex_params_custom"
+          calib_params_file: "cfe-x-custom.yaml"
 ```
 
 Mixed family markers are rejected. For example, `name: cfe-x` cannot use
@@ -204,33 +210,37 @@ directory.
 ### PET + Default CFE
 
 ```yaml
-formulation:
-  models: "PET,CFE,T-ROUTE"
+formulations:
+  pet_cfe:
+    models: "PET,CFE,T-ROUTE"
 ```
 
 ### NOM + CFE-X
 
 ```yaml
-formulation:
-  models: "NOM,CFE,T-ROUTE"
-  model_instances:
-    CFE:
-      - name: cfe-x
-        basefile: "config_cfe-x.yaml"
-        repo_name: "cfe"
-        calib_params_block: "cfex_params"
+formulations:
+  nom_cfe_x:
+    models: "NOM,CFE,T-ROUTE"
+    model_instances:
+      CFE:
+        - name: cfe-x
+          basefile: "config_cfe-x.yaml"
+          repo_name: "cfe"
+          calib_params_block: "cfex_params"
 ```
 
 ### SNOW17 + PET + SACSMA
 
 ```yaml
-formulation:
-  models: "SNOW17,PET,SACSMA,T-ROUTE"
+formulations:
+  snow_pet_sacsma:
+    models: "SNOW17,PET,SACSMA,T-ROUTE"
 ```
 
 ### CASAM
 
 ```yaml
-formulation:
-  models: "NOM,CASAM,T-ROUTE"
+formulations:
+  nom_casam:
+    models: "NOM,CASAM,T-ROUTE"
 ```

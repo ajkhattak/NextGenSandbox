@@ -53,11 +53,11 @@ observations:
 calibration:
   # Optimizer, iteration count, random seed, and objective function
 
-formulation:
-  # Models and model-instance customization
+formulations:
+  # Named model setup(s) and model-instance customization
 
 simulation:
-  # Task, time periods, outputs, and processor settings
+  # Tasks, time periods, outputs, and processor settings
 ```
 
 This guide calls each top-level section a **block**. For example, `general` is
@@ -67,11 +67,11 @@ field in the `general` block and may be referred to as `general.input_dir`.
 YAML indentation defines which fields belong to a block. Use spaces rather than
 tabs and preserve the indentation shown in the distributed sample.
 
-## Launcher Configuration
+## Formulations and Launcher Configuration
 
-Sandbox Launcher uses one YAML file that keeps these normal Sandbox blocks at
-the top level. It adds two blocks rather than wrapping the configuration in a
-separate launcher language:
+Every configuration uses `formulations` and `simulation.tasks`. A regular
+`sandbox` command requires exactly one named formulation. Sandbox Launcher can
+use multiple named formulations and adds a `launcher` block for scheduling:
 
 ```yaml
 formulations:
@@ -84,12 +84,11 @@ launcher:
     max_workers: 2
 ```
 
-For launcher configurations, `formulations` replaces the normal singular
-`formulation` block because each named formulation can select a different set
-of gages. `simulation.tasks` replaces `simulation.task_type` and accepts
-`[calibration]`, `[validation]`, or `[calibration, validation]`. The launcher
-translates each selected formulation and task into the normal per-gage Sandbox
-configuration it executes.
+Each launcher formulation also includes a `selection` that assigns gages to
+that model setup. `simulation.tasks` accepts `[control]`, `[calibration]`,
+`[validation]`, `[restart]`, or `[calibration, validation]`; Launcher supports
+the calibration and validation choices. It translates each selected
+formulation and task into a per-gage Sandbox configuration it executes.
 
 Start from
 [configs/launcher/launcher_config.yaml](https://github.com/ajkhattak/NextGenSandbox/blob/main/configs/launcher/launcher_config.yaml)
@@ -105,9 +104,9 @@ stage; it does not use every setting in the file.
 |---|---|---|
 | `sandbox --subset` | Create gage-specific hydrofabric files. | `general`, `subsetting` |
 | `sandbox --forc` | Download or prepare forcing data. | `general`, `forcings` |
-| `sandbox --conf` | Generate model and realization files. | `general`, `forcings`, `observations`, `calibration`, `formulation`, `simulation` |
-| `sandbox --dryrun` | Show the prepared run without executing it. | `general`, `forcings`, `observations`, `calibration`, `formulation`, `simulation` |
-| `sandbox --run` | Execute the configured simulation or calibration. | `general`, `forcings`, `observations`, `calibration`, `formulation`, `simulation` |
+| `sandbox --conf` | Generate model and realization files. | `general`, `forcings`, `observations`, `calibration`, `formulations`, `simulation` |
+| `sandbox --dryrun` | Show the prepared run without executing it. | `general`, `forcings`, `observations`, `calibration`, `formulations`, `simulation` |
+| `sandbox --run` | Execute the configured simulation or calibration. | `general`, `forcings`, `observations`, `calibration`, `formulations`, `simulation` |
 
 ## Sandbox Configuration Reference
 
@@ -322,19 +321,24 @@ calibration:
 See [calibration.md](./calibration.md) for DDS, PSO settings, custom objectives,
 and model parameter files.
 
-### `formulation`
+### `formulations`
 
-The `formulation` block selects model components and optional custom model
-instances.
+The `formulations` block defines named model setups and optional custom model
+instances. Regular Sandbox commands require one entry. Launcher campaigns may
+define multiple entries, each with a gage `selection`.
+
+`selection` is interpreted only by Sandbox Launcher. For a regular Sandbox
+run, select gages with `simulation.gages`.
 
 | Field | Meaning |
 |---|---|
-| `models` | Comma-separated supported components, such as `"PET, CFE, T-ROUTE"`. |
-| `verbosity` | Model/configuration verbosity. Use `0` unless debugging. |
-| `model_instances` | Optional overrides or additional instances for a model family. |
-| `ensemble.enabled` | Enable ensemble/member configuration generation. |
-| `ensemble.members` | Number of ensemble members. Required and positive when the ensemble is enabled. |
-| `ensemble.calib_params_groups` | Parameter scope for ensemble members, such as `local` or `global`. |
+| `<name>.models` | Comma-separated supported components, such as `"PET, CFE, T-ROUTE"`. |
+| `<name>.verbosity` | Model/configuration verbosity. Use `0` unless debugging. |
+| `<name>.model_instances` | Optional overrides or additional instances for a model family. |
+| `<name>.ensemble.enabled` | Enable ensemble/member configuration generation. |
+| `<name>.ensemble.members` | Number of ensemble members. Required and positive when the ensemble is enabled. |
+| `<name>.ensemble.calib_params_groups` | Parameter scope for ensemble members, such as `local` or `global`. |
+| `<name>.selection` | Launcher-only gage assignment: `all` or a mapping of `ids` and/or CSV `groups`. |
 
 Land-cover ensembles require the `IVGTYP_nlcd` divide attribute. Generate it
 with `subsetting.vegetation.classification_method: fraction`, and set
@@ -351,6 +355,13 @@ sandbox --formulations
 Use `CFE` as the formulation component. Select CFE-S, CFE-X, or a custom CFE
 variant through `model_instances`.
 
+```yaml
+formulations:
+  pet_cfe:
+    models: "PET, CFE, T-ROUTE"
+    model_instances: {}
+```
+
 See [model_configuration.md](./model_configuration.md) for instance fields,
 variant validation, basefiles, shared libraries, LSTM, and dHBV.
 
@@ -361,7 +372,7 @@ partitioning, and output behavior.
 
 | Field | Meaning |
 |---|---|
-| `task_type` | Workflow task: `control`, `calibration`, `validation`, `calibvalid`, or `restart`. |
+| `tasks` | Workflow tasks: `[control]`, `[calibration]`, `[validation]`, `[restart]`, or `[calibration, validation]`. |
 | `gages` | Optional filter on `general.gages`. |
 | `label` | Label appended to each gage ID when naming its simulation output directory. For example, `pet_cfe` produces `<gage_id>_pet_cfe`. |
 | `time.control` | Time period for a control run. |
@@ -394,7 +405,7 @@ Example:
 
 ```yaml
 simulation:
-  task_type: calibvalid
+  tasks: [calibration, validation]
   time:
     calibration:
       start: "2015-10-01"
@@ -417,7 +428,7 @@ objective from selected, noncontiguous years only:
 
 ```yaml
 simulation:
-  task_type: calibration
+  tasks: [calibration]
   time:
     calibration:
       start: "2009-10-01"
@@ -440,15 +451,15 @@ contained in the post-spinup calibration evaluation interval. Selected-year
 evaluation supports the bundled `kge`, `nse`, and `nnse` objectives and weighted
 metric mappings.
 
-Required periods depend on `task_type`:
+Required periods depend on `tasks`:
 
 | Task | Required settings |
 |---|---|
-| `control` | `time.control` |
-| `calibration` | `time.calibration` |
-| `validation` | One or more `time.validations` entries |
-| `calibvalid` | `time.calibration` and one or more `time.validations` entries |
-| `restart` | `time.calibration` and `restart_dir` |
+| `[control]` | `time.control` |
+| `[calibration]` | `time.calibration` |
+| `[validation]` | One or more `time.validations` entries |
+| `[calibration, validation]` | `time.calibration` and one or more `time.validations` entries |
+| `[restart]` | `time.calibration` and `restart_dir` |
 
 #### Validation periods from a CSV file
 

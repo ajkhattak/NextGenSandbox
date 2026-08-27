@@ -9,9 +9,9 @@ subset hydrofabric or download forcing data.
 
 ## Start With a Sandbox Configuration
 
-A launcher configuration is a normal Sandbox configuration with two additions:
-`formulations` and `launcher`. The shared blocks use exactly the same schema
-and meanings described in [Configure NextGenSandbox](configuration.md):
+A launcher configuration uses the same normal Sandbox blocks and adds only a
+`launcher` block. Its shared blocks use exactly the same schema and meanings
+described in [Configure NextGenSandbox](configuration.md):
 
 ```text
 general, subsetting, forcings, observations, calibration, simulation
@@ -24,17 +24,17 @@ example:
 cp "$SANDBOX_DIR/configs/launcher/launcher_config.yaml" launcher_dds.yaml
 ```
 
-Keep `general.input_dir`, `general.output_dir`, forcing settings, observation
-settings, calibration settings, and simulation time windows in this one file.
-There is no second Sandbox configuration to maintain. Relative paths are
-resolved from the launcher YAML's directory.
+Keep `general.input_dir`, `general.output_dir`, forcing settings, observations,
+calibration settings, and simulation time windows in this one file. There is
+no second Sandbox configuration to maintain. Relative paths are resolved from
+the launcher YAML's directory.
 
 The launcher changes only these concepts:
 
 | Normal Sandbox configuration | Launcher configuration |
 | --- | --- |
-| `formulation` defines one model setup. | `formulations` defines one or more named model setups and assigns gages to each. |
-| `simulation.task_type` chooses one task. | `simulation.tasks` selects `[calibration]`, `[validation]`, or both. |
+| One named formulation defines one model setup. | Multiple named formulations define model setups and assign gages to each. |
+| `simulation.tasks` selects work for one configuration. | The same `simulation.tasks` selection is distributed across the campaign. |
 | One command runs one selected set of gages. | `launcher` controls local or Slurm campaign scheduling. |
 
 The full ready-to-edit structure is in
@@ -89,8 +89,8 @@ general:
       group_column: group_name
 ```
 
-Keep `model_instances` as a wrapper because it has the same form as the normal
-Sandbox `formulation.model_instances` block and supports more than one
+Keep `model_instances` as a wrapper because it has the same form as a normal
+Sandbox `formulations.<name>.model_instances` block and supports more than one
 configured instance per model family.
 
 ## Tasks and Restart

@@ -88,33 +88,34 @@ calibration:
     #   q10_skill: 0.3
     #   q90_skill: 0.2
 
-formulation:
-  models: "PET, CFE, T-ROUTE"
-  verbosity: 0
+formulations:
+  pet_cfe:
+    models: "PET, CFE, T-ROUTE"
+    verbosity: 0
 
-  # Select a non-default or custom model instance.
-  # model_instances:
-  #   CFE:
-  #     - name: cfe-x
-  #       basefile: config_cfe-x.yaml
-  #       repo_name: cfe
-  #       calib_params_block: cfex_params
-  #       calib_params_file: cfe-x.yaml
-  #       library_file: "<path/to/model/library>"
+    # Select a non-default or custom model instance.
+    # model_instances:
+    #   CFE:
+    #     - name: cfe-x
+    #       basefile: config_cfe-x.yaml
+    #       repo_name: cfe
+    #       calib_params_block: cfex_params
+    #       calib_params_file: cfe-x.yaml
+    #       library_file: "<path/to/model/library>"
 
-  ensemble:
-    enabled: false
-    members: 2
-    # calib_params_groups:
-    #   NOM: local
-    #   CFE: global
+    ensemble:
+      enabled: false
+      members: 2
+      # calib_params_groups:
+      #   NOM: local
+      #   CFE: global
 
 simulation:
-  task_type: calibvalid  # control, calibration, validation, calibvalid, or restart
+  tasks: [calibration, validation]  # control, calibration, validation, or restart
   gages: all
   label: pet_cfe
   time:
-    # Use control for task_type: control.
+    # Use tasks: [control] for a control run.
     # control:
     #   start: "2016-10-01 00:00:00"
     #   spinup: "0 hours"
@@ -151,7 +152,7 @@ simulation:
       #   spinup: "12 months"
       #   evaluation: "1 year"
 
-  # Required for task_type: restart.
+  # Required for tasks: [restart].
   # restart_dir: "<path/to/restart>/<gage_id>"
 
   outputs:

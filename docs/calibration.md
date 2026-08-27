@@ -208,11 +208,13 @@ Each file contains one or more named parameter blocks. A model instance points
 to a block using `calib_params_block`.
 
 ```yaml
-formulation:
-  model_instances:
-    CFE:
-      - name: cfe-x
-        calib_params_block: "cfex_params"
+formulations:
+  nom_cfe_x:
+    models: "NOM, CFE, T-ROUTE"
+    model_instances:
+      CFE:
+        - name: cfe-x
+          calib_params_block: "cfex_params"
 ```
 
 That block must exist in one of the files under `configs/calibration/`:

@@ -43,12 +43,13 @@ calibration:
   objective:
     function: kge
 
-formulation:
-  models: "PET, CFE, T-ROUTE"
-  verbosity: 0
+formulations:
+  pet_cfe:
+    models: "PET, CFE, T-ROUTE"
+    verbosity: 0
 
 simulation:
-  task_type: calibvalid
+  tasks: [calibration, validation]
   gages: all
   label: pet_cfe
   time:

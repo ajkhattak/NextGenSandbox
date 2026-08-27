@@ -46,6 +46,7 @@ from src.python.resource_paths import (
 from src.python.time_windows import (
     normalize_forcing_time_config,
     normalize_simulation_time_config,
+    normalize_simulation_tasks,
 )
 
 @dataclass
@@ -120,13 +121,41 @@ class SandboxContext:
 
 
     def load_formulation_config(self):
-        # Formulation block
-        dformul = self.sandbox_config["formulation"]
+        if "formulation" in self.sandbox_config:
+            raise ValueError(
+                "formulation is no longer supported; use a named formulations "
+                "block instead"
+            )
+
+        formulations = self.sandbox_config.get("formulations")
+        if not isinstance(formulations, dict) or not formulations:
+            raise ValueError("formulations must be a non-empty mapping")
+        if len(formulations) != 1:
+            raise ValueError(
+                "sandbox supports exactly one named formulation. Use "
+                "sandbox-launcher for multi-formulation campaigns."
+            )
+
+        self.formulation_name, dformul = next(iter(formulations.items()))
+        if not isinstance(dformul, dict):
+            raise TypeError(
+                f"formulations.{self.formulation_name} must be a mapping"
+            )
+        models = dformul.get("models")
+        if not isinstance(models, str) or not models.strip():
+            raise ValueError(
+                f"formulations.{self.formulation_name}.models must be provided"
+            )
+        if "selection" in dformul:
+            raise ValueError(
+                f"formulations.{self.formulation_name}.selection is only used "
+                "by sandbox-launcher. Use simulation.gages with sandbox."
+            )
 
         self.ngen_dir = Path(os.environ.get("NGEN_DIR"))
 
         self.formulation = (
-            dformul["models"]
+            models
             .upper()
             .replace(" ", "")
         )
@@ -194,7 +223,7 @@ class SandboxContext:
         ):
             raise ValueError(
                 "A top-level calibration block is required for "
-                f"simulation.task_type: {self.task_type}"
+                f"simulation.tasks: {list(self.simulation_tasks)}"
             )
 
         settings = load_calibration_settings(
@@ -309,13 +338,14 @@ class SandboxContext:
         if "ensemble" in dsim:
             raise ValueError(
                 "simulation.ensemble is not supported. Move the block to "
-                "formulation.ensemble."
+                "formulations.<name>.ensemble."
             )
 
-        self.task_type = (dsim.get("task_type", "control").lower())
+        self.simulation_tasks, self.task_type = normalize_simulation_tasks(dsim)
 
         if "LSTM" in self.formulation:
-            print("INFO: LSTM formulation -- setting task_type to control")
+            print("INFO: LSTM formulation -- setting simulation.tasks to control")
+            self.simulation_tasks = ("control",)
             self.task_type = "control"
 
         self.gage_ids = resolve_step_gages(
@@ -421,14 +451,14 @@ class SandboxContext:
         elif self.task_type == "control":
 
             self.validate_time_window(
-                "task_type CONTROL: simulation_time",
+                "simulation.tasks CONTROL: simulation_time",
                 dsim.get("simulation_time"),
             )
 
             self.simulation_time = dsim["simulation_time"]
 
         else:
-            raise ValueError("Invalid task_type provided: valid options are [control, calibration, validation, calibvalid, restart]")
+            raise ValueError("Invalid internal simulation task mode")
 
 
 
@@ -436,7 +466,10 @@ class SandboxContext:
         if self.task_type == 'restart':
             self.restart_dir = dsim.get('restart_dir')
             if self.restart_dir is None:
-                raise ValueError("task_type is restart, however, restart_dir is None. It must be set to a valid directory.")
+                raise ValueError(
+                    "simulation.tasks is restart, but restart_dir is missing. "
+                    "Provide a valid restart directory."
+                )
             if not self.restart_dir:
                 raise FileNotFoundError(f"restart_dir does not exist, provided {self.restart_dir}.")
 
@@ -491,9 +524,10 @@ class SandboxContext:
         ]
 
     def load_ensemble_config(self, formulation_config):
+        formulation_path = f"formulations.{self.formulation_name}"
         ensemble = formulation_config.get("ensemble", {}) or {}
         if not isinstance(ensemble, dict):
-            raise TypeError("formulation.ensemble must be a mapping")
+            raise TypeError(f"{formulation_path}.ensemble must be a mapping")
 
         unknown_fields = set(ensemble) - {
             "enabled",
@@ -502,13 +536,15 @@ class SandboxContext:
         }
         if unknown_fields:
             raise ValueError(
-                "Unknown formulation.ensemble field(s): "
+                f"Unknown {formulation_path}.ensemble field(s): "
                 f"{', '.join(sorted(unknown_fields))}"
             )
 
         enabled = ensemble.get("enabled", False)
         if not isinstance(enabled, bool):
-            raise TypeError("formulation.ensemble.enabled must be true or false")
+            raise TypeError(
+                f"{formulation_path}.ensemble.enabled must be true or false"
+            )
 
         formulation_models = [
             model
@@ -519,7 +555,7 @@ class SandboxContext:
         groups = ensemble.get("calib_params_groups", {}) or {}
         if not isinstance(groups, dict):
             raise TypeError(
-                "formulation.ensemble.calib_params_groups must be a mapping"
+                f"{formulation_path}.ensemble.calib_params_groups must be a mapping"
             )
 
         normalized_groups = {}
@@ -527,13 +563,13 @@ class SandboxContext:
             model_name = str(model).strip().upper()
             if model_name not in formulation_models:
                 raise ValueError(
-                    "formulation.ensemble.calib_params_groups contains model "
-                    f"'{model}', which is not in formulation.models"
+                    f"{formulation_path}.ensemble.calib_params_groups contains "
+                    f"model '{model}', which is not in {formulation_path}.models"
                 )
             scope_name = str(scope).strip().lower()
             if scope_name not in {"local", "global"}:
                 raise ValueError(
-                    "formulation.ensemble.calib_params_groups values must be "
+                    f"{formulation_path}.ensemble.calib_params_groups values must be "
                     f"local or global; provided {model}: {scope}"
                 )
             normalized_groups[model_name] = scope_name
@@ -549,7 +585,7 @@ class SandboxContext:
         members = ensemble.get("members")
         if isinstance(members, bool) or not isinstance(members, int) or members < 1:
             raise ValueError(
-                "formulation.ensemble.members must be a positive integer when "
+                f"{formulation_path}.ensemble.members must be a positive integer when "
                 "the ensemble is enabled"
             )
 
@@ -580,7 +616,8 @@ class SandboxContext:
             ):
                 message += (
                     "\n[INFO]: Use CFE as the formulation component. "
-                    "To use CFE-X, set formulation.model_instances.CFE in the configuration file."
+                    "To use CFE-X, set formulations.<name>.model_instances.CFE "
+                    "in the configuration file."
                 )
 
             raise ValueError(message)

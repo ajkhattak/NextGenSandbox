@@ -84,6 +84,7 @@ from src.python.time_windows import (
     NGEN_TIMESTEP,
     format_timestamp,
     normalize_forcing_time_config,
+    normalize_simulation_tasks,
     parse_duration,
     parse_timestamp,
     resolve_time_period,
@@ -234,14 +235,7 @@ def unique_ordered(values: list[str]) -> list[str]:
 
 def load_launcher_stages(sandbox_cfg: dict[str, Any]) -> tuple[str, ...]:
     simulation = sandbox_cfg.get("simulation") or {}
-    stages = simulation.get("tasks")
-    if not isinstance(stages, list) or not stages:
-        raise ValueError(
-            "simulation.tasks must explicitly be one of: [calibration], "
-            "[validation], or [calibration, validation]"
-        )
-
-    normalized = tuple(str(stage).strip().lower() for stage in stages)
+    normalized, _ = normalize_simulation_tasks(simulation)
     supported = {
         ("calibration",),
         ("validation",),
@@ -1595,19 +1589,13 @@ def generate_config_files_for_gage(
         "option": "ids",
         "ids": [gage_id],
     }
-    formulation = sandbox_cfg.setdefault("formulation", {})
-    formulation["models"] = formulation_spec["models"]
-    formulation["verbosity"] = formulation_spec.get("verbosity", 0)
-    if "model_instances" in formulation_spec:
-        formulation["model_instances"] = copy.deepcopy(
-            formulation_spec["model_instances"]
-        )
-    else:
-        formulation.pop("model_instances", None)
+    sandbox_cfg.pop("formulation", None)
+    sandbox_cfg["formulations"] = {
+        formulation_name: copy.deepcopy(formulation_spec)
+    }
     simulation = sandbox_cfg.setdefault("simulation", {})
     simulation["gages"] = [gage_id]
-    simulation.pop("tasks", None)
-    simulation["task_type"] = "calibration"
+    simulation["tasks"] = ["calibration"]
     simulation["label"] = formulation_name
     if scenario is not None:
         simulation.setdefault("time", {})["calibration"] = (
@@ -1630,7 +1618,7 @@ def generate_config_files_for_gage(
         yaml.safe_dump(sandbox_cfg, file, default_flow_style=False, sort_keys=False)
 
     sandbox_restart_cfg = copy.deepcopy(sandbox_cfg)
-    sandbox_restart_cfg["simulation"]["task_type"] = "restart"
+    sandbox_restart_cfg["simulation"]["tasks"] = ["restart"]
     simulation_label = sandbox_cfg["simulation"].get("label")
     output_name = (
         f"{gage_id}_{simulation_label}"
@@ -1649,7 +1637,7 @@ def generate_config_files_for_gage(
         )
 
     sandbox_val_cfg = copy.deepcopy(sandbox_cfg)
-    sandbox_val_cfg["simulation"]["task_type"] = "validation"
+    sandbox_val_cfg["simulation"]["tasks"] = ["validation"]
     with paths["sandbox_validation"].open("w") as file:
         yaml.safe_dump(sandbox_val_cfg, file, default_flow_style=False, sort_keys=False)
 
@@ -1830,7 +1818,7 @@ def prepare_pso_warm_start_config(
 
     optimizer["settings_file"] = str(warm_settings_file.resolve())
     simulation = sandbox_config.setdefault("simulation", {})
-    simulation["task_type"] = "calibration"
+    simulation["tasks"] = ["calibration"]
     simulation.pop("restart_dir", None)
 
     warm_config_file = paths["sandbox_pso_warm_start"]

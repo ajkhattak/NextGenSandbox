@@ -278,7 +278,7 @@ class TestLauncherSelection(unittest.TestCase):
         )
 
     def test_launcher_rejects_missing_stages(self):
-        with self.assertRaisesRegex(ValueError, "simulation.tasks must explicitly"):
+        with self.assertRaisesRegex(ValueError, "simulation.tasks must be one of"):
             launcher.load_launcher_stages({})
 
     def test_launcher_rejects_validation_before_calibration(self):
@@ -595,8 +595,12 @@ class TestLauncherSelection(unittest.TestCase):
             )
             restart = yaml.safe_load(paths["sandbox_restart"].read_text())
             self.assertEqual(
-                restart["simulation"]["task_type"],
-                "restart",
+                restart["simulation"]["tasks"],
+                ["restart"],
+            )
+            self.assertEqual(
+                set(restart["formulations"]),
+                {"pet_cfe"},
             )
             self.assertEqual(
                 restart["simulation"]["restart_dir"],

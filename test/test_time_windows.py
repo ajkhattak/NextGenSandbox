@@ -7,6 +7,20 @@ from src.python.time_windows import normalize_forcing_time_config
 
 
 class TestSimulationTimeWindows(unittest.TestCase):
+    def test_rejects_retired_task_type_field(self):
+        context = SandboxContext.__new__(SandboxContext)
+        context.formulation = ""
+        context.project_gages = ["12345678"]
+        context.sandbox_config = {
+            "simulation": {
+                "task_type": "control",
+                "tasks": ["control"],
+            }
+        }
+
+        with self.assertRaisesRegex(ValueError, "task_type is no longer supported"):
+            context.load_simulation_config()
+
     def test_normalizes_forcing_time_schema(self):
         forcing_time = normalize_forcing_time_config(
             {
@@ -47,7 +61,7 @@ class TestSimulationTimeWindows(unittest.TestCase):
         context.project_gages = ["01109403"]
         context.sandbox_config = {
             "simulation": {
-                "task_type": "calibration",
+                "tasks": ["calibration"],
                 "gages": "01109403",
                 "calibration_time": {
                     "start_time": "2010-01-01 00:00:00",
@@ -72,7 +86,7 @@ class TestSimulationTimeWindows(unittest.TestCase):
         context.project_gages = ["01109403"]
         context.sandbox_config = {
             "simulation": {
-                "task_type": "calibration",
+                "tasks": ["calibration"],
                 "gages": "01109403",
                 "calibration_time": {
                     "start_time": "2010-01-01 00:00:00",
@@ -108,7 +122,7 @@ class TestSimulationTimeWindows(unittest.TestCase):
         context.project_gages = ["01109403"]
         context.sandbox_config = {
             "simulation": {
-                "task_type": "validation",
+                "tasks": ["validation"],
                 "gages": "01109403",
                 "validation_time": {
                     "start_time": "2018-01-01 00:00:00",
@@ -133,7 +147,7 @@ class TestSimulationTimeWindows(unittest.TestCase):
         context.project_gages = ["01109403"]
         context.sandbox_config = {
             "simulation": {
-                "task_type": "calibration",
+                "tasks": ["calibration"],
                 "gages": "01109403",
                 "time": {
                     "calibration": {
@@ -168,7 +182,7 @@ class TestSimulationTimeWindows(unittest.TestCase):
         context.project_gages = ["01109403"]
         context.sandbox_config = {
             "simulation": {
-                "task_type": "calibration",
+                "tasks": ["calibration"],
                 "gages": "01109403",
                 "time": {
                     "calibration": {
@@ -192,7 +206,7 @@ class TestSimulationTimeWindows(unittest.TestCase):
         context.project_gages = ["01109403"]
         context.sandbox_config = {
             "simulation": {
-                "task_type": "calibration",
+                "tasks": ["calibration"],
                 "gages": "01109403",
                 "time": {
                     "calibration": {
@@ -231,7 +245,7 @@ class TestSimulationTimeWindows(unittest.TestCase):
         context.project_gages = ["01109403"]
         context.sandbox_config = {
             "simulation": {
-                "task_type": "calibration",
+                "tasks": ["calibration"],
                 "gages": "01109403",
                 "time": {
                     "calibration": {
@@ -256,7 +270,7 @@ class TestSimulationTimeWindows(unittest.TestCase):
         context.project_gages = ["01109403"]
         context.sandbox_config = {
             "simulation": {
-                "task_type": "calibration",
+                "tasks": ["calibration"],
                 "gages": "01109403",
                 "time": {
                     "calibration": {
@@ -280,7 +294,7 @@ class TestSimulationTimeWindows(unittest.TestCase):
         context.project_gages = ["01109403"]
         context.sandbox_config = {
             "simulation": {
-                "task_type": "calibration",
+                "tasks": ["calibration"],
                 "gages": "01109403",
                 "time": {
                     "calibration": {
@@ -305,7 +319,7 @@ class TestSimulationTimeWindows(unittest.TestCase):
         context.project_gages = ["01109403"]
         context.sandbox_config = {
             "simulation": {
-                "task_type": "calibration",
+                "tasks": ["calibration"],
                 "gages": "01109403",
                 "time": {
                     "calibration": {
@@ -329,7 +343,7 @@ class TestSimulationTimeWindows(unittest.TestCase):
         context.project_gages = ["01109403"]
         context.sandbox_config = {
             "simulation": {
-                "task_type": "calibvalid",
+                "tasks": ["calibration", "validation"],
                 "gages": "01109403",
                 "time": {
                     "calibration": {
@@ -373,7 +387,7 @@ class TestSimulationTimeWindows(unittest.TestCase):
         context.sandbox_config_path = __file__
         context.sandbox_config = {
             "simulation": {
-                "task_type": "calibvalid",
+                "tasks": ["calibration", "validation"],
                 "gages": "01109403",
                 "time": {
                     "calibration": {
@@ -425,7 +439,7 @@ class TestSimulationTimeWindows(unittest.TestCase):
             context.sandbox_config_path = str(Path(tmp) / "sandbox_config.yaml")
             context.sandbox_config = {
                 "simulation": {
-                    "task_type": "validation",
+                    "tasks": ["validation"],
                     "gages": "01109403",
                     "time": {
                         "validations": [
@@ -472,7 +486,7 @@ class TestSimulationTimeWindows(unittest.TestCase):
         context.project_gages = ["01109403"]
         context.sandbox_config = {
             "simulation": {
-                "task_type": "calibration",
+                "tasks": ["calibration"],
                 "gages": "01109403",
                 "time": "2015-10-01",
             }
@@ -487,7 +501,7 @@ class TestSimulationTimeWindows(unittest.TestCase):
         context.project_gages = ["01109403"]
         context.sandbox_config = {
             "simulation": {
-                "task_type": "calibration",
+                "tasks": ["calibration"],
                 "gages": "01109403",
                 "time": {
                     "timestep": "1 hour",
@@ -509,7 +523,7 @@ class TestSimulationTimeWindows(unittest.TestCase):
         context.project_gages = ["01109403"]
         context.sandbox_config = {
             "simulation": {
-                "task_type": "calibration",
+                "tasks": ["calibration"],
                 "gages": "01109403",
                 "time": {
                     "calibration": {
@@ -530,7 +544,7 @@ class TestSimulationTimeWindows(unittest.TestCase):
         context.project_gages = ["01109403"]
         context.sandbox_config = {
             "simulation": {
-                "task_type": "calibration",
+                "tasks": ["calibration"],
                 "gages": "01109403",
                 "time": {
                     "calibration": {
@@ -553,7 +567,7 @@ class TestSimulationTimeWindows(unittest.TestCase):
         context.project_gages = ["01109403"]
         context.sandbox_config = {
             "simulation": {
-                "task_type": "calibration",
+                "tasks": ["calibration"],
                 "gages": "01109403",
                 "time": {
                     "calibration": {

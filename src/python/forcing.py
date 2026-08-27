@@ -50,8 +50,7 @@ class ForcingProcessor:
         if self.resource_layout not in {"gage", "resource"}:
             raise ValueError("general.resource_layout must be one of: gage, resource")
         self.project_gages    = load_general_gages(self.config)
-        self.dsim             = self.config['formulation']
-        self.verbosity        = self.dsim.get('verbosity', 0)
+        self.verbosity        = 0
         self.dforcing         = self.config['forcings']
         self.forcing_time     = normalize_forcing_time_config(self.dforcing["time"])
         self.forcing_format   = self.dforcing.get('format', '.nc')

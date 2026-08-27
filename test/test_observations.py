@@ -19,7 +19,7 @@ class TestObservationLoader(unittest.TestCase):
         context.project_gages = ["12345678"]
         context.sandbox_config = {
             "simulation": {
-                "task_type": "control",
+                "tasks": ["control"],
                 "gages": "12345678",
                 "outputs": {
                     "calibration": {
@@ -40,7 +40,7 @@ class TestObservationLoader(unittest.TestCase):
         context.project_gages = ["12345678"]
         context.sandbox_config = {
             "simulation": {
-                "task_type": "control",
+                "tasks": ["control"],
                 "gages": "12345678",
                 "outputs": {
                     "divide_variables": {
@@ -64,7 +64,7 @@ class TestObservationLoader(unittest.TestCase):
         context.project_gages = ["12345678"]
         context.sandbox_config = {
             "simulation": {
-                "task_type": "control",
+                "tasks": ["control"],
                 "gages": "12345678",
                 "simulation_time": {
                     "start_time": "2020-01-01 00:00:00",

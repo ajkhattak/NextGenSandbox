@@ -16,7 +16,7 @@ from src.python.realization import RealizationGenerator
 class TestEnsembleConfiguration(unittest.TestCase):
     def load_formulation(self, formulation):
         context = object.__new__(SandboxContext)
-        context.sandbox_config = {"formulation": formulation}
+        context.sandbox_config = {"formulations": {"test": formulation}}
         with patch.dict(os.environ, {"NGEN_DIR": "/tmp/ngen"}):
             context.load_formulation_config()
         return context
@@ -53,8 +53,34 @@ class TestEnsembleConfiguration(unittest.TestCase):
                 }
             )
 
+    def test_direct_sandbox_rejects_multiple_formulations(self):
+        context = object.__new__(SandboxContext)
+        context.sandbox_config = {
+            "formulations": {
+                "pet_cfe": {"models": "PET, CFE, T-ROUTE"},
+                "nom_cfe": {"models": "NOM, CFE, T-ROUTE"},
+            }
+        }
+
+        with self.assertRaisesRegex(ValueError, "exactly one named formulation"):
+            context.load_formulation_config()
+
+    def test_direct_sandbox_rejects_launcher_selection(self):
+        context = object.__new__(SandboxContext)
+        context.sandbox_config = {
+            "formulations": {
+                "pet_cfe": {
+                    "models": "PET, CFE, T-ROUTE",
+                    "selection": "all",
+                }
+            }
+        }
+
+        with self.assertRaisesRegex(ValueError, "only used by sandbox-launcher"):
+            context.load_formulation_config()
+
     def test_rejects_calibration_scope_for_model_outside_formulation(self):
-        with self.assertRaisesRegex(ValueError, "not in formulation.models"):
+        with self.assertRaisesRegex(ValueError, "not in formulations.test.models"):
             self.load_formulation(
                 {
                     "models": "PET, CFE, T-ROUTE",

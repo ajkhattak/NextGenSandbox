@@ -10,7 +10,7 @@ workflow but have not completed the project's full formulation test sequence.
 CFE is the Conceptual Functional Equivalent model. NextGenSandbox uses the
 `cfe-s` model instance with Schaake runoff partitioning by default. To use
 another configured instance, such as `cfe-x` with Xinanjiang runoff
-partitioning, configure `formulation.model_instances.CFE` in
+partitioning, configure `formulations.<name>.model_instances.CFE` in
 `sandbox_config.yaml`.
 
 Supported CFE formulations:

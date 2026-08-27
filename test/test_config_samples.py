@@ -4,7 +4,10 @@ import unittest
 import yaml
 
 from src.python.calibration_config import load_calibration_settings
-from src.python.time_windows import normalize_simulation_time_config
+from src.python.time_windows import (
+    normalize_simulation_tasks,
+    normalize_simulation_time_config,
+)
 
 
 class TestConfigurationSamples(unittest.TestCase):
@@ -29,15 +32,16 @@ class TestConfigurationSamples(unittest.TestCase):
                         "forcings",
                         "observations",
                         "calibration",
-                        "formulation",
+                        "formulations",
                         "simulation",
                     },
                 )
 
                 load_calibration_settings(config, path, sandbox_dir)
+                _, task_type = normalize_simulation_tasks(config["simulation"])
                 normalize_simulation_time_config(
                     config["simulation"],
-                    config["simulation"]["task_type"],
+                    task_type,
                     config_dir=path.parent,
                 )
 
