@@ -135,8 +135,11 @@ NLDI-outlier fallback is deliberately strict: it is used only when NLDI exceeds
 the maximum NLDI–NWIS tolerance, not merely when the NLDI boundary differs from
 the hydrofabric. The utility returns exit status 1 when any
 basin is not selected or cannot be compared, and writes the complete audit to
-the requested CSV. The one-column passed CSV contains `gage_id` values from
-all selected categories: `CLEAN_PASS`, `ACCEPTABLE_OUTLET_OFFSET`, and
+the requested CSV. The selected CSV uses the shared calibration-facing schema
+`STAID`, `STANAME`, and `DRAIN_SQKM`. `STAID` is the gage identifier, `STANAME`
+is the NWIS station name, and `DRAIN_SQKM` is the documented NWIS drainage area
+converted to square kilometers. It contains all selected categories:
+`CLEAN_PASS`, `ACCEPTABLE_OUTLET_OFFSET`, and
 `HF_NWIS_AGREEMENT_NLDI_OUTLIER`.
 Use `--passed-csv /path/to/name.csv` to choose its location or filename.
 When `--cleaned-gpkg-dir` is supplied, the original GeoPackages remain

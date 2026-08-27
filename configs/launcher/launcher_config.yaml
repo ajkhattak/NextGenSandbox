@@ -77,19 +77,20 @@ local:
   max_workers: 2
   startup_delay_seconds: 5
 
-# Slurm execution requires both limits. max_total_mpi_tasks caps the aggregate
-# cores requested by this launcher's running and pending jobs.
+# Slurm execution requires all three limits. MPI tasks control NextGen ranks;
+# allocated CPUs also include CPUs Slurm assigns to satisfy memory requests.
 # Set calibration and validation resources separately. Validation commonly
 # needs more memory when its simulation period is longer.
 slurm:
   max_active_jobs: 10
   max_total_mpi_tasks: 64
+  max_total_allocated_cpus: 128
   startup_delay_seconds: 5
   # The coordinator scans campaign state and submits worker jobs. The default
-  # is 30 minutes and 2G; increase these only for unusually large campaigns.
+  # is 10 minutes and 1G; increase these only for unusually large campaigns.
   coordinator:
-    time: "00:30:00"
-    memory: "2G"
+    time: "00:10:00"
+    memory: "1G"
 #   account: project_account
 #   partition: shared
 #   mpi_tasks: auto

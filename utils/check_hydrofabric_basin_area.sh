@@ -11,6 +11,8 @@ Checks hydrofabric area against NLDI and NWIS, cleans NLDI-external divides,
 and writes an attention-only PDF report. Original GeoPackages are unchanged.
 The cleaned_hydrofabric directory contains accepted basins only and is safe
 for downstream globbing. Rejected outputs are quarantined separately.
+selected_gages.csv uses the shared calibration schema:
+STAID, STANAME, DRAIN_SQKM.
 
 Area-classification defaults:
   --hf-nldi-threshold-pct 5

@@ -148,8 +148,9 @@ class ExperimentProgress:
 class ActiveSlurmJob:
     job_id: str
     name: str
-    num_cpus: int
+    num_tasks: int
     state: str
+    num_cpus: int | None = None
 
 
 @dataclass(frozen=True)
@@ -1306,6 +1307,7 @@ def validate_slurm_config(slurm: dict[str, Any]) -> None:
             "mpi_tasks",
             "max_active_jobs",
             "max_total_mpi_tasks",
+            "max_total_allocated_cpus",
             "startup_delay_seconds",
             "modules",
             "environment",
@@ -1353,7 +1355,11 @@ def validate_slurm_config(slurm: dict[str, Any]) -> None:
             raise ValueError(
                 f"slurm.environment.{name} must be a scalar value"
             )
-    for field_name in ("max_active_jobs", "max_total_mpi_tasks"):
+    for field_name in (
+        "max_active_jobs",
+        "max_total_mpi_tasks",
+        "max_total_allocated_cpus",
+    ):
         value = slurm.get(field_name)
         if value is not None and (
             isinstance(value, bool)
@@ -1384,7 +1390,7 @@ def validate_slurm_config(slurm: dict[str, Any]) -> None:
             "slurm.coordinator contains unsupported field(s): "
             f"{', '.join(unknown_coordinator)}"
         )
-    for field_name, default in (("time", "00:30:00"), ("memory", "2G")):
+    for field_name, default in (("time", "00:10:00"), ("memory", "2G")):
         value = coordinator.get(field_name, default)
         if not isinstance(value, str) or not value.strip():
             raise ValueError(
@@ -1954,7 +1960,7 @@ def build_launcher_submit_command(
     dependency_job_ids: tuple[str, ...] = (),
 ) -> list[str]:
     coordinator = ctx.slurm.get("coordinator") or {}
-    coordinator_time = coordinator.get("time", "00:30:00")
+    coordinator_time = coordinator.get("time", "00:10:00")
     coordinator_memory = coordinator.get("memory", "2G")
     command = [
         "sbatch",
@@ -2866,14 +2872,16 @@ def is_experiment_complete(
 
 
 def get_active_slurm_jobs() -> list[ActiveSlurmJob]:
+    # NumTasks represents MPI ranks. NumCPUs represents the scheduler's CPU
+    # request, which can be larger when a job requests substantial memory.
     user = getpass.getuser()
     cmd = [
         "squeue",
         "-u",
         user,
         "-h",
-        "-o",
-        "%A|%j|%C|%T",
+        "-O",
+        "JobID:20,Name:200,NumTasks:12,NumCPUs:12,State:30",
     ]
     try:
         output = subprocess.check_output(cmd, text=True)
@@ -2888,13 +2896,14 @@ def get_active_slurm_jobs() -> list[ActiveSlurmJob]:
         if not line.strip():
             continue
         try:
-            job_id, name, cpus, state = line.split("|", 3)
+            job_id, name, num_tasks, num_cpus, state = line.split(maxsplit=4)
             jobs.append(
                 ActiveSlurmJob(
                     job_id.strip(),
                     name.strip(),
-                    int(cpus.strip()),
+                    int(num_tasks.strip()),
                     state.strip().upper(),
+                    int(num_cpus.strip()),
                 )
             )
         except (TypeError, ValueError) as error:
@@ -2915,7 +2924,7 @@ def expected_slurm_job_names(ctx: LauncherContext) -> set[str]:
     return names
 
 
-def slurm_limits(slurm: dict[str, Any]) -> tuple[int, int]:
+def slurm_limits(slurm: dict[str, Any]) -> tuple[int, int, int]:
     max_active_jobs = slurm.get("max_active_jobs")
     if max_active_jobs is None:
         raise ValueError(
@@ -2926,18 +2935,31 @@ def slurm_limits(slurm: dict[str, Any]) -> tuple[int, int]:
     if max_total_mpi_tasks is None:
         raise ValueError(
             "Slurm execution requires slurm.max_total_mpi_tasks in "
-            "launcher_config.yaml to cap aggregate requested cores."
+            "launcher_config.yaml to cap aggregate MPI ranks."
         )
-    return int(max_active_jobs), int(max_total_mpi_tasks)
+    max_total_allocated_cpus = slurm.get("max_total_allocated_cpus")
+    if max_total_allocated_cpus is None:
+        raise ValueError(
+            "Slurm execution requires slurm.max_total_allocated_cpus in "
+            "launcher_config.yaml to cap scheduler-allocated CPUs."
+        )
+    return (
+        int(max_active_jobs),
+        int(max_total_mpi_tasks),
+        int(max_total_allocated_cpus),
+    )
 
 
 def slurm_limit_reason(
     *,
     active_jobs: int,
     active_mpi_tasks: int,
+    active_allocated_cpus: int,
     requested_mpi_tasks: int,
+    requested_allocated_cpus: int,
     max_active_jobs: int,
     max_total_mpi_tasks: int,
+    max_total_allocated_cpus: int,
 ) -> str | None:
     if active_jobs >= max_active_jobs:
         return f"active-job limit reached ({active_jobs}/{max_active_jobs})"
@@ -2953,6 +2975,22 @@ def slurm_limit_reason(
             "MPI-task limit reached "
             f"({active_mpi_tasks}+{requested_mpi_tasks}>"
             f"{max_total_mpi_tasks})"
+        )
+    if requested_allocated_cpus > max_total_allocated_cpus:
+        raise ValueError(
+            f"A run requires {requested_allocated_cpus} allocated CPUs, "
+            "which exceeds slurm.max_total_allocated_cpus="
+            f"{max_total_allocated_cpus}. Increase the limit or reduce the "
+            "run's MPI tasks or memory request."
+        )
+    if (
+        active_allocated_cpus + requested_allocated_cpus
+        > max_total_allocated_cpus
+    ):
+        return (
+            "allocated-CPU limit reached "
+            f"({active_allocated_cpus}+{requested_allocated_cpus}>"
+            f"{max_total_allocated_cpus})"
         )
     return None
 
@@ -2975,15 +3013,21 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
     dependency_job_ids: set[str] = set()
     active_job_count = 0
     active_mpi_tasks = 0
+    active_allocated_cpus = 0
     max_active_jobs = 0
     max_total_mpi_tasks = 0
+    max_total_allocated_cpus = 0
     scheduled_run_index = 0
 
     if use_slurm:
         if not dryrun:
             ctx.log_dir.mkdir(parents=True, exist_ok=True)
             write_slurm_worker_script(ctx)
-        max_active_jobs, max_total_mpi_tasks = slurm_limits(ctx.slurm)
+        (
+            max_active_jobs,
+            max_total_mpi_tasks,
+            max_total_allocated_cpus,
+        ) = slurm_limits(ctx.slurm)
         if not dryrun:
             expected_names = expected_slurm_job_names(ctx)
             campaign_jobs = [
@@ -2994,11 +3038,17 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
             active_job_names = {job.name for job in campaign_jobs}
             dependency_job_ids = {job.job_id for job in campaign_jobs}
             active_job_count = len(campaign_jobs)
-            active_mpi_tasks = sum(job.num_cpus for job in campaign_jobs)
+            active_mpi_tasks = sum(job.num_tasks for job in campaign_jobs)
+            active_allocated_cpus = sum(
+                job.num_cpus if job.num_cpus is not None else job.num_tasks
+                for job in campaign_jobs
+            )
         print(
             "[INFO] Slurm launcher capacity: "
             f"jobs={active_job_count}/{max_active_jobs}, "
-            f"MPI tasks={active_mpi_tasks}/{max_total_mpi_tasks}"
+            f"MPI tasks={active_mpi_tasks}/{max_total_mpi_tasks}, "
+            "allocated CPUs="
+            f"{active_allocated_cpus}/{max_total_allocated_cpus}"
         )
 
     for unit in launcher_run_units(ctx):
@@ -3081,9 +3131,12 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
             limit_reason = slurm_limit_reason(
                 active_jobs=active_job_count,
                 active_mpi_tasks=active_mpi_tasks,
+                active_allocated_cpus=active_allocated_cpus,
                 requested_mpi_tasks=requested_mpi_tasks,
+                requested_allocated_cpus=requested_mpi_tasks,
                 max_active_jobs=max_active_jobs,
                 max_total_mpi_tasks=max_total_mpi_tasks,
+                max_total_allocated_cpus=max_total_allocated_cpus,
             )
             if limit_reason:
                 print(
@@ -3112,6 +3165,35 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
             active_job_names.add(job_name)
             active_job_count += 1
             active_mpi_tasks += requested_mpi_tasks
+            submitted_allocated_cpus = requested_mpi_tasks
+            if run_result.slurm_job_id is not None:
+                try:
+                    submitted_job = next(
+                        (
+                            job
+                            for job in get_active_slurm_jobs()
+                            if job.job_id == run_result.slurm_job_id
+                        ),
+                        None,
+                    )
+                except RuntimeError:
+                    submitted_job = None
+                if submitted_job is not None:
+                    submitted_allocated_cpus = (
+                        submitted_job.num_cpus
+                        if submitted_job.num_cpus is not None
+                        else submitted_job.num_tasks
+                    )
+            active_allocated_cpus += submitted_allocated_cpus
+            if active_allocated_cpus > max_total_allocated_cpus:
+                print(
+                    "[WARNING] Slurm increased the submitted job's CPU "
+                    "request to satisfy its memory request. Campaign "
+                    "allocated CPUs are now "
+                    f"{active_allocated_cpus}/{max_total_allocated_cpus}; "
+                    "no additional jobs will be admitted until capacity "
+                    "returns below the limit."
+                )
             scheduled_run_index += 1
         elif dryrun:
             delay_seconds = startup_delay_seconds(

@@ -758,7 +758,7 @@ class TestLauncherSelection(unittest.TestCase):
         self.assertIn("--chdir=/project/outputs/pso", command)
         self.assertIn("--account=project123", command)
         self.assertIn("--partition=shared", command)
-        self.assertIn("--time=00:30:00", command)
+        self.assertIn("--time=00:10:00", command)
         self.assertIn("--mem=2G", command)
         self.assertIn(
             "--export=ALL,LAUNCHER_CONFIG=/project/launcher_pso.yaml",
@@ -858,6 +858,7 @@ class TestLauncherSelection(unittest.TestCase):
                 slurm={
                     "max_active_jobs": 2,
                     "max_total_mpi_tasks": 8,
+                    "max_total_allocated_cpus": 16,
                 },
             )
             completed = SimpleNamespace(stdout="123\n")
@@ -913,6 +914,7 @@ class TestLauncherSelection(unittest.TestCase):
                 {
                     "max_active_jobs": 2,
                     "max_total_mpi_tasks": 8,
+                    "max_total_allocated_cpus": 16,
                     "startup_delay_seconds": 5,
                     "calibration": {
                         "time": "04:00:00",
@@ -929,25 +931,39 @@ class TestLauncherSelection(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "max_total_mpi_tasks"):
             launcher.slurm_limits({"max_active_jobs": 4})
 
-    def test_active_slurm_jobs_include_requested_cpus(self):
+    def test_slurm_execution_requires_allocated_cpu_limit(self):
+        with self.assertRaisesRegex(ValueError, "max_total_allocated_cpus"):
+            launcher.slurm_limits(
+                {
+                    "max_active_jobs": 4,
+                    "max_total_mpi_tasks": 16,
+                }
+            )
+
+    def test_active_slurm_jobs_use_requested_mpi_tasks(self):
         with patch.object(
             launcher.subprocess,
             "check_output",
             return_value=(
-                "101|pet_cfe_01109403|4|RUNNING\n"
-                "102|pet_cfe_08070500|12|PENDING\n"
+                "101 pet_cfe_01109403 4 5 RUNNING\n"
+                "102 pet_cfe_08070500 12 18 PENDING\n"
             ),
-        ):
+        ) as check_output:
             jobs = launcher.get_active_slurm_jobs()
+
+        command = check_output.call_args.args[0]
+        self.assertIn("NumTasks", command[-1])
+        self.assertIn("NumCPUs", command[-1])
+        self.assertNotIn("%C", command[-1])
 
         self.assertEqual(
             jobs,
             [
                 launcher.ActiveSlurmJob(
-                    "101", "pet_cfe_01109403", 4, "RUNNING"
+                    "101", "pet_cfe_01109403", 4, "RUNNING", 5
                 ),
                 launcher.ActiveSlurmJob(
-                    "102", "pet_cfe_08070500", 12, "PENDING"
+                    "102", "pet_cfe_08070500", 12, "PENDING", 18
                 ),
             ],
         )
@@ -1329,6 +1345,7 @@ class TestLauncherSelection(unittest.TestCase):
                 slurm={
                     "max_active_jobs": 4,
                     "max_total_mpi_tasks": 16,
+                    "max_total_allocated_cpus": 32,
                     "startup_delay_seconds": 0,
                 },
                 map_cfg={
@@ -1387,6 +1404,7 @@ class TestLauncherSelection(unittest.TestCase):
             slurm={
                 "max_active_jobs": 2,
                 "max_total_mpi_tasks": 150,
+                "max_total_allocated_cpus": 200,
                 "startup_delay_seconds": 0,
             },
             map_cfg={
@@ -1451,9 +1469,12 @@ class TestLauncherSelection(unittest.TestCase):
         reason = launcher.slurm_limit_reason(
             active_jobs=4,
             active_mpi_tasks=20,
+            active_allocated_cpus=30,
             requested_mpi_tasks=2,
+            requested_allocated_cpus=5,
             max_active_jobs=4,
             max_total_mpi_tasks=32,
+            max_total_allocated_cpus=64,
         )
 
         self.assertIn("active-job limit", reason)
@@ -1462,9 +1483,12 @@ class TestLauncherSelection(unittest.TestCase):
         reason = launcher.slurm_limit_reason(
             active_jobs=2,
             active_mpi_tasks=30,
+            active_allocated_cpus=30,
             requested_mpi_tasks=4,
+            requested_allocated_cpus=5,
             max_active_jobs=4,
             max_total_mpi_tasks=32,
+            max_total_allocated_cpus=64,
         )
 
         self.assertIn("MPI-task limit", reason)
@@ -1474,10 +1498,27 @@ class TestLauncherSelection(unittest.TestCase):
             launcher.slurm_limit_reason(
                 active_jobs=0,
                 active_mpi_tasks=0,
+                active_allocated_cpus=0,
                 requested_mpi_tasks=40,
+                requested_allocated_cpus=40,
                 max_active_jobs=4,
                 max_total_mpi_tasks=32,
+                max_total_allocated_cpus=64,
             )
+
+    def test_slurm_allocated_cpu_limit_defers_submission(self):
+        reason = launcher.slurm_limit_reason(
+            active_jobs=2,
+            active_mpi_tasks=8,
+            active_allocated_cpus=60,
+            requested_mpi_tasks=1,
+            requested_allocated_cpus=5,
+            max_active_jobs=10,
+            max_total_mpi_tasks=64,
+            max_total_allocated_cpus=64,
+        )
+
+        self.assertIn("allocated-CPU limit", reason)
 
     def test_slurm_startup_delay_uses_global_run_sequence(self):
         self.assertEqual(

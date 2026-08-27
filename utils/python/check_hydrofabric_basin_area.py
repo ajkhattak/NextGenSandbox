@@ -1575,8 +1575,8 @@ def _parser() -> argparse.ArgumentParser:
         "--passed-csv",
         type=Path,
         help=(
-            "Output CSV containing only passing gage IDs "
-            "(default: passed_basin_ids.csv beside --output-csv)"
+            "Output selected-gage CSV with STAID, STANAME, and DRAIN_SQKM "
+            "(default: selected_gages.csv beside --output-csv)"
         ),
     )
     parser.add_argument("--layer", default="divides", help="GeoPackage divides layer")
@@ -1722,16 +1722,27 @@ def main(argv: list[str] | None = None) -> int:
     passed_csv = (
         args.passed_csv.expanduser().resolve()
         if args.passed_csv is not None
-        else args.output_csv.with_name("passed_basin_ids.csv")
+        else args.output_csv.with_name("selected_gages.csv")
     )
     passed_csv.parent.mkdir(parents=True, exist_ok=True)
     status_column = "cleaned_status" if args.cleaned_gpkg_dir is not None else "status"
     passed = (
-        result.loc[result[status_column].isin(SELECTED_STATUSES), ["gage_id"]]
-        .drop_duplicates()
-        .sort_values("gage_id")
+        result.loc[
+            result[status_column].isin(SELECTED_STATUSES),
+            ["gage_id", "station_name", "usgs_area_sqkm"],
+        ]
+        .rename(
+            columns={
+                "gage_id": "STAID",
+                "station_name": "STANAME",
+                "usgs_area_sqkm": "DRAIN_SQKM",
+            }
+        )
+        .drop_duplicates("STAID")
+        .sort_values("STAID")
         .reset_index(drop=True)
     )
+    passed["STAID"] = passed["STAID"].astype("string")
     passed.to_csv(passed_csv, index=False)
 
     display_columns = [
@@ -1750,7 +1761,7 @@ def main(argv: list[str] | None = None) -> int:
     with pd.option_context("display.max_rows", None, "display.width", 140):
         print(result[display_columns].to_string(index=False, float_format=lambda value: f"{value:.3f}"))
     print(f"\nSaved: {args.output_csv}")
-    print(f"Passed basin IDs ({len(passed)}): {passed_csv}")
+    print(f"Selected gages ({len(passed)}): {passed_csv}")
     if removed_divides_csv is not None:
         print(f"Removed-divide audit ({len(removed_divides)}): {removed_divides_csv}")
         selected_gpkg_dir = args.cleaned_gpkg_dir.expanduser().resolve()

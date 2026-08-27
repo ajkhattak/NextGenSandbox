@@ -172,6 +172,7 @@ local:
 slurm:
   max_active_jobs: 10
   max_total_mpi_tasks: 64
+  max_total_allocated_cpus: 128
   startup_delay_seconds: 5
   modules:
     - openmpi/4.1.6
@@ -317,10 +318,9 @@ successor. Running or pending workers are not submitted again. Calibration,
 restarts, and validation are separate Slurm submissions selected across
 dependency-driven coordinator cycles.
 
-The coordinator defaults to a 30-minute wallclock and 2 GB of memory. Large
-campaigns can require several minutes to scan metadata on a shared filesystem;
-the longer default prevents the dependency chain from ending before the next
-coordinator is submitted. `sandbox-launcher status` reports the active
+The coordinator defaults to a 10-minute wallclock and 2 GB of memory. This
+provides time to scan a large campaign while keeping the lightweight job short
+enough for scheduler backfill. `sandbox-launcher status` reports the active
 coordinator job separately from experiment workers and warns when campaign
 work remains but no coordinator is active.
 
@@ -604,8 +604,8 @@ regime_calibration:
 
 At each launcher coordinator cycle, candidates are considered across the
 entire campaign in the configured order. Reference jobs are admitted first,
-followed by wet and then dry jobs. Both `slurm.max_active_jobs` and
-`slurm.max_total_mpi_tasks` remain hard limits.
+followed by wet and then dry jobs. The configured active-job, MPI-task, and
+allocated-CPU limits remain in effect.
 
 Priority scheduling does not create a strict barrier between scenarios. If
 running reference jobs use 40 of a 150-task campaign limit, the launcher may
@@ -652,9 +652,10 @@ campaign at once.
 | Setting | Meaning |
 |---|---|
 | `max_active_jobs` | Required. Maximum number of this campaign's running plus pending worker jobs. |
-| `max_total_mpi_tasks` | Required. Maximum aggregate MPI tasks requested by those jobs. Because workers use one CPU per task, this is also the campaign CPU budget. |
+| `max_total_mpi_tasks` | Required. Maximum aggregate NextGen MPI ranks requested by running plus pending campaign jobs. |
+| `max_total_allocated_cpus` | Required. Maximum aggregate Slurm CPUs requested by running plus pending campaign jobs, including CPUs assigned to satisfy memory requests. |
 | `startup_delay_seconds` | Delay interval assigned across jobs admitted in one launcher cycle: `0`, one interval, two intervals, and so on. |
-| `coordinator.time` | Optional coordinator wallclock. Defaults to `00:30:00`. |
+| `coordinator.time` | Optional coordinator wallclock. Defaults to `00:10:00`. |
 | `coordinator.memory` | Optional coordinator memory. Defaults to `2G`. |
 | `account` | Optional worker-job Slurm account override. |
 | `partition` | Optional worker-job Slurm partition override. |
@@ -672,9 +673,10 @@ Configure worker resources and runtime dependencies together:
 slurm:
   max_active_jobs: 10
   max_total_mpi_tasks: 64
+  max_total_allocated_cpus: 128
   startup_delay_seconds: 5
   coordinator:
-    time: "00:30:00"
+    time: "00:10:00"
     memory: "2G"
   account: project_account
   partition: shared
@@ -695,10 +697,21 @@ slurm:
     memory: "64G"
 ```
 
-With these limits, no more than ten worker jobs and no more than 64 aggregate
-MPI tasks can be running or pending from this campaign. Work that does not fit
+With these limits, the launcher admits up to ten worker jobs, 64 aggregate MPI
+tasks, or 128 aggregate Slurm CPUs from this campaign. Work that does not fit
 is deferred until the next dependency-driven coordinator cycle. A single run
-requiring more than `max_total_mpi_tasks` is rejected with an actionable error.
+whose known MPI request exceeds its limit is rejected with an actionable
+error.
+
+The launcher reads both Slurm values. `NumTasks` enforces the MPI-rank limit,
+while `NumCPUs` enforces the allocated-CPU limit. Some clusters allocate
+additional CPUs to satisfy a large `--mem` request; those CPUs count toward
+`max_total_allocated_cpus` but do not represent additional NextGen MPI ranks.
+Both running and pending campaign jobs count because pending requests can
+start as soon as Slurm finds suitable capacity. The final `NumCPUs` value is
+available only after Slurm accepts a job. If Slurm increases that value to
+satisfy memory, one newly submitted job can cross the CPU limit; the launcher
+reports this and admits no more work until the campaign falls below the limit.
 
 `startup_delay_seconds` staggers the jobs admitted during one launcher cycle.
 For example, a five-second interval assigns delays of 0, 5, 10, and 15 seconds

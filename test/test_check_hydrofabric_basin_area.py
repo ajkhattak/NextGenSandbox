@@ -379,10 +379,14 @@ class TestHydrofabricBasinArea(unittest.TestCase):
         self.assertEqual(args.hf_nldi_threshold_pct, 3.0)
         self.assertEqual(args.hf_nwis_fallback_threshold_pct, 7.0)
 
-    def test_main_writes_only_passing_gage_ids_to_additional_csv(self):
+    def test_main_writes_selected_gages_in_calibration_csv_layout(self):
         comparison = pd.DataFrame(
             {
                 "gage_id": ["09112500", "08070500", "02053500", "08158840"],
+                "station_name": [
+                    "Rejected station", "Clean station", "Offset station",
+                    "NLDI outlier station",
+                ],
                 "status": [
                     "OBSERVATION_DOMAIN_MISMATCH",
                     "CLEAN_PASS",
@@ -408,17 +412,29 @@ class TestHydrofabricBasinArea(unittest.TestCase):
                 )
 
             passed = pd.read_csv(
-                Path(tmp) / "passed_basin_ids.csv",
-                dtype={"gage_id": str},
+                Path(tmp) / "selected_gages.csv",
+                dtype={"STAID": str},
             )
 
         self.assertEqual(exit_code, 1)
         self.assertEqual(
             passed.to_dict("records"),
             [
-                {"gage_id": "02053500"},
-                {"gage_id": "08070500"},
-                {"gage_id": "08158840"},
+                {
+                    "STAID": "02053500",
+                    "STANAME": "Offset station",
+                    "DRAIN_SQKM": 100.0,
+                },
+                {
+                    "STAID": "08070500",
+                    "STANAME": "Clean station",
+                    "DRAIN_SQKM": 100.0,
+                },
+                {
+                    "STAID": "08158840",
+                    "STANAME": "NLDI outlier station",
+                    "DRAIN_SQKM": 100.0,
+                },
             ],
         )
 
