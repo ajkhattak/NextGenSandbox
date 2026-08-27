@@ -13,7 +13,7 @@ set -euo pipefail
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=1
-#SBATCH --time=00:05:00
+#SBATCH --time=00:30:00
 #SBATCH --job-name=sandbox_launcher
 #SBATCH --mem=2G
 

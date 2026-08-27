@@ -236,6 +236,63 @@ class TestHydrofabricBasinArea(unittest.TestCase):
         )
         self.assertFalse(audit.loc["cat-small-partial", "delete"])
 
+    def test_cleaned_output_contains_only_selected_geopackages(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            accepted_source = root / "gage_08070500.gpkg"
+            rejected_source = root / "gage_09112500.gpkg"
+            write_divides(accepted_source, [("cat-accepted", 100.0)])
+            write_divides(rejected_source, [("cat-rejected", 130.0)])
+            comparison = pd.DataFrame(
+                {
+                    "gage_id": ["08070500", "09112500"],
+                    "gpkg_file": [str(accepted_source), str(rejected_source)],
+                    "processing_error": ["", ""],
+                    "status": ["CLEAN_PASS", "OBSERVATION_DOMAIN_MISMATCH"],
+                    "nldi_area_sqkm": [100.0, 130.0],
+                    "usgs_area_sqkm": [100.0, 100.0],
+                    "nldi_nwis_absolute_difference_pct": [0.0, 30.0],
+                    "hf_nldi_threshold_pct": [5.0, 5.0],
+                    "clean_threshold_pct": [10.0, 10.0],
+                    "threshold_pct": [20.0, 20.0],
+                    "hf_nwis_fallback_threshold_pct": [10.0, 10.0],
+                }
+            )
+            empty_audit = pd.DataFrame(
+                columns=[
+                    "divide_id", "divide_area_sqkm", "outside_area_sqkm",
+                    "outside_fraction_pct", "boundary_relation", "delete",
+                ]
+            )
+            selected_dir = root / "cleaned_hydrofabric"
+            rejected_dir = root / "rejected_hydrofabric"
+
+            with (
+                patch.object(checker, "fetch_usgs_basin_boundary", return_value=object()),
+                patch.object(
+                    checker,
+                    "identify_divides_outside_boundary",
+                    return_value=empty_audit,
+                ),
+            ):
+                result, _ = checker.generate_cleaned_hydrofabrics(
+                    comparison,
+                    selected_dir,
+                    rejected_dir=rejected_dir,
+                )
+
+            result = result.set_index("gage_id")
+            self.assertTrue((selected_dir / accepted_source.name).exists())
+            self.assertFalse((selected_dir / rejected_source.name).exists())
+            self.assertTrue((rejected_dir / rejected_source.name).exists())
+            self.assertFalse((rejected_dir / accepted_source.name).exists())
+            self.assertEqual(
+                result.loc["08070500", "output_disposition"], "selected"
+            )
+            self.assertEqual(
+                result.loc["09112500", "output_disposition"], "rejected"
+            )
+
     def test_comparison_applies_three_way_classification(self):
         with tempfile.TemporaryDirectory() as tmp:
             paths = [

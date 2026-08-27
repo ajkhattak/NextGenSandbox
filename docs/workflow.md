@@ -106,6 +106,7 @@ python utils/python/check_hydrofabric_basin_area.py \
   --hf-nwis-fallback-threshold-pct 10 \
   --output-csv basin_area_comparison.csv \
   --cleaned-gpkg-dir cleaned_hydrofabric \
+  --rejected-gpkg-dir rejected_hydrofabric \
   --delete-outside-fraction-pct 50 \
   --minimum-outside-area-sqkm 0.1 \
   --figure-dir basin_boundary_figures \
@@ -153,6 +154,15 @@ accumulated drainage-area attributes. Configure the two deletion limits with
 records original and corrected classifications, while `removed_divides.csv`
 records every deleted divide and its outside-area measurements. Existing
 cleaned files are protected unless `--overwrite-cleaned-gpkg` is supplied.
+After corrected classification, accepted GeoPackages are retained in
+`--cleaned-gpkg-dir` and all successfully processed but rejected GeoPackages
+are moved to `--rejected-gpkg-dir`. If the rejected directory is omitted, it
+defaults to `rejected_hydrofabric` beside the cleaned directory. Cleanup errors
+produce no GeoPackage. The utility also writes `rejected_gages.csv`, including
+the rejection status, output disposition, audit path, and cleanup error. Thus,
+`cleaned_hydrofabric/*.gpkg` is intentionally safe for Sandbox forcing and
+simulation workflows that discover basins with a glob. Do not glob the parent
+output directory recursively because it also contains the rejected audit set.
 When `--figure-dir` is supplied, the utility also retrieves the network-derived
 NLDI basin boundary. `--figure-format pdf` writes one multi-page
 `basin_boundary_comparisons.pdf`, ordered with failed basins first and passing
@@ -177,7 +187,8 @@ bash utils/check_hydrofabric_basin_area.sh \
 ```
 
 Quote a glob so the Python utility, rather than the shell, expands it. The
-wrapper writes the audit, `selected_gages.csv`, `removed_divides.csv`, cleaned
+wrapper writes the audit, `selected_gages.csv`, `rejected_gages.csv`,
+`removed_divides.csv`, selected-only cleaned GeoPackages, quarantined rejected
 GeoPackages, and the PDF report beneath the specified output directory.
 For faster batch execution, it uses eight NLDI workers and the `attention`
 figure scope. Additional utility options may be appended to the wrapper command;
@@ -417,7 +428,9 @@ separate jobs over dependency-driven coordinator cycles. Each coordinator
 submits a successor that Slurm holds until any active worker job terminates.
 The successor then fills newly available capacity while leaving other active
 workers alone, so no coordinator allocation waits throughout a long
-calibration. The launcher configuration
+calibration. Coordinator jobs use a 30-minute, 2 GB default allocation so
+large campaigns have enough time to scan state and schedule their successor.
+The launcher configuration
 requires separate Slurm wallclock and memory settings for calibration and
 validation, allowing long validation periods to request a larger allocation.
 

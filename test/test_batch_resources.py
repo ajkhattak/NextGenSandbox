@@ -1,6 +1,9 @@
 import unittest
 
-from tools.batch.run_sandbox_resources_parallel import duplicate_gages
+from tools.batch.run_sandbox_resources_parallel import (
+    duplicate_gages,
+    subset_domain_warning,
+)
 
 
 class TestParallelResourceBatch(unittest.TestCase):
@@ -17,6 +20,33 @@ class TestParallelResourceBatch(unittest.TestCase):
             duplicate_gages(["01109403", "02299950", "03366500"]),
             [],
         )
+
+    def test_large_local_subset_without_domain_warns(self):
+        config = {
+            "general": {"gages": {"option": "ids"}},
+            "subsetting": {"hydrofabric": {"gpkg_path": "/data/conus.gpkg"}},
+        }
+
+        warning = subset_domain_warning(config, "subset", 170)
+
+        self.assertIsNotNone(warning)
+        self.assertIn("all 170 selected gages", warning)
+
+    def test_configured_subset_domain_does_not_warn(self):
+        config = {
+            "general": {"gages": {"option": "ids", "domain": "conus"}},
+            "subsetting": {"hydrofabric": {"gpkg_path": "/data/conus.gpkg"}},
+        }
+
+        self.assertIsNone(subset_domain_warning(config, "subset", 170))
+
+    def test_forcing_batch_does_not_use_subset_domain_warning(self):
+        config = {
+            "general": {"gages": {"option": "ids"}},
+            "subsetting": {"hydrofabric": {"gpkg_path": "/data/conus.gpkg"}},
+        }
+
+        self.assertIsNone(subset_domain_warning(config, "forc", 170))
 
 
 if __name__ == "__main__":

@@ -758,6 +758,8 @@ class TestLauncherSelection(unittest.TestCase):
         self.assertIn("--chdir=/project/outputs/pso", command)
         self.assertIn("--account=project123", command)
         self.assertIn("--partition=shared", command)
+        self.assertIn("--time=00:30:00", command)
+        self.assertIn("--mem=2G", command)
         self.assertIn(
             "--export=ALL,LAUNCHER_CONFIG=/project/launcher_pso.yaml",
             command,
@@ -785,6 +787,22 @@ class TestLauncherSelection(unittest.TestCase):
             "--dependency=afterany:123?afterany:456",
             command,
         )
+
+    def test_launcher_coordinator_resources_can_be_configured(self):
+        context = SimpleNamespace(
+            campaign_name="launcher_pso",
+            launcher_config_file=Path("/project/launcher_pso.yaml"),
+            output_dir=Path("/project/outputs/pso"),
+            log_dir=Path("/project/outputs/pso/logs"),
+            slurm={
+                "coordinator": {"time": "01:00:00", "memory": "4G"},
+            },
+        )
+
+        command = launcher.build_launcher_submit_command(context)
+
+        self.assertIn("--time=01:00:00", command)
+        self.assertIn("--mem=4G", command)
 
     def test_launcher_default_files_use_config_and_package_directories(self):
         self.assertEqual(
@@ -1053,6 +1071,69 @@ class TestLauncherSelection(unittest.TestCase):
         positions = [report.index(label) for label in labels]
         self.assertEqual(positions, sorted(positions))
         self.assertIn("OUT_OF_MEMORY      | 1", report)
+
+    def test_status_summary_reports_missing_coordinator(self):
+        statuses = [
+            launcher.CampaignStatus(
+                gage_id="01109403",
+                formulation="pet_cfe",
+                scenario="default",
+                state="WILL_BE_REQUEUED",
+                current_iteration=40,
+                max_iterations=40,
+                objective_value=0.5,
+                validation="NO",
+                average_iteration_seconds=None,
+                estimated_remaining_seconds=None,
+            )
+        ]
+        context = SimpleNamespace(
+            campaign_name="regime",
+            slurm={"max_active_jobs": 10},
+        )
+        output = StringIO()
+        with (
+            patch.object(
+                launcher,
+                "collect_campaign_status",
+                return_value=(statuses, None),
+            ),
+            patch.object(launcher, "get_active_slurm_jobs", return_value=[]),
+            redirect_stdout(output),
+        ):
+            launcher.check_status(context)
+
+        self.assertIn(
+            "Coordinator status  : MISSING while campaign work remains",
+            output.getvalue(),
+        )
+
+    def test_status_summary_reports_active_coordinator(self):
+        context = SimpleNamespace(
+            campaign_name="regime",
+            slurm={"max_active_jobs": 10},
+        )
+        output = StringIO()
+        with (
+            patch.object(
+                launcher,
+                "collect_campaign_status",
+                return_value=([], None),
+            ),
+            patch.object(
+                launcher,
+                "get_active_slurm_jobs",
+                return_value=[
+                    launcher.ActiveSlurmJob(
+                        "123", "regime_launcher", 1, "PENDING"
+                    )
+                ],
+            ),
+            redirect_stdout(output),
+        ):
+            launcher.check_status(context)
+
+        self.assertIn("Coordinator status  : 123 PENDING", output.getvalue())
 
     def test_cancelled_status_prints_job_and_gage_ids(self):
         statuses = [

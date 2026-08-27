@@ -125,6 +125,24 @@ def duplicate_gages(gages: list[str]) -> list[str]:
     return sorted(gage_id for gage_id, count in Counter(gages).items() if count > 1)
 
 
+def subset_domain_warning(config: dict, step: str, gage_count: int) -> str | None:
+    """Warn when a local-hydrofabric batch will query USGS for every gage."""
+    if step != "subset" or gage_count < 2:
+        return None
+
+    general_gages = (config.get("general") or {}).get("gages") or {}
+    hydrofabric = (config.get("subsetting") or {}).get("hydrofabric") or {}
+    if general_gages.get("domain") or not hydrofabric.get("gpkg_path"):
+        return None
+
+    return (
+        "general.gages.domain is not set. Sandbox will query USGS metadata "
+        f"separately for all {gage_count} selected gages, which can make "
+        "parallel subsetting very slow or appear stalled. Set domain to "
+        "conus, hi, ak, or prvi when all selected gages share one domain."
+    )
+
+
 def run_one(step: str, config: Path, log_dir: Path, gage_id: str) -> tuple[str, int]:
     out_file = log_dir / f"{step}_{gage_id}.out"
     err_file = log_dir / f"{step}_{gage_id}.err"
@@ -167,6 +185,8 @@ def main() -> int:
 
     config = args.config.resolve()
     try:
+        with config.open("r") as file:
+            sandbox_config = yaml.safe_load(file)
         gages = load_gages(config, args.step)
     except Exception as exc:
         print(f"Failed to resolve gages from {config}: {exc}", file=sys.stderr)
@@ -201,6 +221,10 @@ def main() -> int:
 
     total = len(gages)
     jobs = min(args.jobs, total)
+
+    warning = subset_domain_warning(sandbox_config, args.step, total)
+    if warning:
+        print(f"WARNING: {warning}", file=sys.stderr)
 
     print(
         f"Running sandbox --{args.step} for {total} selected gage(s) "

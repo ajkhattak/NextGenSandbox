@@ -317,6 +317,13 @@ successor. Running or pending workers are not submitted again. Calibration,
 restarts, and validation are separate Slurm submissions selected across
 dependency-driven coordinator cycles.
 
+The coordinator defaults to a 30-minute wallclock and 2 GB of memory. Large
+campaigns can require several minutes to scan metadata on a shared filesystem;
+the longer default prevents the dependency chain from ending before the next
+coordinator is submitted. `sandbox-launcher status` reports the active
+coordinator job separately from experiment workers and warns when campaign
+work remains but no coordinator is active.
+
 Do not call `sbatch` directly for the normal workflow. The
 `sandbox-launcher submit` command supplies the configuration, output log
 paths, account, partition, and dependency settings needed by the coordinator.
@@ -647,6 +654,8 @@ campaign at once.
 | `max_active_jobs` | Required. Maximum number of this campaign's running plus pending worker jobs. |
 | `max_total_mpi_tasks` | Required. Maximum aggregate MPI tasks requested by those jobs. Because workers use one CPU per task, this is also the campaign CPU budget. |
 | `startup_delay_seconds` | Delay interval assigned across jobs admitted in one launcher cycle: `0`, one interval, two intervals, and so on. |
+| `coordinator.time` | Optional coordinator wallclock. Defaults to `00:30:00`. |
+| `coordinator.memory` | Optional coordinator memory. Defaults to `2G`. |
 | `account` | Optional worker-job Slurm account override. |
 | `partition` | Optional worker-job Slurm partition override. |
 | `mpi_tasks` | Must be `auto` when present. Per-run tasks come from generated partition metadata. |
@@ -664,6 +673,9 @@ slurm:
   max_active_jobs: 10
   max_total_mpi_tasks: 64
   startup_delay_seconds: 5
+  coordinator:
+    time: "00:30:00"
+    memory: "2G"
   account: project_account
   partition: shared
   mpi_tasks: auto

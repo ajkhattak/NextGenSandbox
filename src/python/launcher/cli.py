@@ -1309,6 +1309,7 @@ def validate_slurm_config(slurm: dict[str, Any]) -> None:
             "startup_delay_seconds",
             "modules",
             "environment",
+            "coordinator",
             "calibration",
             "validation",
         }
@@ -1369,6 +1370,26 @@ def validate_slurm_config(slurm: dict[str, Any]) -> None:
         raise ValueError(
             "slurm.startup_delay_seconds must be a non-negative integer"
         )
+
+    coordinator_value = slurm.get("coordinator")
+    if coordinator_value is None:
+        coordinator = {}
+    elif not isinstance(coordinator_value, dict):
+        raise TypeError("slurm.coordinator must be a YAML dictionary/object")
+    else:
+        coordinator = coordinator_value
+    unknown_coordinator = sorted(set(coordinator) - {"time", "memory"})
+    if unknown_coordinator:
+        raise ValueError(
+            "slurm.coordinator contains unsupported field(s): "
+            f"{', '.join(unknown_coordinator)}"
+        )
+    for field_name, default in (("time", "00:30:00"), ("memory", "2G")):
+        value = coordinator.get(field_name, default)
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(
+                f"slurm.coordinator.{field_name} must be a non-empty string"
+            )
 
     for stage in ("calibration", "validation"):
         settings = slurm.get(stage)
@@ -1932,14 +1953,17 @@ def build_launcher_submit_command(
     ctx: LauncherContext,
     dependency_job_ids: tuple[str, ...] = (),
 ) -> list[str]:
+    coordinator = ctx.slurm.get("coordinator") or {}
+    coordinator_time = coordinator.get("time", "00:30:00")
+    coordinator_memory = coordinator.get("memory", "2G")
     command = [
         "sbatch",
         "--parsable",
         "--nodes=1",
         "--ntasks=1",
         "--cpus-per-task=1",
-        "--time=00:05:00",
-        "--mem=2G",
+        f"--time={coordinator_time}",
+        f"--mem={coordinator_memory}",
         f"--job-name={ctx.campaign_name}_launcher",
         f"--output={ctx.log_dir}/%x_%j.out",
         f"--error={ctx.log_dir}/%x_%j.err",
@@ -2739,6 +2763,31 @@ def check_status(
     print("========================")
     if scheduler_error is not None:
         print(f"Scheduler status    : unavailable ({scheduler_error})")
+    elif getattr(ctx, "slurm", {}):
+        coordinator_name = f"{ctx.campaign_name}_launcher"
+        try:
+            coordinator_jobs = [
+                job
+                for job in get_active_slurm_jobs()
+                if job.name == coordinator_name
+            ]
+        except RuntimeError as error:
+            print(f"Coordinator status  : unavailable ({error})")
+        else:
+            if coordinator_jobs:
+                description = ", ".join(
+                    f"{job.job_id} {job.state}"
+                    for job in sorted(
+                        coordinator_jobs,
+                        key=lambda job: int(job.job_id),
+                    )
+                )
+                print(f"Coordinator status  : {description}")
+            elif any(status.state != "COMPLETED" for status in statuses):
+                print(
+                    "Coordinator status  : MISSING while campaign work "
+                    "remains"
+                )
 
     if not detailed:
         return

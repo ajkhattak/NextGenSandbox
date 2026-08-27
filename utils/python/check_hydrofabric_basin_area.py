@@ -1038,14 +1038,23 @@ def generate_cleaned_hydrofabrics(
     result: pd.DataFrame,
     output_dir: str | Path,
     *,
+    rejected_dir: str | Path | None = None,
     outside_fraction_pct: float = 50.0,
     minimum_outside_area_sqkm: float = 0.1,
     overwrite: bool = False,
     timeout_seconds: int = 60,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Write cleaned GeoPackages and return updated basin/divide audit tables."""
+    """Write accepted and rejected GeoPackages to separate directories."""
     output_dir = Path(output_dir).expanduser().resolve()
+    rejected_dir = (
+        Path(rejected_dir).expanduser().resolve()
+        if rejected_dir is not None
+        else output_dir.parent / "rejected_hydrofabric"
+    )
+    if rejected_dir == output_dir:
+        raise ValueError("rejected_dir must differ from the accepted output directory")
     output_dir.mkdir(parents=True, exist_ok=True)
+    rejected_dir.mkdir(parents=True, exist_ok=True)
     result = result.copy()
     result["cleaned_gpkg_file"] = ""
     result["removed_divide_count"] = 0
@@ -1058,6 +1067,7 @@ def generate_cleaned_hydrofabrics(
     result["removed_divide_ids"] = ""
     result["gage_flowpath_migrations"] = ""
     result["cleanup_error"] = ""
+    result["output_disposition"] = "skipped"
     removed_records: list[dict] = []
     session = _nwis_session()
     total = len(result)
@@ -1077,6 +1087,7 @@ def generate_cleaned_hydrofabrics(
                 flush=True,
             )
             continue
+        generated_gpkg: Path | None = None
         try:
             boundary = fetch_usgs_basin_boundary(
                 str(row["gage_id"]),
@@ -1110,6 +1121,7 @@ def generate_cleaned_hydrofabrics(
                 gage_id=str(row["gage_id"]),
                 nldi_comid=nldi_comid,
             )
+            generated_gpkg = Path(cleanup["cleaned_gpkg_file"])
             corrected_area, _ = hydrofabric_area_sqkm(output_gpkg)
             corrected_difference_pct = (
                 100.0 * (corrected_area - row["nldi_area_sqkm"])
@@ -1130,7 +1142,26 @@ def generate_cleaned_hydrofabrics(
                     "hf_nwis_fallback_threshold_pct"
                 ],
             )
-            result.at[index, "cleaned_gpkg_file"] = cleanup["cleaned_gpkg_file"]
+            accepted = cleaned_status in SELECTED_STATUSES
+            if accepted:
+                stale_rejected = rejected_dir / generated_gpkg.name
+                if stale_rejected.exists() and overwrite:
+                    stale_rejected.unlink()
+                final_gpkg = generated_gpkg
+                disposition = "selected"
+            else:
+                final_gpkg = rejected_dir / generated_gpkg.name
+                if final_gpkg.exists():
+                    if not overwrite:
+                        raise FileExistsError(
+                            f"rejected GeoPackage already exists: {final_gpkg}"
+                        )
+                    final_gpkg.unlink()
+                generated_gpkg.replace(final_gpkg)
+                disposition = "rejected"
+            cleanup["cleaned_gpkg_file"] = str(final_gpkg)
+            generated_gpkg = final_gpkg
+            result.at[index, "cleaned_gpkg_file"] = str(final_gpkg)
             result.at[index, "removed_divide_count"] = cleanup["removed_divide_count"]
             result.at[index, "removed_flowpath_count"] = cleanup["removed_flowpath_count"]
             result.at[index, "removed_area_sqkm"] = flagged["divide_area_sqkm"].sum()
@@ -1140,6 +1171,7 @@ def generate_cleaned_hydrofabrics(
                 corrected_hf_nwis_difference_pct
             )
             result.at[index, "cleaned_status"] = cleaned_status
+            result.at[index, "output_disposition"] = disposition
             result.at[index, "removed_divide_ids"] = ",".join(divide_ids)
             result.at[index, "gage_flowpath_migrations"] = cleanup[
                 "gage_flowpath_migrations"
@@ -1156,11 +1188,15 @@ def generate_cleaned_hydrofabrics(
             elapsed = time.perf_counter() - started
             print(
                 f"Cleanup [{position}/{total}] {gage_label}: removed "
-                f"{len(divide_ids)} divide(s), {cleaned_status}, {elapsed:.1f}s",
+                f"{len(divide_ids)} divide(s), {cleaned_status}, "
+                f"{disposition}, {elapsed:.1f}s",
                 flush=True,
             )
         except Exception as exc:
+            if generated_gpkg is not None:
+                generated_gpkg.unlink(missing_ok=True)
             result.at[index, "cleaned_status"] = "CLEANUP_ERROR"
+            result.at[index, "output_disposition"] = "cleanup_error"
             result.at[index, "cleanup_error"] = f"{type(exc).__name__}: {exc}"
             print(
                 f"WARNING: cleanup failed for {row['gage_id']}: "
@@ -1562,8 +1598,16 @@ def _parser() -> argparse.ArgumentParser:
         "--cleaned-gpkg-dir",
         type=Path,
         help=(
-            "Optional directory for new GeoPackages with NLDI-external divides "
-            "and their associated flowpaths removed"
+            "Optional downstream-safe directory containing only accepted "
+            "GeoPackages after cleanup"
+        ),
+    )
+    parser.add_argument(
+        "--rejected-gpkg-dir",
+        type=Path,
+        help=(
+            "Directory for successfully processed but rejected GeoPackages "
+            "(default: rejected_hydrofabric beside --cleaned-gpkg-dir)"
         ),
     )
     parser.add_argument(
@@ -1640,6 +1684,7 @@ def main(argv: list[str] | None = None) -> int:
         result, removed_divides = generate_cleaned_hydrofabrics(
             result,
             args.cleaned_gpkg_dir,
+            rejected_dir=args.rejected_gpkg_dir,
             outside_fraction_pct=args.delete_outside_fraction_pct,
             minimum_outside_area_sqkm=args.minimum_outside_area_sqkm,
             overwrite=args.overwrite_cleaned_gpkg,
@@ -1662,8 +1707,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.cleaned_gpkg_dir is not None:
         removed_divides_csv = args.output_csv.with_name("removed_divides.csv")
         removed_divides.to_csv(removed_divides_csv, index=False)
+        rejected_csv = args.output_csv.with_name("rejected_gages.csv")
+        rejected_columns = [
+            "gage_id", "status", "cleaned_status", "output_disposition",
+            "gpkg_file", "cleaned_gpkg_file", "cleanup_error",
+        ]
+        result.loc[
+            ~result["cleaned_status"].isin(SELECTED_STATUSES), rejected_columns
+        ].sort_values("gage_id").to_csv(rejected_csv, index=False)
     else:
         removed_divides_csv = None
+        rejected_csv = None
 
     passed_csv = (
         args.passed_csv.expanduser().resolve()
@@ -1699,7 +1753,15 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Passed basin IDs ({len(passed)}): {passed_csv}")
     if removed_divides_csv is not None:
         print(f"Removed-divide audit ({len(removed_divides)}): {removed_divides_csv}")
-        print(f"Cleaned GeoPackages: {args.cleaned_gpkg_dir.expanduser().resolve()}")
+        selected_gpkg_dir = args.cleaned_gpkg_dir.expanduser().resolve()
+        rejected_gpkg_dir = (
+            args.rejected_gpkg_dir.expanduser().resolve()
+            if args.rejected_gpkg_dir is not None
+            else selected_gpkg_dir.parent / "rejected_hydrofabric"
+        )
+        print(f"Rejected-gage audit: {rejected_csv}")
+        print(f"Selected GeoPackages only: {selected_gpkg_dir}")
+        print(f"Rejected GeoPackages: {rejected_gpkg_dir}")
     counts = result["status"].value_counts().to_dict()
     print("Status counts: " + ", ".join(f"{key}={value}" for key, value in sorted(counts.items())))
     if args.figure_dir is not None:

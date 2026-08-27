@@ -85,6 +85,11 @@ slurm:
   max_active_jobs: 10
   max_total_mpi_tasks: 64
   startup_delay_seconds: 5
+  # The coordinator scans campaign state and submits worker jobs. The default
+  # is 30 minutes and 2G; increase these only for unusually large campaigns.
+  coordinator:
+    time: "00:30:00"
+    memory: "2G"
 #   account: project_account
 #   partition: shared
 #   mpi_tasks: auto

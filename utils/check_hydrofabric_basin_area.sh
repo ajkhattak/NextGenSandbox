@@ -9,6 +9,8 @@ Usage:
 
 Checks hydrofabric area against NLDI and NWIS, cleans NLDI-external divides,
 and writes an attention-only PDF report. Original GeoPackages are unchanged.
+The cleaned_hydrofabric directory contains accepted basins only and is safe
+for downstream globbing. Rejected outputs are quarantined separately.
 
 Area-classification defaults:
   --hf-nldi-threshold-pct 5
@@ -69,6 +71,7 @@ python -u "${script_dir}/python/check_hydrofabric_basin_area.py" \
     --output-csv "${output_dir}/basin_area_comparison.csv" \
     --passed-csv "${output_dir}/selected_gages.csv" \
     --cleaned-gpkg-dir "${output_dir}/cleaned_hydrofabric" \
+    --rejected-gpkg-dir "${output_dir}/rejected_hydrofabric" \
     --delete-outside-fraction-pct 50 \
     --minimum-outside-area-sqkm 0.1 \
     --nldi-workers 8 \
