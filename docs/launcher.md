@@ -37,6 +37,7 @@ general:
   input_dir: "./inputs"
   output_dir: "./outputs/dds"
   resource_layout: gage
+  domain: conus
   gages:
     option: ids
     ids: ["02299950", "08070500"]

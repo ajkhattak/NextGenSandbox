@@ -99,7 +99,7 @@ load_subset_config <- function(runtime) {
     ),
     gages = list(
       option = subset_gages$option,
-      domain = get_param(inputs, "general$gages$domain", NULL),
+      domain = get_param(inputs, "general$domain", NULL),
       ids = subset_gages$ids,
       file = list(
         path = subset_gages$file$path,

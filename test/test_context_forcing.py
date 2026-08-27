@@ -16,6 +16,7 @@ class TestContextForcing(unittest.TestCase):
         ctx.input_dir = Path("/tmp/resources")
         ctx.resource_layout = "gage"
         ctx.sandbox_config = {
+            "general": {"domain": "conus"},
             "forcings": {
                 "time": {
                     "start": "2016-10-01",
@@ -61,6 +62,7 @@ class TestContextForcing(unittest.TestCase):
         ctx = self._context_with_forcing_config()
 
         self.assertTrue(ctx.use_corrected_forcing)
+        self.assertEqual(ctx.domain, "conus")
 
     def test_use_corrected_accepts_false(self):
         ctx = self._context_with_forcing_config(use_corrected=False)

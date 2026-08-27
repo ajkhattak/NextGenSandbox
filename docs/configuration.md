@@ -121,8 +121,8 @@ full set of gages available to workflow steps.
 | `input_dir` | Root directory for reusable resources, including hydrofabric and forcing files. |
 | `output_dir` | Root directory for generated configurations, realizations, simulation outputs, and calibration artifacts. |
 | `resource_layout` | Resource organization. Options: `gage` or `resource`. Use one layout consistently within a project. |
+| `domain` | Common project domain: `conus`, `hi`, `ak`, or `prvi`. `pr` and `vi` are accepted as aliases for `prvi`. Set this for batch subsetting to avoid a USGS metadata request for every gage. |
 | `gages.option` | How the project gage set is defined. Options: `ids`, `file`, or `gpkg`. |
-| `gages.domain` | Optional common hydrofabric domain for project gages: `conus`, `hi`, `ak`, or `prvi`. Set this for batch subsetting to avoid a USGS metadata request for every gage. `pr` and `vi` are accepted as aliases for `prvi`. |
 | `gages.ids` | Gage ID list used with `option: ids`. Quote IDs so leading zeros are preserved. USGS gage IDs may contain 8, 10, or 12 digits. |
 | `gages.file.path` | CSV file used with `option: file`. |
 | `gages.file.column` | CSV column containing gage IDs. |
@@ -144,9 +144,9 @@ locations, use `<gage_id>` in the path template:
 
 ```yaml
 general:
+  domain: conus
   gages:
     option: gpkg
-    domain: conus
     gpkg:
       dir: "/path/to/gpkgs/hydrofabric_v2_<gage_id>_final.gpkg"
       select: ["50147800", "03366500"]  # optional
@@ -160,7 +160,7 @@ simulation; it does not need to follow `general.resource_layout`. Other
 characters are literal, so `_` in the template does not match `-` in a filename.
 
 For subsetting many gages from a local source geopackage, set
-`general.gages.domain`. Sandbox then uses that domain for every selected gage
+`general.domain`. Sandbox then uses that domain for every selected gage
 and does not contact USGS to discover state codes. When `domain` is omitted,
 Sandbox retains the per-gage USGS lookup as a fallback. Use separate projects
 when a batch spans more than one hydrofabric domain.
@@ -202,7 +202,6 @@ optional NetCDF rechunking.
 | `rechunk` | Create or reuse a rechunked NetCDF file during `sandbox --forc` for faster ngen reads. When `true`, later steps pass the prepared rechunked file to ngen. |
 | `time.start` | First forcing timestamp. A date without a time defaults to `00:00:00`. |
 | `time.end` | Last forcing timestamp. A date without a time defaults to `00:00:00`. |
-| `domain` | Forcing domain, such as `conus`, `HI`, `PR`, or `AK`. |
 | `gages` | Optional filter on `general.gages`. |
 | `forcing_dir` | Optional external forcing directory, NetCDF path template, or single NetCDF file. A flat multi-gage directory can use `/path/to/forcing/*<gage_id>*.nc`. |
 

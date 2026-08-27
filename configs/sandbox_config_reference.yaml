@@ -8,10 +8,9 @@ general:
   input_dir: "<path/to/input/directory>"
   output_dir: "<path/to/output/directory>"
   resource_layout: gage  # gage or resource
+  domain: conus  # conus, hi, ak, or prvi
   gages:
     option: ids  # ids, file, or gpkg
-    # Avoid per-gage USGS metadata requests during subsetting.
-    domain: conus  # conus, hi, ak, or prvi
     ids: ["01308000", "01109403"]
 
     # Use this instead of ids when option is file.
@@ -47,7 +46,6 @@ forcings:
   time:
     start: "2016-10-01"
     end: "2020-09-30 23:00:00"
-  domain: conus  # conus, HI, PR, or AK
   gages: all
 
   # Select existing external forcing instead of the default location.

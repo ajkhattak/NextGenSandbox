@@ -7,9 +7,9 @@ general:
   input_dir: "<path_to_input_directory>"
   output_dir: "<path_to_output_directory>"
   resource_layout: gage
+  domain: conus
   gages:
     option: ids
-    domain: conus
     ids: ["01308000"]
 
 subsetting:
@@ -31,7 +31,6 @@ forcings:
   time:
     start: "2016-10-01"
     end: "2020-09-30 23:00:00"
-  domain: conus
   gages: all
 
 observations: {}

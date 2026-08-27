@@ -130,16 +130,16 @@ def subset_domain_warning(config: dict, step: str, gage_count: int) -> str | Non
     if step != "subset" or gage_count < 2:
         return None
 
-    general_gages = (config.get("general") or {}).get("gages") or {}
+    general = config.get("general") or {}
     hydrofabric = (config.get("subsetting") or {}).get("hydrofabric") or {}
-    if general_gages.get("domain") or not hydrofabric.get("gpkg_path"):
+    if general.get("domain") or not hydrofabric.get("gpkg_path"):
         return None
 
     return (
-        "general.gages.domain is not set. Sandbox will query USGS metadata "
+        "general.domain is not set. Sandbox will query USGS metadata "
         f"separately for all {gage_count} selected gages, which can make "
-        "parallel subsetting very slow or appear stalled. Set domain to "
-        "conus, hi, ak, or prvi when all selected gages share one domain."
+        "parallel subsetting very slow or appear stalled. Set general.domain "
+        "to conus, hi, ak, or prvi when all selected gages share one domain."
     )
 
 

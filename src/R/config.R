@@ -30,7 +30,7 @@ normalize_gage_domain <- function(value) {
   }
   if (length(value) != 1 || is.logical(value) || is.na(value)) {
     stop(
-      "general$gages$domain must be one of: conus, hi, ak, prvi"
+      "general$domain must be one of: conus, hi, ak, prvi"
     )
   }
 
@@ -44,7 +44,7 @@ normalize_gage_domain <- function(value) {
   if (!nzchar(domain) || !(domain %in% allowed)) {
     stop(sprintf(
       paste0(
-        "Invalid general$gages$domain '%s'. ",
+        "Invalid general$domain '%s'. ",
         "Supported domains: %s"
       ),
       value,

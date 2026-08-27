@@ -250,13 +250,13 @@ If `subsetting.hydrofabric.compute_divide_attributes: FALSE`, the workflow
 should only subset geopackages and should not create DEM output.
 
 If a large local-hydrofabric batch pauses during gage metadata lookup, set the
-common domain explicitly under `general.gages`, for example:
+common domain explicitly under `general`, for example:
 
 ```yaml
 general:
+  domain: conus
   gages:
     option: ids
-    domain: conus
     ids: ["01308000", "03366500"]
 ```
 

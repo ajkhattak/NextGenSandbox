@@ -77,7 +77,7 @@ If gage-specific geopackages do not exist, download the source hydrofabric for
 your domain. CONUS hydrofabric files are available from
 [Lynker Spatial](https://www.lynker-spatial.com/data?path=hydrofabric%2Fv2.2%2F).
 NextGenSandbox supports Hydrofabric 2.2. Set
-`subsetting.hydrofabric.gpkg_path` and set `general.gages.domain` to the common
+`subsetting.hydrofabric.gpkg_path` and set `general.domain` to the common
 domain of the selected gages. Providing the domain is especially important for
 large batches because it avoids one USGS metadata request per gage. Then run:
 

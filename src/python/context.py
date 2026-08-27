@@ -165,7 +165,7 @@ class SandboxContext:
         self.forcing_dir_is_configured = "forcing_dir" in dforcing
         self.forcing_dir = dforcing.get("forcing_dir", forcing_dir)
 
-        self.domain = dforcing.get("domain", "conus")
+        self.domain = self.sandbox_config["general"].get("domain", "conus")
 
         self.use_corrected_forcing = dforcing.get("use_corrected", True)
 

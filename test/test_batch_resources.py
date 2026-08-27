@@ -34,7 +34,7 @@ class TestParallelResourceBatch(unittest.TestCase):
 
     def test_configured_subset_domain_does_not_warn(self):
         config = {
-            "general": {"gages": {"option": "ids", "domain": "conus"}},
+            "general": {"domain": "conus", "gages": {"option": "ids"}},
             "subsetting": {"hydrofabric": {"gpkg_path": "/data/conus.gpkg"}},
         }
 
