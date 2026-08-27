@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import glob
+import html
 import re
 from pathlib import Path
 from typing import Any
@@ -48,7 +49,7 @@ import requests
 class USGSIVDataService:
     """Synchronous client for the USGS instantaneous-values JSON service."""
 
-    URL = "https://waterservices.usgs.gov/nwis/iv/"
+    URL = "https://nwis.waterservices.usgs.gov/nwis/iv/"
 
     def __init__(self, session: requests.Session | None = None):
         self.session = session or requests.Session()
@@ -70,21 +71,54 @@ class USGSIVDataService:
         parameterCd: str = "00060",
         siteStatus: str = "all",
     ) -> pd.DataFrame:
+        start_time = self._parse_request_time(startDT, "startDT")
+        end_time = self._parse_request_time(endDT, "endDT")
+        if end_time < start_time:
+            raise ValueError("USGS request endDT must not be before startDT")
+
         response = self.session.get(
             self.URL,
             params={
                 "format": "json",
                 "sites": str(sites),
-                "startDT": startDT,
-                "endDT": endDT,
+                "startDT": start_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "endDT": end_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "parameterCd": parameterCd,
                 "siteStatus": siteStatus,
             },
             headers={"Accept-Encoding": "gzip, compress"},
             timeout=(30, 900),
         )
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as error:
+            detail = html.unescape(
+                re.sub(r"<[^>]+>", " ", getattr(response, "text", ""))
+            )
+            detail = " ".join(detail.split())[:600]
+            message = (
+                f"USGS IV request failed for gage {sites} from "
+                f"{start_time:%Y-%m-%d %H:%M:%S UTC} to "
+                f"{end_time:%Y-%m-%d %H:%M:%S UTC}"
+            )
+            if detail:
+                message = f"{message}: {detail}"
+            raise requests.HTTPError(message, response=response) from error
         return self._parse_response(response.json())
+
+    @staticmethod
+    def _parse_request_time(value: str, name: str) -> pd.Timestamp:
+        """Return a UTC timestamp accepted by the USGS IV service."""
+        try:
+            timestamp = pd.Timestamp(value)
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"USGS request {name} is not a valid timestamp: {value!r}") from error
+
+        if pd.isna(timestamp):
+            raise ValueError(f"USGS request {name} is not a valid timestamp: {value!r}")
+        if timestamp.tzinfo is None:
+            return timestamp.tz_localize("UTC")
+        return timestamp.tz_convert("UTC")
 
     @staticmethod
     def _parse_response(payload: dict[str, Any]) -> pd.DataFrame:

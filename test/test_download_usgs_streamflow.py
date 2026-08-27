@@ -129,6 +129,43 @@ class TestDownloadUsgsStreamflow(unittest.TestCase):
         self.assertEqual(dataframe.loc[0, "value"], 12.5)
         self.assertIsNone(dataframe.loc[0, "value_time"].tzinfo)
 
+    def test_service_converts_cli_timestamps_to_usgs_utc_format(self):
+        class Response:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"value": {"timeSeries": []}}
+
+        class Session:
+            def __init__(self):
+                self.params = None
+
+            def get(self, _url, *, params, **_kwargs):
+                self.params = params
+                return Response()
+
+        session = Session()
+        service = downloader.USGSIVDataService(session)
+        service.get(
+            sites="02053500",
+            startDT="1998-10-01 00:00:00",
+            endDT="2023-09-30 23:00:00",
+        )
+
+        self.assertEqual(session.params["startDT"], "1998-10-01T00:00:00Z")
+        self.assertEqual(session.params["endDT"], "2023-09-30T23:00:00Z")
+
+    def test_service_rejects_an_end_before_start(self):
+        service = downloader.USGSIVDataService()
+
+        with self.assertRaisesRegex(ValueError, "endDT must not be before startDT"):
+            service.get(
+                sites="02053500",
+                startDT="2023-09-30 23:00:00",
+                endDT="1998-10-01 00:00:00",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

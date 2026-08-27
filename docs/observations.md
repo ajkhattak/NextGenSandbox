@@ -47,6 +47,10 @@ The utility `utils/python/download_usgs_streamflow.py` downloads USGS
 instantaneous streamflow and writes one hourly CSV file per gage. Run it from
 the NextGenSandbox repository with the Sandbox environment active.
 
+`--start` and `--end` accept either `YYYY-MM-DD` or a timestamp such as
+`YYYY-MM-DD HH:MM:SS`. The utility converts these values to the UTC timestamp
+format required by the USGS service.
+
 Select gages in exactly one of three ways.
 
 ### Read Gages From CSV
