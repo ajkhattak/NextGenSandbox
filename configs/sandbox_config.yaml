@@ -73,3 +73,6 @@ simulation:
     mode: parallel
     max_nexus_per_proc: 25
     max_procs: 3
+20179952
+Launcher coordinator job ID: 20179952
+Launcher logs: /anvil/scratch/x-akhattak1/Core/projects/regime_calibration/outputs/logs

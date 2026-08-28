@@ -373,16 +373,40 @@ def fetch_and_save_hourly_usgs_data(service,
 
             missing_count = int(hourly.isna().sum())
             total_count = int(hourly.shape[0])
+            available_count = total_count - missing_count
+            coverage_pct = (
+                100.0 * available_count / total_count if total_count else 0.0
+            )
             print(
-                f"[INFO] Gage {gage_id}: hourly obs rows={total_count}, "
-                f"missing={missing_count}"
+                f"[INFO] Gage {gage_id}: hourly coverage={coverage_pct:.2f}% "
+                f"({available_count}/{total_count} hours available; "
+                f"{missing_count} missing)"
             )
 
             if missing_count > 0:
                 missing_times = hourly[hourly.isna()].index
+                missing_frame = pd.DataFrame({"missing_time": missing_times})
+                missing_frame["gap_id"] = (
+                    missing_frame["missing_time"]
+                    .diff()
+                    .ne(pd.Timedelta(hours=1))
+                    .cumsum()
+                )
+                gaps = missing_frame.groupby("gap_id")["missing_time"].agg(
+                    start="min",
+                    end="max",
+                    hours="size",
+                )
+                longest_gap = gaps.loc[gaps["hours"].idxmax()]
+                longest_hours = int(longest_gap["hours"])
+                longest_days = longest_hours / 24.0
                 print(
-                    f"[WARNING] Gage {gage_id}: missing hourly observations "
-                    f"from {missing_times.min()} to {missing_times.max()}"
+                    f"[WARNING] Gage {gage_id}: missing observations occur "
+                    f"in {len(gaps)} separate gap(s); earliest missing="
+                    f"{missing_times.min()}, latest missing={missing_times.max()}; "
+                    f"longest continuous gap={longest_hours} hours "
+                    f"({longest_days:.1f} days), from {longest_gap['start']} "
+                    f"to {longest_gap['end']}"
                 )
 
             hourly_df = hourly.rename('value').reset_index()

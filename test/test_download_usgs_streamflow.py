@@ -6,6 +6,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import pandas as pd
+
 
 def load_downloader_module():
     path = (
@@ -165,6 +167,38 @@ class TestDownloadUsgsStreamflow(unittest.TestCase):
                 startDT="2023-09-30 23:00:00",
                 endDT="1998-10-01 00:00:00",
             )
+
+    def test_hourly_missing_message_distinguishes_separate_gaps(self):
+        class FakeService:
+            def get(self, **_kwargs):
+                return pd.DataFrame(
+                    {
+                        "value_time": pd.to_datetime(
+                            [
+                                "2020-01-01 00:00:00",
+                                "2020-01-01 00:15:00",
+                                "2020-01-01 02:00:00",
+                            ]
+                        ),
+                        "value": [1.0, 3.0, 5.0],
+                    }
+                )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("builtins.print") as output:
+                success = downloader.fetch_and_save_hourly_usgs_data(
+                    FakeService(),
+                    "0214657975",
+                    "2020-01-01 00:00:00",
+                    "2020-01-01 03:00:00",
+                    output_dir=tmp,
+                )
+
+        messages = "\n".join(str(call.args[0]) for call in output.call_args_list)
+        self.assertTrue(success)
+        self.assertIn("hourly coverage=50.00% (2/4 hours available; 2 missing)", messages)
+        self.assertIn("missing observations occur in 2 separate gap(s)", messages)
+        self.assertIn("longest continuous gap=1 hours (0.0 days)", messages)
 
 
 if __name__ == "__main__":
