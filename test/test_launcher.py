@@ -815,6 +815,40 @@ class TestLauncherSelection(unittest.TestCase):
                 str(root / "outputs" / "pet_cfe" / "01109403_dds"),
             )
 
+    def test_dds_restart_config_targets_exact_checkpoint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = launcher.generated_config_paths(root / "configs", "01109403")
+            restart_config = paths["sandbox_restart"]
+            restart_config.parent.mkdir(parents=True)
+            restart_config.write_text(
+                yaml.safe_dump(
+                    {
+                        "simulation": {
+                            "tasks": ["restart"],
+                            "restart_dir": str(root / "output"),
+                        }
+                    }
+                )
+            )
+            checkpoint = (
+                root
+                / "output"
+                / "worker"
+                / "ngen_cal_parameter_df_state.parquet"
+            )
+            checkpoint.parent.mkdir(parents=True)
+            checkpoint.touch()
+
+            selected = launcher.prepare_dds_restart_config(paths, checkpoint)
+
+            self.assertEqual(selected, restart_config)
+            generated = yaml.safe_load(restart_config.read_text())
+            self.assertEqual(
+                generated["simulation"]["restart_dir"],
+                str(checkpoint.resolve()),
+            )
+
     def test_max_iterations_comes_from_sandbox_calibration_block(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -2362,6 +2396,11 @@ class TestLauncherSelection(unittest.TestCase):
         with (
             patch.object(launcher, "generated_config_paths", return_value=paths),
             patch.object(launcher, "get_max_iter", return_value=10),
+            patch.object(
+                launcher,
+                "prepare_dds_restart_config",
+                return_value=restart_config,
+            ) as prepare_restart,
             patch.object(launcher.time, "sleep"),
             patch.object(launcher.subprocess, "run") as run,
         ):
@@ -2378,6 +2417,7 @@ class TestLauncherSelection(unittest.TestCase):
             )
 
         self.assertEqual(selected.config_file, restart_config)
+        prepare_restart.assert_called_once_with(paths, progress.checkpoint_file)
         self.assertEqual(
             run.call_args_list[0].args[0],
             ["sandbox", "--conf", "-i", str(restart_config)],

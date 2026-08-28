@@ -1957,6 +1957,27 @@ def prepare_pso_warm_start_config(
     return warm_config_file
 
 
+def prepare_dds_restart_config(
+    paths: dict[str, Path],
+    checkpoint_file: Path,
+) -> Path:
+    """Point a DDS restart at the exact interrupted-run checkpoint."""
+    restart_config_file = paths["sandbox_restart"]
+    restart_config = load_yaml(restart_config_file)
+    simulation = restart_config.setdefault("simulation", {})
+    simulation["tasks"] = ["restart"]
+    simulation["restart_dir"] = str(checkpoint_file.resolve())
+
+    with restart_config_file.open("w") as file:
+        yaml.safe_dump(
+            restart_config,
+            file,
+            default_flow_style=False,
+            sort_keys=False,
+        )
+    return restart_config_file
+
+
 def check_validation_exists(metadata_index_dir: Path, gage_id: str, *, status: bool = False) -> bool:
     metadata = read_metadata_index_file(metadata_index_dir, gage_id)
     if metadata is None:
@@ -2329,6 +2350,10 @@ def run_experiment(
         stage = "validation"
     elif sandbox_file == paths["sandbox_restart"]:
         stage = "restart"
+        sandbox_file = prepare_dds_restart_config(
+            paths,
+            progress.checkpoint_file,
+        )
     else:
         stage = "calibration"
 
