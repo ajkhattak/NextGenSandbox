@@ -354,7 +354,14 @@ class SandboxContext:
             field_name="simulation.gages",
         )
 
-        self.simulation_label = dsim.get("label") or None
+        simulation_label = dsim.get("label")
+        if simulation_label is not None and not isinstance(simulation_label, str):
+            raise TypeError("simulation.label must be a string")
+        self.simulation_label = (
+            simulation_label.strip()
+            if simulation_label and simulation_label.strip()
+            else None
+        )
 
         outputs = dsim.get("outputs", {}) or {}
         if not isinstance(outputs, dict):

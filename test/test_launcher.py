@@ -25,6 +25,14 @@ class TestLauncherSelection(unittest.TestCase):
         output_dir: Path,
     ) -> None:
         metadata_index_dir.mkdir(parents=True, exist_ok=True)
+        manifest = (
+            output_dir
+            / "configs"
+            / "calibration"
+            / "configuration_manifest.yml"
+        )
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        manifest.write_text("schema_version: 1\n")
         (metadata_index_dir / f"run_{gage_id}.yml").write_text(
             yaml.safe_dump({"output_dir": str(output_dir)})
         )
@@ -604,8 +612,9 @@ class TestLauncherSelection(unittest.TestCase):
             )
             self.assertEqual(
                 restart["simulation"]["restart_dir"],
-                str(root / "outputs" / "pet_cfe" / "01109403_pet_cfe"),
+                str(root / "outputs" / "pet_cfe" / "01109403"),
             )
+            self.assertEqual(restart["simulation"]["label"], "")
             self.assertNotIn("-j", run.call_args.args[0])
 
     def test_stale_generated_configs_are_detected(self):
@@ -628,6 +637,35 @@ class TestLauncherSelection(unittest.TestCase):
                 )
 
             self.assertTrue(launcher.generated_configs_need_refresh(paths))
+
+    def test_generated_formulation_label_is_refreshed_when_not_requested(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = launcher.generated_config_paths(root, "01109403")
+            paths["sandbox_main"].parent.mkdir(parents=True)
+            for path, task in (
+                (paths["sandbox_main"], "calibration"),
+                (paths["sandbox_restart"], "restart"),
+                (paths["sandbox_validation"], "validation"),
+            ):
+                path.write_text(
+                    yaml.safe_dump(
+                        {
+                            "formulations": {"pet_cfe": {}},
+                            "simulation": {
+                                "tasks": [task],
+                                "label": "pet_cfe",
+                            },
+                        }
+                    )
+                )
+
+            self.assertTrue(
+                launcher.generated_configs_need_refresh(
+                    paths,
+                    expected_label="",
+                )
+            )
 
     def test_refreshing_generated_configs_preserves_calibration_artifacts(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -734,7 +772,7 @@ class TestLauncherSelection(unittest.TestCase):
                 generated["simulation"]["time"]["calibration"],
                 scenario.calibration,
             )
-            self.assertEqual(generated["simulation"]["label"], "pet_cfe")
+            self.assertEqual(generated["simulation"]["label"], "old_label")
             restart = yaml.safe_load(paths["sandbox_restart"].read_text())
             self.assertEqual(
                 restart["simulation"]["restart_dir"],
@@ -743,8 +781,38 @@ class TestLauncherSelection(unittest.TestCase):
                     / "outputs"
                     / "pet_cfe"
                     / "dry"
-                    / "01109403_pet_cfe"
+                    / "01109403_old_label"
                 ),
+            )
+
+    def test_generated_configs_preserve_explicit_simulation_label(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ctx = SimpleNamespace(
+                sandbox_cfg={
+                    "general": {"input_dir": "/tmp/inputs"},
+                    "simulation": {"label": "dds", "time": {}},
+                },
+                output_dir=root / "outputs",
+            )
+
+            with patch.object(launcher.subprocess, "run"):
+                launcher.generate_config_files_for_gage(
+                    ctx,
+                    "pet_cfe",
+                    {"models": "PET, CFE, T-ROUTE"},
+                    "pet_cfe",
+                    "01109403",
+                    root / "configs",
+                    root / "metadata",
+                )
+
+            paths = launcher.generated_config_paths(root / "configs", "01109403")
+            restart = yaml.safe_load(paths["sandbox_restart"].read_text())
+            self.assertEqual(restart["simulation"]["label"], "dds")
+            self.assertEqual(
+                restart["simulation"]["restart_dir"],
+                str(root / "outputs" / "pet_cfe" / "01109403_dds"),
             )
 
     def test_max_iterations_comes_from_sandbox_calibration_block(self):
@@ -1546,6 +1614,7 @@ class TestLauncherSelection(unittest.TestCase):
             campaign_name="regime",
             output_dir=Path("/tmp/outputs"),
             log_dir=Path("/tmp/outputs/logs"),
+            sandbox_cfg={"simulation": {}},
             metadata_index_dir_name="metadata",
             stages=("calibration",),
             local={"max_workers": 2, "startup_delay_seconds": 0},
@@ -1900,6 +1969,26 @@ class TestLauncherSelection(unittest.TestCase):
             self.assertEqual(started.completed_iterations, 0)
             self.assertEqual(started.objective_value, 0.75)
             self.assertEqual(started.checkpoint_file, checkpoint)
+
+    def test_metadata_without_calibration_manifest_is_not_configured(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            metadata_dir = root / "metadata"
+            output_dir = root / "output"
+            output_dir.mkdir()
+            metadata_dir.mkdir()
+            (metadata_dir / "run_01109403.yml").write_text(
+                yaml.safe_dump({"output_dir": str(output_dir)})
+            )
+
+            progress = launcher.get_experiment_progress(
+                metadata_dir,
+                "01109403",
+                status=True,
+            )
+
+            self.assertFalse(progress.configured)
+            self.assertFalse(progress.started)
 
     def test_iteration_zero_checkpoint_selects_restart_config(self):
         paths = {

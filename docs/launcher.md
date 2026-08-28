@@ -267,8 +267,12 @@ Launcher artifacts are written below `general.output_dir`:
   <formulation>/
     configs/
     metadata/
-    <gage_id>_<formulation>/
+    <gage_id>/
 ```
 
 Regime campaigns add `ref`, `wet`, and `dry` below each formulation before
-their generated configurations, metadata, and model outputs.
+their generated configurations, metadata, and model outputs. The launcher does
+not automatically append the formulation name to each gage directory. When an
+explicit `simulation.label` is provided, it is appended instead; for example,
+`label: dds` produces `<gage_id>_dds`. An omitted or empty label produces only
+`<gage_id>`.

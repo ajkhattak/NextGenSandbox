@@ -29,7 +29,7 @@ The default `gage` layout organizes resources by gage first:
     dem/  # optional; retained when subsetting.dem.output_dir is "dem"
 
 <output_dir>/
-  <gage_id>_<run_name>/
+  <gage_id>[_<label>]/
     simulation_metadata.yml  # optional; written when simulation.outputs.metadata.enabled is true
     run_index.yml  # written by sandbox --run for calibration/validation tasks
     configs/

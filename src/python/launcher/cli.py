@@ -1634,7 +1634,21 @@ def generated_config_paths(exp_config_dir: Path, gage_id: str) -> dict[str, Path
     }
 
 
-def generated_configs_need_refresh(paths: dict[str, Path]) -> bool:
+def launcher_simulation_label(sandbox_cfg: dict[str, Any]) -> str:
+    """Return the optional output suffix requested by the launcher user."""
+    value = sandbox_cfg.get("simulation", {}).get("label", "")
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise TypeError("simulation.label must be a string")
+    return value.strip()
+
+
+def generated_configs_need_refresh(
+    paths: dict[str, Path],
+    *,
+    expected_label: str | None = None,
+) -> bool:
     """Return whether launcher-owned YAML files use an obsolete schema."""
     expected_tasks = {
         "sandbox_main": ["calibration"],
@@ -1655,6 +1669,10 @@ def generated_configs_need_refresh(paths: dict[str, Path]) -> bool:
             return True
         if config.get("simulation", {}).get("tasks") != expected:
             return True
+        if expected_label is not None:
+            current_label = config.get("simulation", {}).get("label") or ""
+            if current_label != expected_label:
+                return True
     return False
 
 
@@ -1688,7 +1706,8 @@ def generate_config_files_for_gage(
     simulation = sandbox_cfg.setdefault("simulation", {})
     simulation["gages"] = [gage_id]
     simulation["tasks"] = ["calibration"]
-    simulation["label"] = formulation_name
+    simulation_label = launcher_simulation_label(sandbox_cfg)
+    simulation["label"] = simulation_label
     if scenario is not None:
         simulation.setdefault("time", {})["calibration"] = (
             copy.deepcopy(scenario.calibration)
@@ -1711,7 +1730,6 @@ def generate_config_files_for_gage(
 
     sandbox_restart_cfg = copy.deepcopy(sandbox_cfg)
     sandbox_restart_cfg["simulation"]["tasks"] = ["restart"]
-    simulation_label = sandbox_cfg["simulation"].get("label")
     output_name = (
         f"{gage_id}_{simulation_label}"
         if simulation_label
@@ -1840,7 +1858,16 @@ def get_experiment_progress(
     if not best_param_files:
         if not status:
             print(f"INFO: [{gage_id}] Calibration has not started.")
-        return ExperimentProgress(configured=True, algorithm=algorithm)
+        manifest = (
+            output_dir
+            / "configs"
+            / "calibration"
+            / "configuration_manifest.yml"
+        )
+        return ExperimentProgress(
+            configured=manifest.is_file(),
+            algorithm=algorithm,
+        )
 
     best_params = best_param_files[0]
     current_iteration, objective_value = parse_best_params(best_params)
@@ -3240,7 +3267,10 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
 
         progress = get_experiment_progress(metadata_index_dir, gage_id)
         generated_paths = generated_config_paths(exp_config_dir, gage_id)
-        refresh_generated_configs = generated_configs_need_refresh(generated_paths)
+        refresh_generated_configs = generated_configs_need_refresh(
+            generated_paths,
+            expected_label=launcher_simulation_label(ctx.sandbox_cfg),
+        )
         if not progress.configured or refresh_generated_configs:
             if not progress.configured and "calibration" not in ctx.stages:
                 raise RuntimeError(
