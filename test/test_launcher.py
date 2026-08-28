@@ -2132,6 +2132,48 @@ class TestLauncherSelection(unittest.TestCase):
             ["sandbox", "--run", "-i", str(validation_config)],
         )
 
+    def test_local_restart_generates_configs_before_run(self):
+        restart_config = Path("/tmp/sandbox_restart.yaml")
+        paths = {
+            "sandbox_main": Path("/tmp/sandbox_main.yaml"),
+            "sandbox_restart": restart_config,
+            "sandbox_validation": Path("/tmp/sandbox_validation.yaml"),
+        }
+        progress = launcher.ExperimentProgress(
+            configured=True,
+            current_iteration=5,
+            completed_iterations=5,
+            checkpoint_file=Path("/tmp/state.parquet"),
+        )
+
+        with (
+            patch.object(launcher, "generated_config_paths", return_value=paths),
+            patch.object(launcher, "get_max_iter", return_value=10),
+            patch.object(launcher.time, "sleep"),
+            patch.object(launcher.subprocess, "run") as run,
+        ):
+            selected = launcher.run_experiment(
+                SimpleNamespace(stages=("calibration",)),
+                "pet_cfe",
+                "01109403",
+                "pet_cfe_01109403",
+                Path("/tmp/configs"),
+                Path("/tmp/metadata"),
+                progress,
+                0,
+                use_slurm=False,
+            )
+
+        self.assertEqual(selected.config_file, restart_config)
+        self.assertEqual(
+            run.call_args_list[0].args[0],
+            ["sandbox", "--conf", "-i", str(restart_config)],
+        )
+        self.assertEqual(
+            run.call_args_list[1].args[0],
+            ["sandbox", "--run", "-i", str(restart_config)],
+        )
+
     def test_slurm_run_returns_submitted_worker_job_id(self):
         main_config = Path("/tmp/sandbox_main.yaml")
         paths = {

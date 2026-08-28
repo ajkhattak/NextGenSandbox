@@ -1957,8 +1957,8 @@ def render_slurm_worker_script(slurm: dict[str, Any]) -> str:
             '    echo "ERROR: SANDBOX_FILE must be exported by the launcher."',
             "    exit 1",
             "fi",
-            'if [ "${SANDBOX_STAGE:-}" != "calibration" ] && [ "${SANDBOX_STAGE:-}" != "validation" ]; then',
-            '    echo "ERROR: SANDBOX_STAGE must be calibration or validation."',
+            'if [ "${SANDBOX_STAGE:-}" != "calibration" ] && [ "${SANDBOX_STAGE:-}" != "restart" ] && [ "${SANDBOX_STAGE:-}" != "validation" ]; then',
+            '    echo "ERROR: SANDBOX_STAGE must be calibration, restart, or validation."',
             "    exit 1",
             "fi",
             "",
@@ -1971,8 +1971,8 @@ def render_slurm_worker_script(slurm: dict[str, Any]) -> str:
             '    sleep "$START_DELAY"',
             "fi",
             "",
-            'if [ "$SANDBOX_STAGE" = "validation" ]; then',
-            '    echo "Generating validation configuration files..."',
+            'if [ "$SANDBOX_STAGE" = "restart" ] || [ "$SANDBOX_STAGE" = "validation" ]; then',
+            '    echo "Generating ${SANDBOX_STAGE} configuration files..."',
             '    "$SANDBOX_COMMAND" --conf -i "$SANDBOX_FILE"',
             "fi",
             '"$SANDBOX_COMMAND" --run -i "$SANDBOX_FILE"',
@@ -2205,11 +2205,12 @@ def run_experiment(
     )
     if sandbox_file is None:
         return ExperimentRun(None)
-    stage = (
-        "validation"
-        if sandbox_file == paths["sandbox_validation"]
-        else "calibration"
-    )
+    if sandbox_file == paths["sandbox_validation"]:
+        stage = "validation"
+    elif sandbox_file == paths["sandbox_restart"]:
+        stage = "restart"
+    else:
+        stage = "calibration"
 
     if use_slurm:
         num_mpi_tasks = get_num_cpus(metadata_index_dir, gage_id)
@@ -2220,7 +2221,10 @@ def run_experiment(
             num_mpi_tasks,
             delay_seconds,
             stage,
-            slurm_settings_for_stage(ctx.slurm, stage),
+            slurm_settings_for_stage(
+                ctx.slurm,
+                "calibration" if stage == "restart" else stage,
+            ),
             log_dir=ctx.log_dir,
             work_dir=ctx.output_dir,
         )
@@ -2236,9 +2240,9 @@ def run_experiment(
             str(sandbox_file),
         ]
         if dryrun:
-            if stage == "validation":
+            if stage in {"restart", "validation"}:
                 print(
-                    f"[DRYRUN] [{gage_id}] Would generate validation "
+                    f"[DRYRUN] [{gage_id}] Would generate {stage} "
                     f"configs: sandbox --conf -i {sandbox_file}"
                 )
             print(f"[DRYRUN] [{gage_id}] Would run locally: {' '.join(cmd)}")
@@ -2248,9 +2252,9 @@ def run_experiment(
 
     if not use_slurm:
         time.sleep(delay_seconds)
-        if stage == "validation":
+        if stage in {"restart", "validation"}:
             print(
-                f"[{gage_id}] Generating validation configs: "
+                f"[{gage_id}] Generating {stage} configs: "
                 f"sandbox --conf -i {sandbox_file}"
             )
             subprocess.run(
