@@ -108,6 +108,12 @@ calibration resumes from its checkpoint, while an incomplete PSO calibration
 starts a new swarm from its saved global-best parameters. Validation-only work
 requires a completed calibration state.
 
+For a DDS restart, the launcher estimates walltime from completed iterations,
+adds a 50% margin and a 10-minute startup buffer, and requests at least 15
+minutes without exceeding `slurm.calibration.time`. If timing history is not
+available, it uses the configured calibration walltime. Validation remains a
+separate job and uses `slurm.validation.time` and memory.
+
 The launcher automatically enables `simulation.outputs.metadata`; add that
 block only when a non-default metadata location is needed.
 

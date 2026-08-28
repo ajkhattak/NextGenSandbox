@@ -5,6 +5,7 @@ import csv
 import copy
 import getpass
 import json
+import math
 import multiprocessing
 import os
 import re
@@ -62,6 +63,9 @@ DETAILED_STATUS_ORDER = {
         )
     )
 }
+RESTART_TIME_SAFETY_FACTOR = 1.5
+RESTART_TIME_BUFFER_SECONDS = 10 * 60
+RESTART_MINIMUM_TIME_SECONDS = 15 * 60
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
@@ -1476,6 +1480,69 @@ def slurm_settings_for_stage(
     return settings
 
 
+def slurm_walltime_seconds(value: str) -> int | None:
+    """Parse common Slurm walltime forms without constraining Slurm itself."""
+    text = str(value).strip()
+    if text.isdigit():
+        return int(text) * 60
+
+    match = re.fullmatch(
+        r"(?:(?P<days>\d+)-)?(?P<hours>\d{1,2}):(?P<minutes>\d{2})(?::(?P<seconds>\d{2}))?",
+        text,
+    )
+    if match is None:
+        return None
+
+    days = int(match.group("days") or 0)
+    hours = int(match.group("hours"))
+    minutes = int(match.group("minutes"))
+    seconds = int(match.group("seconds") or 0)
+    if minutes >= 60 or seconds >= 60:
+        return None
+    return ((days * 24 + hours) * 60 + minutes) * 60 + seconds
+
+
+def format_slurm_walltime(seconds: float) -> str:
+    """Return a Slurm walltime string rounded up to a whole minute."""
+    total_minutes = max(1, math.ceil(seconds / 60.0))
+    days, remainder = divmod(total_minutes, 24 * 60)
+    hours, minutes = divmod(remainder, 60)
+    if days:
+        return f"{days}-{hours:02d}:{minutes:02d}:00"
+    return f"{hours:02d}:{minutes:02d}:00"
+
+
+def slurm_settings_for_restart(
+    slurm: dict[str, Any],
+    output_dir: Path | None,
+    progress: ExperimentProgress,
+    max_iterations: int,
+) -> dict[str, Any]:
+    """Size a DDS restart from observed iteration timing when available."""
+    settings = slurm_settings_for_stage(slurm, "calibration")
+    if output_dir is None:
+        return settings
+
+    _, remaining_seconds = estimate_calibration_timing(
+        output_dir,
+        progress,
+        max_iterations,
+    )
+    if remaining_seconds is None:
+        return settings
+
+    requested_seconds = max(
+        RESTART_MINIMUM_TIME_SECONDS,
+        remaining_seconds * RESTART_TIME_SAFETY_FACTOR
+        + RESTART_TIME_BUFFER_SECONDS,
+    )
+    configured_limit = slurm_walltime_seconds(settings["time"])
+    if configured_limit is not None:
+        requested_seconds = min(requested_seconds, configured_limit)
+    settings["time"] = format_slurm_walltime(requested_seconds)
+    return settings
+
+
 def model_name_to_dir(name: str) -> str:
     safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", name.strip())
     return safe.strip("_").lower()
@@ -1567,6 +1634,30 @@ def generated_config_paths(exp_config_dir: Path, gage_id: str) -> dict[str, Path
     }
 
 
+def generated_configs_need_refresh(paths: dict[str, Path]) -> bool:
+    """Return whether launcher-owned YAML files use an obsolete schema."""
+    expected_tasks = {
+        "sandbox_main": ["calibration"],
+        "sandbox_restart": ["restart"],
+        "sandbox_validation": ["validation"],
+    }
+    for name, expected in expected_tasks.items():
+        path = paths[name]
+        if not path.is_file():
+            return True
+        try:
+            config = load_yaml(path)
+        except (OSError, yaml.YAMLError, TypeError):
+            return True
+        if not isinstance(config, dict) or "formulation" in config:
+            return True
+        if not isinstance(config.get("formulations"), dict):
+            return True
+        if config.get("simulation", {}).get("tasks") != expected:
+            return True
+    return False
+
+
 def generate_config_files_for_gage(
     ctx: LauncherContext,
     formulation_name: str,
@@ -1578,6 +1669,7 @@ def generate_config_files_for_gage(
     *,
     scenario: CalibrationScenario | None = None,
     dryrun: bool = False,
+    configure: bool = True,
 ) -> None:
     sandbox_cfg = copy.deepcopy(ctx.sandbox_cfg)
     scenario_name = scenario.name if scenario else None
@@ -1641,15 +1733,16 @@ def generate_config_files_for_gage(
     with paths["sandbox_validation"].open("w") as file:
         yaml.safe_dump(sandbox_val_cfg, file, default_flow_style=False, sort_keys=False)
 
-    subprocess.run(
-        [
-            "sandbox",
-            "--conf",
-            "-i",
-            str(paths["sandbox_main"]),
-        ],
-        check=True,
-    )
+    if configure:
+        subprocess.run(
+            [
+                "sandbox",
+                "--conf",
+                "-i",
+                str(paths["sandbox_main"]),
+            ],
+            check=True,
+        )
 
 
 def get_max_iter(exp_config_dir: Path, gage_id: str) -> int:
@@ -2214,6 +2307,22 @@ def run_experiment(
 
     if use_slurm:
         num_mpi_tasks = get_num_cpus(metadata_index_dir, gage_id)
+        metadata = read_metadata_index_file(metadata_index_dir, gage_id)
+        output_dir = (
+            Path(metadata["output_dir"])
+            if metadata is not None and metadata.get("output_dir")
+            else None
+        )
+        slurm_settings = (
+            slurm_settings_for_restart(
+                ctx.slurm,
+                output_dir,
+                progress,
+                max_iter,
+            )
+            if stage == "restart"
+            else slurm_settings_for_stage(ctx.slurm, stage)
+        )
         cmd = build_slurm_submit_command(
             worker_script_path(ctx),
             sandbox_file,
@@ -2221,10 +2330,7 @@ def run_experiment(
             num_mpi_tasks,
             delay_seconds,
             stage,
-            slurm_settings_for_stage(
-                ctx.slurm,
-                "calibration" if stage == "restart" else stage,
-            ),
+            slurm_settings,
             log_dir=ctx.log_dir,
             work_dir=ctx.output_dir,
         )
@@ -3133,17 +3239,21 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
             continue
 
         progress = get_experiment_progress(metadata_index_dir, gage_id)
-        if not progress.configured:
-            if "calibration" not in ctx.stages:
+        generated_paths = generated_config_paths(exp_config_dir, gage_id)
+        refresh_generated_configs = generated_configs_need_refresh(generated_paths)
+        if not progress.configured or refresh_generated_configs:
+            if not progress.configured and "calibration" not in ctx.stages:
                 raise RuntimeError(
                     f"Validation was requested for gage {gage_id}, "
                     f"experiment '{job_name}', but no configured "
                     "calibration run was found. Run calibration first."
                 )
-            print(
-                f"[{gage_id}] Setup step for "
-                f"{scenario.display_name}; generating configs."
+            action = (
+                "refreshing generated configuration files"
+                if progress.configured
+                else "generating configs"
             )
+            print(f"[{gage_id}] Setup step for {scenario.display_name}; {action}.")
             generate_config_files_for_gage(
                 ctx,
                 formulation_name,
@@ -3154,6 +3264,7 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
                 metadata_index_dir,
                 scenario=scenario,
                 dryrun=dryrun,
+                configure=not progress.configured,
             )
             if not dryrun:
                 progress = get_experiment_progress(

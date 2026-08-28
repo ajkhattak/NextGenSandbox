@@ -608,6 +608,66 @@ class TestLauncherSelection(unittest.TestCase):
             )
             self.assertNotIn("-j", run.call_args.args[0])
 
+    def test_stale_generated_configs_are_detected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = launcher.generated_config_paths(root, "01109403")
+            paths["sandbox_main"].parent.mkdir(parents=True)
+            for path, task_type in (
+                (paths["sandbox_main"], "calibration"),
+                (paths["sandbox_restart"], "restart"),
+                (paths["sandbox_validation"], "validation"),
+            ):
+                path.write_text(
+                    yaml.safe_dump(
+                        {
+                            "formulation": {"models": "PET, CFE"},
+                            "simulation": {"task_type": task_type},
+                        }
+                    )
+                )
+
+            self.assertTrue(launcher.generated_configs_need_refresh(paths))
+
+    def test_refreshing_generated_configs_preserves_calibration_artifacts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ctx = SimpleNamespace(
+                sandbox_cfg={
+                    "general": {"input_dir": "/tmp/inputs", "output_dir": "/tmp/outputs"},
+                    "calibration": {
+                        "optimizer": {"algorithm": "dds", "iterations": 25},
+                        "objective": {"function": "kge"},
+                    },
+                    "simulation": {"time": {}},
+                },
+                output_dir=root / "outputs",
+            )
+            config_dir = root / "configs"
+            paths = launcher.generated_config_paths(config_dir, "01109403")
+            paths["sandbox_main"].parent.mkdir(parents=True)
+            paths["sandbox_restart"].write_text("formulation: {}\n")
+            worker = root / "outputs" / "pet_cfe" / "01109403_pet_cfe" / "old_worker"
+            worker.mkdir(parents=True)
+            checkpoint = worker / "state_parameter_df_state.parquet"
+            checkpoint.touch()
+
+            with patch.object(launcher.subprocess, "run") as run:
+                launcher.generate_config_files_for_gage(
+                    ctx,
+                    "pet_cfe",
+                    {"models": "PET, CFE, T-ROUTE"},
+                    "pet_cfe",
+                    "01109403",
+                    config_dir,
+                    root / "metadata",
+                    configure=False,
+                )
+
+            self.assertFalse(run.called)
+            self.assertTrue(checkpoint.is_file())
+            self.assertFalse(launcher.generated_configs_need_refresh(paths))
+
     def test_regime_configs_use_scenario_output_and_calibration_window(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1307,6 +1367,65 @@ class TestLauncherSelection(unittest.TestCase):
         self.assertEqual(launcher.format_estimated_minutes(223), "4 min")
         self.assertEqual(launcher.format_estimated_minutes(3568), "59 min")
 
+    def test_restart_walltime_uses_observed_iteration_timing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            worker = output_dir / "202608250100_ngen_test_worker"
+            worker.mkdir()
+            objective_log = worker / "objective_log.txt"
+            objective_log.write_text("0, 0.8\n1, 0.6\n2, 0.5\n")
+            start = launcher.datetime.strptime(
+                "202608250100",
+                "%Y%m%d%H%M",
+            ).timestamp()
+            os.utime(objective_log, (start + 360, start + 360))
+
+            settings = launcher.slurm_settings_for_restart(
+                {
+                    "calibration": {"time": "24:00:00", "memory": "8G"},
+                },
+                output_dir,
+                launcher.ExperimentProgress(
+                    configured=True,
+                    current_iteration=3,
+                    completed_iterations=3,
+                    algorithm="dds",
+                ),
+                max_iterations=5,
+            )
+
+        self.assertEqual(settings["time"], "00:16:00")
+        self.assertEqual(settings["memory"], "8G")
+
+    def test_restart_walltime_never_exceeds_calibration_limit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            worker = output_dir / "202608250100_ngen_test_worker"
+            worker.mkdir()
+            objective_log = worker / "objective_log.txt"
+            objective_log.write_text("0, 0.8\n")
+            start = launcher.datetime.strptime(
+                "202608250100",
+                "%Y%m%d%H%M",
+            ).timestamp()
+            os.utime(objective_log, (start + 3600, start + 3600))
+
+            settings = launcher.slurm_settings_for_restart(
+                {
+                    "calibration": {"time": "00:30:00", "memory": "8G"},
+                },
+                output_dir,
+                launcher.ExperimentProgress(
+                    configured=True,
+                    current_iteration=1,
+                    completed_iterations=1,
+                    algorithm="dds",
+                ),
+                max_iterations=5,
+            )
+
+        self.assertEqual(settings["time"], "00:30:00")
+
     def test_detailed_status_sort_order(self):
         statuses = [
             SimpleNamespace(
@@ -1476,6 +1595,11 @@ class TestLauncherSelection(unittest.TestCase):
                 launcher,
                 "get_experiment_progress",
                 return_value=launcher.ExperimentProgress(configured=True),
+            ),
+            patch.object(
+                launcher,
+                "generated_configs_need_refresh",
+                return_value=False,
             ),
             patch.object(launcher, "get_num_cpus", side_effect=num_cpus),
             patch.object(
