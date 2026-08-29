@@ -1246,7 +1246,7 @@ class TestLauncherSelection(unittest.TestCase):
                 current_iteration=3,
                 max_iterations=40,
                 objective_value=0.5,
-                validation="NO",
+                validation="-",
                 average_iteration_seconds=None,
                 estimated_remaining_seconds=None,
             )
@@ -1289,7 +1289,7 @@ class TestLauncherSelection(unittest.TestCase):
                 current_iteration=40,
                 max_iterations=40,
                 objective_value=0.5,
-                validation="NO",
+                validation="-",
                 average_iteration_seconds=None,
                 estimated_remaining_seconds=None,
             )
@@ -1352,7 +1352,7 @@ class TestLauncherSelection(unittest.TestCase):
                 current_iteration=4,
                 max_iterations=40,
                 objective_value=0.5,
-                validation="NO",
+                validation="-",
                 average_iteration_seconds=None,
                 estimated_remaining_seconds=None,
                 slurm_job_id="20139787",
@@ -1437,6 +1437,49 @@ class TestLauncherSelection(unittest.TestCase):
             [status.state for status in statuses],
             ["RUNNING", "QUEUED"],
         )
+        self.assertEqual(
+            [status.validation for status in statuses],
+            ["-", "-"],
+        )
+
+    def test_campaign_status_marks_completed_validation_as_done(self):
+        gage_id = "01109403"
+        context = SimpleNamespace(
+            output_dir=Path("/tmp/outputs"),
+            metadata_index_dir_name="metadata",
+            stages=("calibration", "validation"),
+            slurm={},
+            map_cfg={
+                "mapping": {gage_id: ["pet_cfe"]},
+                "formulations": {"pet_cfe": {"models": "PET,CFE"}},
+                "groups": {},
+            },
+            calibration_scenarios={
+                gage_id: (
+                    launcher.CalibrationScenario(
+                        name=None,
+                        calibration={},
+                    ),
+                )
+            },
+        )
+
+        with (
+            patch.object(
+                launcher,
+                "get_experiment_progress",
+                return_value=launcher.ExperimentProgress(
+                    configured=True,
+                    current_iteration=40,
+                    completed_iterations=40,
+                ),
+            ),
+            patch.object(launcher, "get_max_iter", return_value=40),
+            patch.object(launcher, "check_validation_exists", return_value=True),
+        ):
+            statuses, _ = launcher.collect_campaign_status(context)
+
+        self.assertEqual(statuses[0].validation, "DONE")
 
     def test_calibration_timing_estimates_remaining_iterations(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1551,6 +1594,29 @@ class TestLauncherSelection(unittest.TestCase):
             ["RUNNING", "COMPLETED", "FAILED", "NOT_SUBMITTED"],
         )
 
+    def test_running_statuses_are_sorted_by_estimated_remaining_time(self):
+        statuses = [
+            SimpleNamespace(
+                state="RUNNING",
+                gage_id=gage_id,
+                formulation="nom_cfe_s",
+                scenario="ref",
+                estimated_remaining_seconds=remaining,
+            )
+            for gage_id, remaining in (
+                ("slow", 600),
+                ("unknown", None),
+                ("fast", 120),
+            )
+        ]
+
+        ordered = sorted(statuses, key=launcher.detailed_status_sort_key)
+
+        self.assertEqual(
+            [status.gage_id for status in ordered],
+            ["fast", "slow", "unknown"],
+        )
+
     def test_failed_status_does_not_print_estimated_remaining_time(self):
         status = launcher.CampaignStatus(
             gage_id="02096846",
@@ -1560,7 +1626,7 @@ class TestLauncherSelection(unittest.TestCase):
             current_iteration=180,
             max_iterations=300,
             objective_value=0.538,
-            validation="NO",
+            validation="-",
             average_iteration_seconds=60,
             estimated_remaining_seconds=9480,
         )

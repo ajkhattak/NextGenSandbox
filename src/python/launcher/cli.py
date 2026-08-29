@@ -2668,9 +2668,19 @@ def format_estimated_minutes(seconds: float | None) -> str:
 
 def detailed_status_sort_key(
     status: CampaignStatus,
-) -> tuple[int, str, str, str]:
+) -> tuple[int, float, str, str, str]:
+    remaining_seconds = getattr(status, "estimated_remaining_seconds", None)
+    if status.state == "RUNNING":
+        time_order = (
+            float(remaining_seconds)
+            if remaining_seconds is not None
+            else float("inf")
+        )
+    else:
+        time_order = 0.0
     return (
         DETAILED_STATUS_ORDER.get(status.state, len(DETAILED_STATUS_ORDER)),
+        time_order,
         status.gage_id,
         status.formulation,
         status.scenario,
@@ -2862,10 +2872,10 @@ def collect_campaign_status(
                         gage_id,
                         status=True,
                     )
-                    validation = "YES" if validation_exists else "NO"
+                    validation = "DONE" if validation_exists else "-"
                     finished = calibration_complete and validation_exists
                 else:
-                    validation = "NOT REQUESTED"
+                    validation = "-"
                     finished = calibration_complete
 
                 scenario_suffix = f"_{scenario.name}" if scenario.name else ""
