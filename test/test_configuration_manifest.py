@@ -84,6 +84,7 @@ class TestConfigurationManifest(unittest.TestCase):
                 },
             }
             ctx = SimpleNamespace(
+                simulation_tasks=("validation",),
                 task_type="validation",
                 simulation_time=period["simulation_time"],
                 validation_periods=[period],
@@ -111,6 +112,7 @@ class TestConfigurationManifest(unittest.TestCase):
             for name, year in [("dry year", 2011), ("wet year", 2012)]
         ]
         ctx = SimpleNamespace(
+            simulation_tasks=("validation",),
             task_type="validation",
             simulation_time=periods[0]["simulation_time"],
             validation_periods=periods,

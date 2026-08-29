@@ -51,6 +51,7 @@ class TestRunnerDryRun(unittest.TestCase):
     def test_calibration_run_rejects_mismatched_resource_counts(self):
         ctx = SimpleNamespace(
             formulation="CFE",
+            simulation_tasks=("calibration",),
             task_type="calibration",
             gage_ids=["12345678", "87654321"],
             gpkg_dirs=[Path("gage_12345678.gpkg"), Path("gage_87654321.gpkg")],
@@ -108,7 +109,7 @@ class TestRunnerDryRun(unittest.TestCase):
                 config_dir=config_dir,
             )
 
-    def test_calibvalid_dryrun_skips_validation(self):
+    def test_combined_dryrun_skips_validation(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             input_dir = root / "input"
@@ -118,7 +119,8 @@ class TestRunnerDryRun(unittest.TestCase):
             (input_dir / "data" / "gage_12345678.gpkg").touch()
 
             ctx = SimpleNamespace(
-                task_type="calibvalid",
+                simulation_tasks=("calibration", "validation"),
+                task_type="calibration",
                 dryrun=True,
                 sandbox_dir=root,
                 sandbox_config={"simulation": {"partitioning": {}}},

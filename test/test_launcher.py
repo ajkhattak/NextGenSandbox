@@ -722,7 +722,7 @@ class TestLauncherSelection(unittest.TestCase):
                     },
                     "formulation": {"models": ""},
                     "simulation": {
-                        "task_type": "calibvalid",
+                        "tasks": ["calibration", "validation"],
                         "label": "old_label",
                         "gages": [],
                         "time": {"calibration": {}},
@@ -2278,7 +2278,7 @@ class TestLauncherSelection(unittest.TestCase):
                             }
                         },
                         "simulation": {
-                            "task_type": "calibration",
+                            "tasks": ["calibration"],
                         },
                     },
                     sort_keys=False,
@@ -2313,8 +2313,8 @@ class TestLauncherSelection(unittest.TestCase):
             self.assertEqual(selected, paths["sandbox_pso_warm_start"])
             warm_config = yaml.safe_load(selected.read_text())
             self.assertEqual(
-                warm_config["simulation"]["task_type"],
-                "calibration",
+                warm_config["simulation"]["tasks"],
+                ["calibration"],
             )
             self.assertEqual(
                 warm_config["calibration"]["optimizer"]["iterations"],

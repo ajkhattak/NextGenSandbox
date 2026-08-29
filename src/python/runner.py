@@ -72,8 +72,9 @@ class Runner:
             self.run_ngen_without_calibration()
             return
 
-        if self.ctx.task_type in ['calibration', 'validation', 'calibvalid', 'restart']:
-            print(f'Running NextGen with task_type {self.ctx.task_type}')
+        calibration_tasks = {"calibration", "validation", "restart"}
+        if set(self.ctx.simulation_tasks).intersection(calibration_tasks):
+            print(f'Running NextGen with tasks {list(self.ctx.simulation_tasks)}')
 
             tuple_list = list(zip(
                 self.ctx.gage_ids,
@@ -207,11 +208,7 @@ class Runner:
 
         gpkg_file = find_gpkg_file(i_dir)
         gpkg_name = gpkg_file.stem
-        partition_task = (
-            "calibration"
-            if self.ctx.task_type == "calibvalid"
-            else self.ctx.task_type
-        )
+        partition_task = self.ctx.task_type
         partition_config_dir = helper.configuration_dir(
             o_dir,
             partition_task,
@@ -226,8 +223,12 @@ class Runner:
 
         self.num_procs = int(num_cpus)
 
-        if self.ctx.task_type in ['calibration', 'calibvalid', 'restart']:
-            mode = 'calibration' if self.ctx.task_type == 'calibvalid' else self.ctx.task_type
+        if set(self.ctx.simulation_tasks).intersection({"calibration", "restart"}):
+            mode = (
+                "restart"
+                if "restart" in self.ctx.simulation_tasks
+                else "calibration"
+            )
             self.run_ngen_experiment(
                 mode,
                 gpkg_file,
@@ -237,14 +238,14 @@ class Runner:
                 forcing_file=forcing_file,
             )
 
-            if self.ctx.dryrun and self.ctx.task_type == 'calibvalid':
+            if self.ctx.dryrun and "validation" in self.ctx.simulation_tasks:
                 print(
                     "Dry run: skipping validation because calibration state "
                     "was not generated."
                 )
                 return
 
-        if self.ctx.task_type in ['validation', 'calibvalid']:
+        if "validation" in self.ctx.simulation_tasks:
             for validation_period in self.validation_periods():
                 self.run_ngen_experiment(
                     'validation',

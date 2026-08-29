@@ -65,7 +65,7 @@ class TRouteConfigurationGenerator(ConfigurationGenerator):
 
         d['compute_parameters']['restart_parameters']['start_datetime'] = start_time.strftime("%Y-%m-%d_%H:%M:%S")
 
-        calibration_tasks = {'calibration', 'validation', 'calibvalid', 'restart'}
+        calibration_tasks = {'calibration', 'validation', 'restart'}
         if self.ctx.task_type in calibration_tasks:
             d['compute_parameters']['forcing_parameters']['qlat_input_folder'] = "./"
         else:

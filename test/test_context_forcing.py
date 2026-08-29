@@ -72,6 +72,7 @@ class TestContextForcing(unittest.TestCase):
     def test_rejects_simulation_outside_actual_forcing_time_range(self):
         ctx = SimpleNamespace(
             forcing_format=".nc",
+            simulation_tasks=("calibration",),
             task_type="calibration",
             simulation_time={
                 "start_time": "2013-10-01 00:00:00",

@@ -250,7 +250,7 @@ def Sandbox(args, sandbox_config, rscript, dryrun=False):
                     reset_output=args.reset_output,
                 )
 
-            if ctx.task_type in {"validation", "calibvalid"}:
+            if "validation" in ctx.simulation_tasks:
                 validation_names = [
                     period.get("name", "validation")
                     for period in ctx.validation_periods

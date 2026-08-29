@@ -337,7 +337,7 @@ class TestSimulationTimeWindows(unittest.TestCase):
         self.assertEqual(context.simulation_time["end_time"], "2020-09-30 00:00:00")
         self.assertEqual(context.calib_eval_time["start_time"], "2016-10-01 00:00:00")
 
-    def test_normalizes_calibvalid_time_schema(self):
+    def test_normalizes_combined_calibration_validation_time_schema(self):
         context = SandboxContext.__new__(SandboxContext)
         context.formulation = ""
         context.project_gages = ["01109403"]
@@ -365,6 +365,11 @@ class TestSimulationTimeWindows(unittest.TestCase):
 
         context.load_simulation_config()
 
+        self.assertEqual(
+            context.simulation_tasks,
+            ("calibration", "validation"),
+        )
+        self.assertEqual(context.task_type, "calibration")
         self.assertEqual(
             context.validation_time,
             {

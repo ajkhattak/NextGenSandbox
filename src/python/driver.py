@@ -123,23 +123,18 @@ class Driver:
         specifications = []
 
         if ctx.task_type != "validation":
-            task_type = (
-                "calibration"
-                if ctx.task_type == "calibvalid"
-                else ctx.task_type
-            )
             specifications.append(
                 {
                     "config_dir": helper.configuration_dir(
                         output_dir,
-                        task_type,
+                        ctx.task_type,
                     ),
-                    "task_type": task_type,
+                    "task_type": ctx.task_type,
                     "simulation_time": ctx.simulation_time,
                 }
             )
 
-        if ctx.task_type in {"validation", "calibvalid"}:
+        if "validation" in ctx.simulation_tasks:
             multiple_validations = len(ctx.validation_periods) > 1
             for period in ctx.validation_periods:
                 name = period.get("name", "validation")

@@ -217,8 +217,8 @@ class SandboxContext:
 
     def load_calibration_config(self):
         if (
-            self.task_type
-            in {"calibration", "calibvalid", "restart", "validation"}
+            set(self.simulation_tasks)
+            .intersection({"calibration", "restart", "validation"})
             and "calibration" not in self.sandbox_config
         ):
             raise ValueError(
@@ -341,7 +341,8 @@ class SandboxContext:
                 "formulations.<name>.ensemble."
             )
 
-        self.simulation_tasks, self.task_type = normalize_simulation_tasks(dsim)
+        self.simulation_tasks = normalize_simulation_tasks(dsim)
+        self.task_type = self.simulation_tasks[0]
 
         if "LSTM" in self.formulation:
             print("INFO: LSTM formulation -- setting simulation.tasks to control")
@@ -428,11 +429,11 @@ class SandboxContext:
                 config_dir = Path(self.sandbox_config_path).resolve().parent
             normalize_simulation_time_config(
                 dsim,
-                self.task_type,
+                self.simulation_tasks,
                 config_dir=config_dir,
             )
 
-        if self.task_type in ["calibration", "calibvalid", "restart"]:
+        if self.task_type in ["calibration", "restart"]:
 
             if "calib_eval_time" not in dsim or not isinstance(dsim["calib_eval_time"], dict):
                 raise ValueError("calib_eval_time missing or invalid.")
@@ -448,7 +449,7 @@ class SandboxContext:
             self.calib_eval_time  = dsim["calib_eval_time"]
             self.calib_eval_selection = dsim.get("calib_eval_selection")
 
-            if self.task_type == "calibvalid":
+            if "validation" in self.simulation_tasks:
                 self.load_validation_periods(dsim)
 
         elif self.task_type == "validation":
@@ -908,9 +909,11 @@ class SandboxContext:
 
     def required_simulation_windows(self):
         windows = []
-        if self.task_type in {"calibration", "calibvalid", "restart", "control"}:
+        if set(self.simulation_tasks).intersection(
+            {"calibration", "restart", "control"}
+        ):
             windows.append((self.task_type, self.simulation_time))
-        if self.task_type in {"validation", "calibvalid"}:
+        if "validation" in self.simulation_tasks:
             windows.extend(
                 (
                     period.get("name", "validation"),

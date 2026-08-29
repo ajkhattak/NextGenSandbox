@@ -78,8 +78,6 @@ def configuration_dir(
     multiple_validations=False,
 ):
     task_type = str(task_type).lower()
-    if task_type == "calibvalid":
-        task_type = "calibration"
     if task_type == "validation":
         config_dir = Path(output_dir) / "configs" / "validation"
         if multiple_validations:

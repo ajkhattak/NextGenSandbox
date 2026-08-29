@@ -43,7 +43,6 @@ class TestTRouteConfigurationGenerator(unittest.TestCase):
         for task_type in (
             "calibration",
             "validation",
-            "calibvalid",
             "restart",
             "control",
         ):

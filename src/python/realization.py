@@ -91,7 +91,7 @@ class RealizationGenerator:
             }
         }
         
-        if self.ngen_cal_type not in ['calibration', 'validation', 'calibvalid', 'restart']:
+        if self.ngen_cal_type not in ['calibration', 'validation', 'restart']:
             root["output_root"] = os.path.join(self.output_dir, "outputs","div")
 
         if self.ensemble_enabled:

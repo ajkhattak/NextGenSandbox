@@ -38,10 +38,10 @@ class TestConfigurationSamples(unittest.TestCase):
                 )
 
                 load_calibration_settings(config, path, sandbox_dir)
-                _, task_type = normalize_simulation_tasks(config["simulation"])
+                tasks = normalize_simulation_tasks(config["simulation"])
                 normalize_simulation_time_config(
                     config["simulation"],
-                    task_type,
+                    tasks,
                     config_dir=path.parent,
                 )
 

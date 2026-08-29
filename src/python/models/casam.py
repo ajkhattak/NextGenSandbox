@@ -114,7 +114,6 @@ class CASAMConfigurationGenerator(ConfigurationGenerator):
             "calib_params": self.ctx.task_type in [
                 "calibration",
                 "validation",
-                "calibvalid",
                 "restart"
             ]
         }

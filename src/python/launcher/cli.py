@@ -239,7 +239,7 @@ def unique_ordered(values: list[str]) -> list[str]:
 
 def load_launcher_stages(sandbox_cfg: dict[str, Any]) -> tuple[str, ...]:
     simulation = sandbox_cfg.get("simulation") or {}
-    normalized, _ = normalize_simulation_tasks(simulation)
+    normalized = normalize_simulation_tasks(simulation)
     supported = {
         ("calibration",),
         ("validation",),
