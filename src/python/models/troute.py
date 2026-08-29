@@ -65,7 +65,8 @@ class TRouteConfigurationGenerator(ConfigurationGenerator):
 
         d['compute_parameters']['restart_parameters']['start_datetime'] = start_time.strftime("%Y-%m-%d_%H:%M:%S")
 
-        if self.ctx.task_type in ['calibration', 'validation', 'calibvalid', 'restart']:
+        calibration_tasks = {'calibration', 'validation', 'calibvalid', 'restart'}
+        if self.ctx.task_type in calibration_tasks:
             d['compute_parameters']['forcing_parameters']['qlat_input_folder'] = "./"
         else:
             d['compute_parameters']['forcing_parameters']['qlat_input_folder'] = os.path.join(self.output_dir, "outputs/div")
@@ -77,41 +78,41 @@ class TRouteConfigurationGenerator(ConfigurationGenerator):
 
         d['compute_parameters']['cpu_pool'] = 1
 
-        if self.ctx.task_type in ['calibration', 'validation', 'calibvalid', 'restart']:
-            stream_output = {
-                "stream_output": {
-                    "stream_output_directory": "./",
-                    'stream_output_time': -1,
-                    'stream_output_type': '.nc',
-                    'stream_output_internal_frequency': 60
-                }
-            }
-        else:
-            stream_output = {
-                "stream_output": {
-                    'stream_output_directory': os.path.join(self.output_dir, "outputs/troute"),
-                    'mask_output': os.path.join(troute_dir, "mask_output.yaml"),
-                    'stream_output_time': -1,
-                    'stream_output_type': '.nc',
-                    'stream_output_internal_frequency': 60
-                }
-            }
-            # write mask file for terminal nexus output only
-            gdf_net = gpd.read_file(
-                self.static_data.gpkg_file,
-                layer="flowpath-attributes",
+        stream_output_directory = (
+            "./"
+            if self.ctx.task_type in calibration_tasks
+            else os.path.join(self.output_dir, "outputs/troute")
+        )
+
+        mask_output_file = os.path.join(troute_dir, "mask_output.yaml")
+        gdf_net = gpd.read_file(
+            self.static_data.gpkg_file,
+            layer="flowpath-attributes",
+        )
+        terminal_nexus_id = self._terminal_nexus_id(
+            gdf_net,
+            self.static_data.gage_id,
+            self.static_data.gpkg_file,
+        )
+        terminal_nexus = {"nex": [terminal_nexus_id.split("-", 1)[1]]}
+        with open(mask_output_file, 'w') as file:
+            yaml.dump(
+                terminal_nexus,
+                file,
+                default_flow_style=False,
+                sort_keys=False,
             )
-            terminal_nexus_id = self._terminal_nexus_id(
-                gdf_net,
-                self.static_data.gage_id,
-                self.static_data.gpkg_file,
-            )
-            dnex = {
-                "nex": [terminal_nexus_id.split("-")[1]]
-                }
-            with open(os.path.join(troute_dir, "mask_output.yaml"), 'w') as file:
-                yaml.dump(dnex, file, default_flow_style=False, sort_keys=False)
-             
+
+        stream_output = {
+            "stream_output": {
+                'stream_output_directory': stream_output_directory,
+                'mask_output': mask_output_file,
+                'stream_output_time': -1,
+                'stream_output_type': '.nc',
+                'stream_output_internal_frequency': 60,
+            }
+        }
+
         d['output_parameters'] = stream_output
 
         with open(os.path.join(troute_dir, "troute_config.yaml"), 'w') as file:
