@@ -785,8 +785,9 @@ def _migrate_removed_gage_associations(
                 )
                 source = connection.execute(
                     f'SELECT {selected_columns} FROM "flowpath-attributes" '
-                    f'WHERE "{attribute_id_column}" = ? LIMIT 1',
-                    (str(removed_id),),
+                    f'WHERE "{attribute_id_column}" = ? '
+                    "AND trim(gage) = ? LIMIT 1",
+                    (str(removed_id), str(gage_id)),
                 ).fetchone()
                 source_gage = str(source[0]).strip() if source and source[0] else ""
                 if source and len(source) > 1 and source[1]:
@@ -850,7 +851,10 @@ def _migrate_removed_gage_associations(
         if attribute_id_column is not None:
             columns = _table_columns(connection, "flowpath-attributes")
             if "gage" in columns:
-                source_gage = source_gage or str(gage_id)
+                # flowpath-attributes can store only one gage per row. Preserve
+                # the requested outlet gage when several hydrolocations share
+                # the removed flowpath; network retains the full association.
+                source_gage = str(gage_id)
                 if "gage_nex_id" in columns:
                     connection.execute(
                         f'UPDATE "flowpath-attributes" SET gage = ?, gage_nex_id = ? '

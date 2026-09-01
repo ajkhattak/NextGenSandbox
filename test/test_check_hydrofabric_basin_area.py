@@ -135,10 +135,10 @@ class TestHydrofabricBasinArea(unittest.TestCase):
                 ).to_sql("divide-attributes", connection, index=False)
                 pd.DataFrame(
                     {
-                        "link": ["wb-in", "wb-out"],
-                        "id": ["wb-in", "wb-out"],
-                        "gage": ["", "08070500"],
-                        "gage_nex_id": ["", "nex-shared"],
+                        "link": ["wb-in", "wb-out", "wb-out"],
+                        "id": ["wb-in", "wb-out", "wb-out"],
+                        "gage": ["", "08070499", "08070500"],
+                        "gage_nex_id": ["", "nex-shared", "nex-shared"],
                     }
                 ).to_sql("flowpath-attributes", connection, index=False)
                 pd.DataFrame(

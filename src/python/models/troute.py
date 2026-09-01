@@ -85,14 +85,18 @@ class TRouteConfigurationGenerator(ConfigurationGenerator):
         )
 
         mask_output_file = os.path.join(troute_dir, "mask_output.yaml")
-        gdf_net = gpd.read_file(
+        network = gpd.read_file(
             self.static_data.gpkg_file,
-            layer="flowpath-attributes",
+            layer="network",
         )
         terminal_nexus_id = self._terminal_nexus_id(
-            gdf_net,
+            network,
             self.static_data.gage_id,
             self.static_data.gpkg_file,
+            flowpath_attributes_loader=lambda: gpd.read_file(
+                self.static_data.gpkg_file,
+                layer="flowpath-attributes",
+            ),
         )
         terminal_nexus = {"nex": [terminal_nexus_id.split("-", 1)[1]]}
         with open(mask_output_file, 'w') as file:
@@ -119,36 +123,90 @@ class TRouteConfigurationGenerator(ConfigurationGenerator):
             yaml.dump(d, file, default_flow_style=False, sort_keys=False)
 
     @staticmethod
-    def _terminal_nexus_id(gdf_net, gage_id, gpkg_file):
-        required = {"gage", "gage_nex_id"}
-        missing = required.difference(gdf_net.columns)
+    def _terminal_nexus_id(
+        network,
+        gage_id,
+        gpkg_file,
+        flowpath_attributes=None,
+        flowpath_attributes_loader=None,
+    ):
+        required = {"hl_uri", "toid"}
+        missing = required.difference(network.columns)
         if missing:
             raise ValueError(
                 f"Cannot determine the terminal nexus for gage '{gage_id}' in "
-                f"{gpkg_file}: flowpath-attributes is missing column(s) "
+                f"{gpkg_file}: network is missing column(s) "
                 f"{', '.join(sorted(missing))}."
             )
 
         gage_id = str(gage_id).strip()
-        gages = gdf_net["gage"].astype("string").str.strip()
+        hydro_locations = (
+            network["hl_uri"]
+            .astype("string")
+            .str.strip()
+            .str.rsplit("/", n=1)
+            .str[-1]
+        )
         matches = (
-            gdf_net.loc[gages == gage_id, "gage_nex_id"]
+            network.loc[hydro_locations == f"gages-{gage_id}", "toid"]
             .dropna()
             .astype(str)
             .drop_duplicates()
         )
 
-        if matches.empty:
+        if len(matches) == 1:
+            return matches.iloc[0]
+        if len(matches) > 1:
+            raise ValueError(
+                f"Multiple terminal nexuses found for gage '{gage_id}' "
+                f"in the network layer of {gpkg_file}: "
+                f"{', '.join(matches)}."
+            )
+
+        if (
+            flowpath_attributes is None
+            and flowpath_attributes_loader is not None
+        ):
+            flowpath_attributes = flowpath_attributes_loader()
+
+        if flowpath_attributes is None:
+            raise ValueError(
+                f"No terminal nexus found for gage '{gage_id}' in the "
+                f"network layer of {gpkg_file}."
+            )
+
+        fallback_required = {"gage", "gage_nex_id"}
+        fallback_missing = fallback_required.difference(
+            flowpath_attributes.columns
+        )
+        if fallback_missing:
+            raise ValueError(
+                f"Cannot determine the terminal nexus for gage '{gage_id}' in "
+                f"{gpkg_file}: flowpath-attributes is missing column(s) "
+                f"{', '.join(sorted(fallback_missing))}."
+            )
+
+        gages = flowpath_attributes["gage"].astype("string").str.strip()
+        fallback_matches = (
+            flowpath_attributes.loc[gages == gage_id, "gage_nex_id"]
+            .dropna()
+            .astype(str)
+            .drop_duplicates()
+        )
+
+        if fallback_matches.empty:
             available = sorted(set(gages.dropna()))
             preview = ", ".join(available[:10]) or "none"
             raise ValueError(
                 f"No terminal nexus found for gage '{gage_id}' in "
-                f"{gpkg_file}. Available gage values in flowpath-attributes "
+                f"{gpkg_file}. The network has no matching hydrolocation; "
+                f"available fallback gage values in flowpath-attributes "
                 f"include: {preview}."
             )
-        if len(matches) > 1:
+        if len(fallback_matches) > 1:
             raise ValueError(
                 f"Multiple terminal nexuses found for gage '{gage_id}' in "
-                f"{gpkg_file}: {', '.join(matches)}."
+                f"flowpath-attributes of {gpkg_file}: "
+                f"{', '.join(fallback_matches)}."
             )
-        return matches.iloc[0]
+        return fallback_matches.iloc[0]
