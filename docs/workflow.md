@@ -98,19 +98,9 @@ Optionally verify that each subset basin agrees with the drainage area reported
 by USGS before preparing forcing or model configurations:
 
 ```bash
-python utils/python/check_hydrofabric_basin_area.py \
-  /path/to/input_dir \
-  --hf-nldi-threshold-pct 5 \
-  --clean-threshold-pct 10 \
-  --threshold-pct 20 \
-  --hf-nwis-fallback-threshold-pct 10 \
-  --output-csv basin_area_comparison.csv \
-  --cleaned-gpkg-dir cleaned_hydrofabric \
-  --rejected-gpkg-dir rejected_hydrofabric \
-  --delete-outside-fraction-pct 50 \
-  --minimum-outside-area-sqkm 0.1 \
-  --figure-dir basin_boundary_figures \
-  --figure-format pdf
+bash utils/check_hydrofabric_basin_area.sh \
+  --input /path/to/source/geopackages \
+  --output-dir basin_area_check
 ```
 
 The utility finds `*.gpkg` files recursively, extracts the gage ID from each
@@ -186,7 +176,8 @@ wrapper keeps the command short:
 
 ```bash
 bash utils/check_hydrofabric_basin_area.sh \
-  '/path/to/inputs/*/hydrofabric' basin_area_check
+  --input '/path/to/inputs/*/hydrofabric' \
+  --output-dir basin_area_check
 ```
 
 Quote a glob so the Python utility, rather than the shell, expands it. The
@@ -202,7 +193,8 @@ corrected copies explicitly:
 
 ```bash
 bash utils/check_hydrofabric_basin_area.sh \
-  /path/to/inputs basin_area_check \
+  --input /path/to/inputs \
+  --output-dir basin_area_check \
   --overwrite-cleaned-gpkg
 ```
 

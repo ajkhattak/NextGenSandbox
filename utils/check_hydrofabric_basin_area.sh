@@ -5,7 +5,17 @@ set -euo pipefail
 usage() {
     cat <<EOF
 Usage:
-  $0 <gpkg-file-directory-or-glob> [output-directory] [extra Python options]
+  $0 --input <gpkg-file-directory-or-glob> [--output-dir <directory>]
+     [extra Python options]
+
+Required wrapper option:
+  --input PATH
+      Source GeoPackage, directory searched recursively, or quoted glob.
+
+Optional wrapper option:
+  --output-dir DIR
+      Destination for all audits, corrected GeoPackages, rejected
+      GeoPackages, and figures. Default: basin_area_check
 
 Checks hydrofabric area against NLDI and NWIS, cleans NLDI-external divides,
 and writes an attention-only PDF report. Original GeoPackages are unchanged.
@@ -31,9 +41,9 @@ Cleanup defaults:
       very small connector divides below 0.1 km².
 
 Examples:
-  $0 /path/to/inputs basin_area_check
-  $0 '/path/to/inputs/*/hydrofabric' basin_area_check --nldi-workers 2
-  $0 /path/to/inputs basin_area_check --overwrite-cleaned-gpkg
+  $0 --input /path/to/inputs --output-dir basin_area_check
+  $0 --input '/path/to/inputs/*/hydrofabric' --output-dir basin_area_check --nldi-workers 2
+  $0 --input /path/to/inputs --output-dir basin_area_check --overwrite-cleaned-gpkg
 
 Use --overwrite-cleaned-gpkg when rerunning into an output directory that
 already contains cleaned GeoPackages. Additional options override the wrapper
@@ -42,27 +52,56 @@ the complete option list.
 EOF
 }
 
-if [[ $# -lt 1 ]]; then
+input_pattern=""
+output_dir=basin_area_check
+python_options=()
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --input)
+            if [[ $# -lt 2 || $2 == --* ]]; then
+                echo "ERROR: --input requires a path, directory, or glob." >&2
+                exit 2
+            fi
+            input_pattern=$2
+            shift 2
+            ;;
+        --output-dir)
+            if [[ $# -lt 2 || $2 == --* ]]; then
+                echo "ERROR: --output-dir requires a directory." >&2
+                exit 2
+            fi
+            output_dir=$2
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        --)
+            shift
+            python_options+=("$@")
+            break
+            ;;
+        *)
+            python_options+=("$1")
+            shift
+            ;;
+    esac
+done
+
+if [[ -z $input_pattern ]]; then
+    echo "ERROR: --input is required." >&2
     usage >&2
     exit 2
 fi
 
-if [[ $1 == "-h" || $1 == "--help" ]]; then
-    usage
-    exit 0
-fi
-
-input_pattern=$1
-if [[ $# -ge 2 && $2 != -* ]]; then
-    output_dir=$2
-    shift 2
-else
-    output_dir=basin_area_check
-    shift 1
-fi
-
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 mkdir -p "${output_dir}"
+output_dir=$(cd -- "${output_dir}" && pwd)
+
+echo "Hydrofabric source : ${input_pattern}"
+echo "Results directory  : ${output_dir}"
 
 python -u "${script_dir}/python/check_hydrofabric_basin_area.py" \
     "${input_pattern}" \
@@ -80,4 +119,4 @@ python -u "${script_dir}/python/check_hydrofabric_basin_area.py" \
     --figure-dir "${output_dir}/figures" \
     --figure-format pdf \
     --figure-scope attention \
-    "$@"
+    "${python_options[@]}"
