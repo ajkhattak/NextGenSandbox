@@ -331,11 +331,21 @@ def compare_basin_areas(
             )
 
     local = pd.DataFrame(records)
-    duplicate_ids = local.loc[local["gage_id"].ne("") & local["gage_id"].duplicated(keep=False), "gage_id"]
+    duplicate_ids = local.loc[
+        local["gage_id"].ne("") & local["gage_id"].duplicated(keep=False),
+        "gage_id",
+    ]
     if not duplicate_ids.empty:
+        details = []
+        for gage_id in sorted(duplicate_ids.unique()):
+            paths = local.loc[local["gage_id"].eq(gage_id), "gpkg_file"]
+            details.append(
+                f"  {gage_id}:\n"
+                + "\n".join(f"    - {path}" for path in sorted(paths))
+            )
         raise ValueError(
-            "multiple GeoPackages resolve to the same gage ID: "
-            + ", ".join(sorted(duplicate_ids.unique()))
+            "multiple GeoPackages resolve to the same gage ID:\n"
+            + "\n".join(details)
         )
 
     query_ids = local.loc[local["gage_id"].ne(""), "gage_id"].tolist()

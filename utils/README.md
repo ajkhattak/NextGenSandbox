@@ -1,8 +1,7 @@
 # NextGenSandbox Utilities
 
-This directory contains user-facing data utilities and internal scripts used by
-`bootstrap.sh`. Most installation and build scripts here are implementation
-details of the bootstrap workflow and do not need to be run directly.
+This directory contains user-facing data utilities and optional platform setup
+templates. Bootstrap implementation files live under `scripts/bootstrap/`.
 
 ## Check and Correct Hydrofabric Areas
 
@@ -21,7 +20,14 @@ bash utils/check_hydrofabric_basin_area.sh \
 
 `--input` identifies the source GeoPackage, directory searched recursively, or
 quoted glob. `--output-dir` identifies where every generated result will be
-written and defaults to `basin_area_check` when omitted.
+written and defaults to `basin_area_check` when omitted. Keep the output
+directory outside a recursively scanned input directory. For a gage-organized
+layout, a narrow glob avoids discovering unrelated or previously generated
+GeoPackages:
+
+```bash
+--input '/path/to/inputs/*/hydrofabric/gage_*.gpkg'
+```
 
 The output directory contains:
 

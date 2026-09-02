@@ -15,7 +15,8 @@ Required wrapper option:
 Optional wrapper option:
   --output-dir DIR
       Destination for all audits, corrected GeoPackages, rejected
-      GeoPackages, and figures. Default: basin_area_check
+      GeoPackages, and figures. Default: basin_area_check. When --input is a
+      directory, this destination must be outside that directory tree.
 
 Checks hydrofabric area against NLDI and NWIS, cleans NLDI-external divides,
 and writes an attention-only PDF report. Original GeoPackages are unchanged.
@@ -42,7 +43,7 @@ Cleanup defaults:
 
 Examples:
   $0 --input /path/to/inputs --output-dir basin_area_check
-  $0 --input '/path/to/inputs/*/hydrofabric' --output-dir basin_area_check --nldi-workers 2
+  $0 --input '/path/to/inputs/*/hydrofabric/gage_*.gpkg' --output-dir basin_area_check --nldi-workers 2
   $0 --input /path/to/inputs --output-dir basin_area_check --overwrite-cleaned-gpkg
 
 Use --overwrite-cleaned-gpkg when rerunning into an output directory that
@@ -97,26 +98,70 @@ if [[ -z $input_pattern ]]; then
 fi
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+
+input_directory=""
+if [[ -d $input_pattern ]]; then
+    input_directory=$(cd -- "$input_pattern" && pwd)
+    input_display=$input_directory
+elif [[ -f $input_pattern ]]; then
+    input_parent=$(cd -- "$(dirname -- "$input_pattern")" && pwd)
+    input_display="${input_parent}/$(basename -- "$input_pattern")"
+else
+    input_display=$input_pattern
+    case "$input_pattern" in
+        *'*'*|*'?'*|*'['*) ;;
+        *)
+            echo "ERROR: Hydrofabric input does not exist: ${input_pattern}" >&2
+            exit 2
+            ;;
+    esac
+fi
+
 mkdir -p "${output_dir}"
 output_dir=$(cd -- "${output_dir}" && pwd)
 
-echo "Hydrofabric source : ${input_pattern}"
+if [[ -n $input_directory ]]; then
+    case "$output_dir" in
+        "$input_directory"|"$input_directory"/*)
+            cat >&2 <<EOF
+ERROR: Results directory cannot be inside a recursively scanned input directory.
+  Input   : ${input_directory}
+  Results : ${output_dir}
+
+Choose a results directory outside the input tree, or use a narrow input glob:
+  --input '${input_directory}/*/hydrofabric/gage_*.gpkg'
+EOF
+            exit 2
+            ;;
+    esac
+fi
+
+echo "Hydrofabric source : ${input_display}"
 echo "Results directory  : ${output_dir}"
 
-python -u "${script_dir}/python/check_hydrofabric_basin_area.py" \
-    "${input_pattern}" \
-    --hf-nldi-threshold-pct 5 \
-    --clean-threshold-pct 10 \
-    --threshold-pct 20 \
-    --hf-nwis-fallback-threshold-pct 10 \
-    --output-csv "${output_dir}/basin_area_comparison.csv" \
-    --passed-csv "${output_dir}/selected_gages.csv" \
-    --cleaned-gpkg-dir "${output_dir}/cleaned_hydrofabric" \
-    --rejected-gpkg-dir "${output_dir}/rejected_hydrofabric" \
-    --delete-outside-fraction-pct 50 \
-    --minimum-outside-area-sqkm 0.1 \
-    --nldi-workers 8 \
-    --figure-dir "${output_dir}/figures" \
-    --figure-format pdf \
-    --figure-scope attention \
-    "${python_options[@]}"
+python_command=(
+    python -u "${script_dir}/python/check_hydrofabric_basin_area.py"
+    "${input_pattern}"
+    --hf-nldi-threshold-pct 5
+    --clean-threshold-pct 10
+    --threshold-pct 20
+    --hf-nwis-fallback-threshold-pct 10
+    --output-csv "${output_dir}/basin_area_comparison.csv"
+    --passed-csv "${output_dir}/selected_gages.csv"
+    --cleaned-gpkg-dir "${output_dir}/cleaned_hydrofabric"
+    --rejected-gpkg-dir "${output_dir}/rejected_hydrofabric"
+    --delete-outside-fraction-pct 50
+    --minimum-outside-area-sqkm 0.1
+    --nldi-workers 8
+    --figure-dir "${output_dir}/figures"
+    --figure-format pdf
+    --figure-scope attention
+)
+
+for option in "${python_options[@]-}"; do
+    if [[ -n $option ]]; then
+        python_command+=("$option")
+    fi
+done
+
+"${python_command[@]}"

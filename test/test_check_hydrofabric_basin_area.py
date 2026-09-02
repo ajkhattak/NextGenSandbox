@@ -80,6 +80,27 @@ class TestHydrofabricBasinArea(unittest.TestCase):
         self.assertEqual(count, 2)
         self.assertAlmostEqual(area, 14.75)
 
+    def test_duplicate_gage_error_lists_conflicting_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            original = root / "original" / "gage_08070500.gpkg"
+            cleaned = root / "cleaned" / "gage_08070500.gpkg"
+            original.parent.mkdir()
+            cleaned.parent.mkdir()
+            write_divides(original, [("cat-1", 1.0)])
+            write_divides(cleaned, [("cat-1", 1.0)])
+
+            with self.assertRaises(ValueError) as raised:
+                checker.compare_basin_areas(
+                    [original, cleaned],
+                    threshold_pct=20.0,
+                )
+
+        message = str(raised.exception)
+        self.assertIn("multiple GeoPackages resolve to the same gage ID", message)
+        self.assertIn(str(original.resolve()), message)
+        self.assertIn(str(cleaned.resolve()), message)
+
     def test_duplicate_divides_are_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "gage_08070500.gpkg"

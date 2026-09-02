@@ -176,12 +176,14 @@ wrapper keeps the command short:
 
 ```bash
 bash utils/check_hydrofabric_basin_area.sh \
-  --input '/path/to/inputs/*/hydrofabric' \
+  --input '/path/to/inputs/*/hydrofabric/gage_*.gpkg' \
   --output-dir basin_area_check
 ```
 
 Quote a glob so the Python utility, rather than the shell, expands it. The
-wrapper writes the audit, `selected_gages.csv`, `rejected_gages.csv`,
+output directory must be outside a directory supplied directly through
+`--input`; otherwise generated GeoPackages could be rediscovered on a rerun.
+The wrapper writes the audit, `selected_gages.csv`, `rejected_gages.csv`,
 `removed_divides.csv`, selected-only cleaned GeoPackages, quarantined rejected
 GeoPackages, and the PDF report beneath the specified output directory.
 For faster batch execution, it uses eight NLDI workers and the `attention`
