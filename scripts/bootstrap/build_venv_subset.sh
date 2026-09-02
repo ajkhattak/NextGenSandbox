@@ -107,8 +107,8 @@ set +u; mamba activate "${SANDBOX_BUILD_DIR}/rvenv/mamba"; set -u
 SUBSET_ENV="${SANDBOX_BUILD_DIR}/rvenv/venv_subset"
 SUBSET_RSCRIPT="${SUBSET_ENV}/bin/Rscript"
 CONDA_SUBDIR="$(conda info | awk -F: '/platform/{gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}')"
-LOCKFILE="${SANDBOX_DIR}/utils/venv/venv_subset.${CONDA_SUBDIR}.lock"
-LEGACY_LOCKFILE="${SANDBOX_DIR}/utils/venv/venv_subset.lock"
+LOCKFILE="${SANDBOX_DIR}/scripts/bootstrap/venv/venv_subset.${CONDA_SUBDIR}.lock"
+LEGACY_LOCKFILE="${SANDBOX_DIR}/scripts/bootstrap/venv/venv_subset.lock"
 
 lockfile_matches_platform() {
   local lockfile="$1"
@@ -145,7 +145,7 @@ if [ ! -x "$SUBSET_RSCRIPT" ]; then
   else
     echo "No lockfile found — solving from YAML (this will be slow once)"
     mamba env create -y -p "$SUBSET_ENV" \
-      -f "${SANDBOX_DIR}/utils/venv/venv_subset.yaml"
+      -f "${SANDBOX_DIR}/scripts/bootstrap/venv/venv_subset.yaml"
     # Save lockfile for next time
     conda list -p "$SUBSET_ENV" --explicit > "$LOCKFILE"
   fi

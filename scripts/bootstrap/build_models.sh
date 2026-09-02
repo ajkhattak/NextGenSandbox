@@ -26,7 +26,7 @@ readonly NGEN_COMMIT="cdf43350f6be911dd59ba68e82ac212c6deefc14"
 
 # -------------------------------
 # Override from command-line arguments
-# Example usage: ./build_models.sh NGEN=ON MODELS=OFF TROUTE=ON
+# Called by: ./bootstrap.sh --ngen --models --troute
 # -------------------------------
 for arg in "$@"; do
     key="${arg%%=*}"

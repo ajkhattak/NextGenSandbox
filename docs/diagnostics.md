@@ -101,7 +101,7 @@ Then rerun:
 Symptoms from `./bootstrap.sh --subset`:
 
 ```text
-./utils/build_venv_subset.sh: line 9: conda: command not found
+./scripts/bootstrap/build_venv_subset.sh: line 9: conda: command not found
 ```
 
 or:

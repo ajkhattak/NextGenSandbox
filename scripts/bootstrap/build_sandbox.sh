@@ -4,7 +4,7 @@
 
 # Clone NextGenSandbox repository
 # git clone https://github.com/ajkhattak/NextGenSandbox && cd NextGenSandbox
-# Run: BUILD=ON ./utils/build_sandbox.sh
+# Called by: ./bootstrap.sh --sandbox
 # install mamba if not already there: conda install -n base -c conda-forge mamba
 
 ###############################################################
@@ -124,7 +124,7 @@ summarize_sandbox_build()
 #####################################################
 build_sandbox()
 {
-    SANDBOX_ENV_FILE="$SANDBOX_DIR/utils/venv/venv_sandbox.yaml"
+    SANDBOX_ENV_FILE="$SANDBOX_DIR/scripts/bootstrap/venv/venv_sandbox.yaml"
 
     if [ ! -f "$SANDBOX_ENV_FILE" ]; then
         echo "ERROR: Sandbox environment definition not found: $SANDBOX_ENV_FILE" >&2
@@ -247,10 +247,12 @@ build_sandbox()
 
 	if [ ! -d "$FORCING_ENV" ]; then
             echo "Creating forcing environment at $FORCING_ENV"
-            $SOLVER env create -y -p "$FORCING_ENV" -f utils/venv/venv_forcing.yaml
+	    $SOLVER env create -y -p "$FORCING_ENV" \
+	        -f "$SANDBOX_DIR/scripts/bootstrap/venv/venv_forcing.yaml"
 	else
             echo "Updating forcing environment at $FORCING_ENV"
-            $SOLVER env update -p "$FORCING_ENV" -f utils/venv/venv_forcing.yaml
+	    $SOLVER env update -p "$FORCING_ENV" \
+	        -f "$SANDBOX_DIR/scripts/bootstrap/venv/venv_forcing.yaml"
 	fi
 
     else
@@ -262,7 +264,7 @@ build_sandbox()
 	source "$FORCING_ENV/bin/activate"
 	"$FORCING_ENV/bin/python" -m pip install --upgrade pip --no-cache-dir
 	"$FORCING_ENV/bin/python" -m pip install \
-	    -r ./utils/venv/requirements_forcing.txt
+	    -r "$SANDBOX_DIR/scripts/bootstrap/venv/requirements_forcing.txt"
 
 	deactivate
     fi

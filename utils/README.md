@@ -57,17 +57,12 @@ as downloading USGS streamflow or OpenET data and rechunking forcing files.
 These are independent utilities rather than required installation steps. Run a
 script with `--help` to see its inputs and options.
 
-## Bootstrap Internals
+## Environment Helpers
 
-The following scripts are normally called by `bootstrap.sh`:
+`sandbox_env.sh` is sourced by users, Slurm jobs, and `bootstrap.sh` to expose
+the configured Sandbox paths. `setup_hpc.sh` and `setup_ec2.sh` are optional
+platform setup templates that users may adapt for their systems.
 
-- `build_sandbox.sh`
-- `build_models.sh`
-- `build_venv_subset.sh`
-- `sandbox_env.sh`
-- `setup_hpc.sh` and `setup_ec2.sh`
-
-Use the documented `./bootstrap.sh` options instead of invoking these scripts
-directly. Files under `utils/venv/` define the environments created by the
-bootstrap workflow, while `utils/R/` and most remaining Python modules provide
-supporting implementation utilities.
+Bootstrap implementation scripts and environment definitions live under
+[`scripts/bootstrap/`](../scripts/bootstrap/). Use the documented
+`./bootstrap.sh` options instead of invoking those internal scripts directly.

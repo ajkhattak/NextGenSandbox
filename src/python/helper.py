@@ -273,7 +273,7 @@ def prepare_basin_partitioning(
 
     subprocess.run([
         sys.executable,
-        f"{sandbox_dir}/utils/python/local_only_partitions.py",
+        f"{sandbox_dir}/src/python/local_only_partitions.py",
         gpkg_file,
         str(num_cpus),
         str(config_dir)

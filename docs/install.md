@@ -175,7 +175,7 @@ their corresponding build step has run. Follow the recommendations printed at
 the end of the check.
 
 Additional details about the generated paths are available in the
-[environment validation guide](https://github.com/ajkhattak/NextGenSandbox/blob/main/utils/venv/validation.md#step-13-validation).
+[environment validation guide](https://github.com/ajkhattak/NextGenSandbox/blob/main/scripts/bootstrap/venv/validation.md#step-13-validation).
 
 ### Step 3: Build the Python environments
 

@@ -787,15 +787,15 @@ fi
 
 # Run steps
 if [ "$BUILD_SANDBOX" = "ON" ]; then
-    source ./utils/build_sandbox.sh
+    source ./scripts/bootstrap/build_sandbox.sh
 fi
 
 if [ "$BUILD_SUBSET" = "ON" ]; then
-    ./utils/build_venv_subset.sh
+    ./scripts/bootstrap/build_venv_subset.sh
 fi
 
 if [ "$BUILD_NGEN" = "ON" ] || [ "$BUILD_MODELS" = "ON" ] || [ "$BUILD_TROUTE" = "ON" ]; then
-    bash ./utils/build_models.sh \
+    bash ./scripts/bootstrap/build_models.sh \
         NGEN="$BUILD_NGEN" \
         MODELS="$BUILD_MODELS" \
         TROUTE="$BUILD_TROUTE" \
