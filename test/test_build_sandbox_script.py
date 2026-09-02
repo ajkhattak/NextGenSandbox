@@ -15,7 +15,9 @@ class TestBuildSandboxScript(unittest.TestCase):
         self.assertIn("./scripts/bootstrap/build_sandbox.sh", self.bootstrap)
         self.assertIn("./scripts/bootstrap/build_venv_subset.sh", self.bootstrap)
         self.assertIn("./scripts/bootstrap/build_models.sh", self.bootstrap)
+        self.assertIn("./scripts/bootstrap/sandbox_env.sh", self.bootstrap)
         self.assertNotIn("./utils/build_sandbox.sh", self.bootstrap)
+        self.assertNotIn("./utils/sandbox_env.sh", self.bootstrap)
 
     def test_environment_definitions_use_internal_script_directory(self):
         self.assertIn(

@@ -90,7 +90,7 @@ This command is safe to run at any time. It does not install packages or create
 directories. It reports:
 
 - Sandbox path variables and whether the directories exist
-- shell startup registration for `utils/sandbox_env.sh`
+- shell startup registration for `scripts/bootstrap/sandbox_env.sh`
 - system tools such as `git`, Python, conda/mamba, and Rscript
 - Sandbox, forcing, and subset environments
 - key Python imports such as `ngen.cal`, `ngen.config`, and `nwm_routing`

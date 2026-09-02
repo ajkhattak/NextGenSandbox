@@ -45,7 +45,7 @@ SCRIPT_DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
 SCRIPT_PATH="$SCRIPT_DIR/$(basename "$SOURCE")"
 
 PREVIOUS_SANDBOX_DIR="${SANDBOX_DIR:-}"
-SANDBOX_DIR="$(dirname "$SCRIPT_DIR")"
+SANDBOX_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # Clear default child paths inherited from a different Sandbox clone. Explicit
 # paths outside the previous repository are preserved for HPC/scratch use.

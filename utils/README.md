@@ -57,11 +57,10 @@ as downloading USGS streamflow or OpenET data and rechunking forcing files.
 These are independent utilities rather than required installation steps. Run a
 script with `--help` to see its inputs and options.
 
-## Environment Helpers
+## Platform Setup Templates
 
-`sandbox_env.sh` is sourced by users, Slurm jobs, and `bootstrap.sh` to expose
-the configured Sandbox paths. `setup_hpc.sh` and `setup_ec2.sh` are optional
-platform setup templates that users may adapt for their systems.
+`setup_hpc.sh` and `setup_ec2.sh` are optional platform setup templates that
+users may adapt for their systems.
 
 Bootstrap implementation scripts and environment definitions live under
 [`scripts/bootstrap/`](../scripts/bootstrap/). Use the documented

@@ -476,7 +476,7 @@ run_check() {
         fi
     fi
 
-    source_line="[ -f \"$sandbox_dir/utils/sandbox_env.sh\" ] && source \"$sandbox_dir/utils/sandbox_env.sh\""
+    source_line="[ -f \"$sandbox_dir/scripts/bootstrap/sandbox_env.sh\" ] && source \"$sandbox_dir/scripts/bootstrap/sandbox_env.sh\""
     if [ -n "$target_file" ] && grep -Fxq "$source_line" "$target_file" 2>/dev/null; then
         status_ok "Sandbox environment is registered in $target_file"
     else
@@ -782,7 +782,7 @@ fi
 
 # Run steps
 if [ "$SETUP_ENV" = "ON" ]; then
-    source ./utils/sandbox_env.sh VERBOSE=$VERBOSE
+    source ./scripts/bootstrap/sandbox_env.sh VERBOSE=$VERBOSE
 fi
 
 # Run steps
