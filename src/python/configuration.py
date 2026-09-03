@@ -349,6 +349,16 @@ class ConfigurationCalib:
                 f"Calibration state is missing its matching best_params.txt: "
                 f"{state_file}"
             )
+
+        try:
+            pd.read_parquet(state_file)
+        except Exception as error:
+            raise ValueError(
+                f"Calibration checkpoint is corrupt or incomplete: {state_file}. "
+                f"{type(error).__name__}: {error}. Restore a valid checkpoint "
+                "or move the interrupted worker directory aside to restart "
+                "that experiment from iteration 0."
+            ) from error
         return state_file
 
     @classmethod

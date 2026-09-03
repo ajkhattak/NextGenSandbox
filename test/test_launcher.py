@@ -1185,6 +1185,32 @@ class TestLauncherSelection(unittest.TestCase):
             "CANCELLED",
         )
 
+    def test_slurm_failure_count_resets_after_success(self):
+        submitted = {
+            "101": "pet_cfe_01109403",
+            "102": "pet_cfe_01109403",
+            "103": "pet_cfe_01109403",
+            "104": "pet_cfe_01109403",
+            "201": "pet_cfe_08070500",
+            "202": "pet_cfe_08070500",
+        }
+        with patch.object(
+            launcher.subprocess,
+            "check_output",
+            return_value=(
+                "104|FAILED\n"
+                "102|FAILED\n"
+                "101|FAILED\n"
+                "103|COMPLETED\n"
+                "201|TIMEOUT\n"
+                "202|OUT_OF_MEMORY\n"
+            ),
+        ):
+            failures = launcher.get_slurm_failure_counts(submitted)
+
+        self.assertEqual(failures["pet_cfe_01109403"], 1)
+        self.assertEqual(failures["pet_cfe_08070500"], 1)
+
     def test_terminal_campaign_states_are_distinct(self):
         progress = launcher.ExperimentProgress(
             configured=True,
@@ -1704,6 +1730,78 @@ class TestLauncherSelection(unittest.TestCase):
 
             submit.assert_called_once_with(context, ("123",))
 
+    def test_slurm_runner_stops_after_failed_attempt_limit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            gage_id = "02479980"
+            job_name = "nom_cfe_s_wet_02479980"
+            context = SimpleNamespace(
+                campaign_name="regime",
+                output_dir=root / "outputs",
+                log_dir=root / "outputs" / "logs",
+                metadata_index_dir_name="metadata",
+                stages=("calibration", "validation"),
+                slurm={
+                    "max_active_jobs": 4,
+                    "max_total_mpi_tasks": 16,
+                    "max_total_allocated_cpus": 32,
+                    "max_failed_attempts": 2,
+                    "startup_delay_seconds": 0,
+                },
+                map_cfg={
+                    "mapping": {gage_id: ["nom_cfe_s"]},
+                    "formulations": {
+                        "nom_cfe_s": {"models": "NOM,CFE,T-route"}
+                    },
+                    "groups": {},
+                },
+                calibration_scenarios={
+                    gage_id: (
+                        launcher.CalibrationScenario(
+                            name="wet",
+                            calibration={},
+                        ),
+                    )
+                },
+            )
+
+            with (
+                patch.object(launcher, "write_slurm_worker_script"),
+                patch.object(
+                    launcher,
+                    "get_active_slurm_jobs",
+                    return_value=[],
+                ),
+                patch.object(
+                    launcher,
+                    "submitted_worker_jobs",
+                    return_value={"101": job_name, "102": job_name},
+                ),
+                patch.object(
+                    launcher,
+                    "get_slurm_failure_counts",
+                    return_value={job_name: 2},
+                ),
+                patch.object(
+                    launcher,
+                    "is_experiment_complete",
+                    return_value=False,
+                ),
+                patch.object(launcher, "run_experiment") as run,
+                patch.object(launcher, "submit_launcher") as submit,
+                patch("builtins.print") as output,
+            ):
+                launcher.runner(context, use_slurm=True)
+
+            run.assert_not_called()
+            submit.assert_not_called()
+            messages = "\n".join(
+                " ".join(str(value) for value in call.args)
+                for call in output.call_args_list
+            )
+            self.assertIn("Automatic retry limit reached", messages)
+            self.assertIn("Launcher follow-up stopped", messages)
+
     def test_priority_scheduler_uses_spare_capacity_for_wet_job(self):
         gages = ("01109403", "02299950")
         scenarios = tuple(
@@ -2056,7 +2154,7 @@ class TestLauncherSelection(unittest.TestCase):
                 worker_dir
                 / "ngen_cal_nex-1_parameter_df_state.parquet"
             )
-            checkpoint.touch()
+            checkpoint.write_bytes(b"PAR1PAR1")
 
             started = launcher.get_experiment_progress(
                 metadata_dir,
@@ -2216,7 +2314,7 @@ class TestLauncherSelection(unittest.TestCase):
                 global_best_dir
                 / "global_parameter_df_state.parquet"
             )
-            global_checkpoint.touch()
+            global_checkpoint.write_bytes(b"PAR1PAR1")
             (output_dir / "pso_progress.json").write_text(
                 '{"completed_generations": 40}'
             )
@@ -2247,6 +2345,47 @@ class TestLauncherSelection(unittest.TestCase):
                 ),
                 paths["sandbox_validation"],
             )
+
+    def test_empty_checkpoint_is_not_available_for_restart(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            metadata_dir = root / "metadata"
+            output_dir = root / "output"
+            output_dir.mkdir()
+            self._write_launcher_metadata(
+                metadata_dir,
+                "01109403",
+                output_dir,
+            )
+            worker_dir = output_dir / "202607180225_ngen_test_worker"
+            worker_dir.mkdir()
+            (worker_dir / "best_params.txt").write_text("11\n7\n0.75\n")
+            checkpoint = (
+                worker_dir
+                / "ngen_cal_nex-1_parameter_df_state.parquet"
+            )
+            checkpoint.touch()
+
+            progress = launcher.get_experiment_progress(
+                metadata_dir,
+                "01109403",
+                status=True,
+            )
+
+            self.assertTrue(progress.started)
+            self.assertFalse(progress.checkpoint_available)
+            self.assertIn("0 bytes", progress.checkpoint_error)
+            with self.assertRaisesRegex(RuntimeError, "checkpoint is unusable"):
+                launcher.select_experiment_config(
+                    {
+                        "sandbox_main": Path("/tmp/main.yaml"),
+                        "sandbox_restart": Path("/tmp/restart.yaml"),
+                        "sandbox_validation": Path("/tmp/validation.yaml"),
+                    },
+                    progress,
+                    max_iter=300,
+                    stages=("calibration",),
+                )
 
     def test_incomplete_pso_warm_starts_from_global_best(self):
         with tempfile.TemporaryDirectory() as tmp:

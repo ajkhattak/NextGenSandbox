@@ -66,6 +66,16 @@ DETAILED_STATUS_ORDER = {
 RESTART_TIME_SAFETY_FACTOR = 1.5
 RESTART_TIME_BUFFER_SECONDS = 10 * 60
 RESTART_MINIMUM_TIME_SECONDS = 15 * 60
+DEFAULT_MAX_FAILED_ATTEMPTS = 2
+HARD_FAILURE_STATES = {
+    "BOOT_FAIL",
+    "DEADLINE",
+    "FAILED",
+    "OUT_OF_MEMORY",
+    "OUT_OF_ME",
+    "OOM",
+    "SPECIAL_EXIT",
+}
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
@@ -137,6 +147,7 @@ class ExperimentProgress:
     completed_iterations: int | None = None
     objective_value: float | None = None
     checkpoint_file: Path | None = None
+    checkpoint_error: str | None = None
     algorithm: str | None = None
 
     @property
@@ -146,6 +157,28 @@ class ExperimentProgress:
     @property
     def checkpoint_available(self) -> bool:
         return self.checkpoint_file is not None
+
+
+def parquet_checkpoint_error(path: Path) -> str | None:
+    """Return a concise error when a Parquet checkpoint is incomplete."""
+    try:
+        size = path.stat().st_size
+    except OSError as error:
+        return f"cannot access {path}: {error}"
+    if size == 0:
+        return f"{path} is empty (0 bytes)"
+    if size < 8:
+        return f"{path} is too small to be a valid Parquet file ({size} bytes)"
+    try:
+        with path.open("rb") as stream:
+            header = stream.read(4)
+            stream.seek(-4, os.SEEK_END)
+            footer = stream.read(4)
+    except OSError as error:
+        return f"cannot read {path}: {error}"
+    if header != b"PAR1" or footer != b"PAR1":
+        return f"{path} does not contain a complete Parquet header and footer"
+    return None
 
 
 @dataclass(frozen=True)
@@ -1016,6 +1049,10 @@ def load_context(config_file: Path) -> LauncherContext:
     else:
         slurm = copy.deepcopy(slurm_value)
         slurm.setdefault("startup_delay_seconds", 5)
+        slurm.setdefault(
+            "max_failed_attempts",
+            DEFAULT_MAX_FAILED_ATTEMPTS,
+        )
 
     campaign_name = model_name_to_dir(
         launcher_settings.get("campaign_name") or config_file.stem
@@ -1354,6 +1391,7 @@ def validate_slurm_config(slurm: dict[str, Any]) -> None:
             "max_active_jobs",
             "max_total_mpi_tasks",
             "max_total_allocated_cpus",
+            "max_failed_attempts",
             "startup_delay_seconds",
             "modules",
             "environment",
@@ -1405,6 +1443,7 @@ def validate_slurm_config(slurm: dict[str, Any]) -> None:
         "max_active_jobs",
         "max_total_mpi_tasks",
         "max_total_allocated_cpus",
+        "max_failed_attempts",
     ):
         value = slurm.get(field_name)
         if value is not None and (
@@ -1877,6 +1916,13 @@ def get_experiment_progress(
         reverse=True,
     )
     checkpoint_file = state_files[0] if state_files else None
+    checkpoint_error = (
+        parquet_checkpoint_error(checkpoint_file)
+        if checkpoint_file is not None
+        else None
+    )
+    if checkpoint_error is not None:
+        checkpoint_file = None
     completed_iterations = (
         pso_completed_generations(output_dir, current_iteration)
         if algorithm == "pso"
@@ -1889,6 +1935,7 @@ def get_experiment_progress(
         completed_iterations=completed_iterations,
         objective_value=objective_value,
         checkpoint_file=checkpoint_file,
+        checkpoint_error=checkpoint_error,
         algorithm=algorithm,
     )
 
@@ -2286,6 +2333,13 @@ def select_experiment_config(
         return paths["sandbox_main"]
 
     if not progress.checkpoint_available:
+        if progress.checkpoint_error:
+            raise RuntimeError(
+                "Calibration progress was found, but its checkpoint is "
+                f"unusable: {progress.checkpoint_error}. Restore a valid "
+                "checkpoint or move the interrupted worker directory aside "
+                "to restart this experiment from iteration 0."
+            )
         raise RuntimeError(
             "Calibration progress was found, but its worker directory has no "
             "*_parameter_df_state.parquet checkpoint. The launcher cannot "
@@ -2777,6 +2831,60 @@ def get_slurm_job_history(
     return latest
 
 
+def get_slurm_failure_counts(
+    jobs_by_id: dict[str, str],
+) -> dict[str, int]:
+    """Count hard failures since each experiment's last successful job."""
+    if not jobs_by_id:
+        return {}
+
+    records: dict[str, list[tuple[int, str]]] = {}
+    job_ids = sorted(jobs_by_id, key=int)
+    for start in range(0, len(job_ids), 500):
+        chunk = job_ids[start : start + 500]
+        cmd = [
+            "sacct",
+            "-X",
+            "-n",
+            "-P",
+            "-j",
+            ",".join(chunk),
+            "-o",
+            "JobIDRaw,State%30",
+        ]
+        try:
+            output = subprocess.check_output(cmd, text=True)
+        except (FileNotFoundError, subprocess.CalledProcessError) as error:
+            raise RuntimeError(
+                "Unable to query failed Slurm job attempts with sacct."
+            ) from error
+
+        for line in output.splitlines():
+            if not line.strip():
+                continue
+            fields = line.split("|", 1)
+            if len(fields) != 2:
+                continue
+            job_id, state = (field.strip() for field in fields)
+            job_name = jobs_by_id.get(job_id)
+            if job_name is None:
+                continue
+            records.setdefault(job_name, []).append(
+                (int(job_id), normalize_slurm_state(state))
+            )
+
+    failure_counts: dict[str, int] = {}
+    for job_name, attempts in records.items():
+        count = 0
+        for _, state in sorted(attempts):
+            if state == "COMPLETED":
+                count = 0
+            elif state in HARD_FAILURE_STATES:
+                count += 1
+        failure_counts[job_name] = count
+    return failure_counts
+
+
 def terminal_campaign_state(
     progress: ExperimentProgress,
     history: SlurmJobHistory | None,
@@ -3216,6 +3324,7 @@ def startup_delay_seconds(
 
 def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> None:
     incomplete_exists = False
+    retry_limited_jobs: list[str] = []
     local_jobs: list[tuple[Any, ...]] = []
     active_job_names: set[str] = set()
     dependency_job_ids: set[str] = set()
@@ -3225,6 +3334,8 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
     max_active_jobs = 0
     max_total_mpi_tasks = 0
     max_total_allocated_cpus = 0
+    max_failed_attempts = DEFAULT_MAX_FAILED_ATTEMPTS
+    failed_attempts_by_name: dict[str, int] = {}
     scheduled_run_index = 0
 
     if use_slurm:
@@ -3236,6 +3347,12 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
             max_total_mpi_tasks,
             max_total_allocated_cpus,
         ) = slurm_limits(ctx.slurm)
+        max_failed_attempts = int(
+            ctx.slurm.get(
+                "max_failed_attempts",
+                DEFAULT_MAX_FAILED_ATTEMPTS,
+            )
+        )
         if not dryrun:
             expected_names = expected_slurm_job_names(ctx)
             campaign_jobs = [
@@ -3250,6 +3367,10 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
             active_allocated_cpus = sum(
                 job.num_cpus if job.num_cpus is not None else job.num_tasks
                 for job in campaign_jobs
+            )
+            submitted_jobs = submitted_worker_jobs(ctx, expected_names)
+            failed_attempts_by_name = get_slurm_failure_counts(
+                submitted_jobs
             )
         print(
             "[INFO] Slurm launcher capacity: "
@@ -3298,6 +3419,16 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
                 "or pending. Skipping."
             )
             incomplete_exists = True
+            continue
+
+        failed_attempts = failed_attempts_by_name.get(job_name, 0)
+        if use_slurm and failed_attempts >= max_failed_attempts:
+            print(
+                f"[{gage_id}] Automatic retry limit reached for "
+                f"'{job_name}' ({failed_attempts}/{max_failed_attempts} "
+                "failed attempts). Not submitting it again."
+            )
+            retry_limited_jobs.append(job_name)
             continue
 
         progress = get_experiment_progress(metadata_index_dir, gage_id)
@@ -3472,6 +3603,17 @@ def runner(ctx: LauncherContext, *, use_slurm: bool, dryrun: bool = False) -> No
             submit_launcher(
                 ctx,
                 tuple(sorted(dependency_job_ids, key=int)),
+            )
+        elif retry_limited_jobs:
+            print(
+                "[WARNING] Launcher follow-up stopped because automatic "
+                "retry limits were reached for: "
+                + ", ".join(sorted(retry_limited_jobs))
+            )
+            print(
+                "Review those job logs before increasing "
+                "launcher.slurm.max_failed_attempts and submitting the "
+                "campaign again."
             )
         else:
             print("[INFO] All launcher work is complete.")

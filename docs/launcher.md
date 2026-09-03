@@ -135,6 +135,7 @@ launcher:
     max_active_jobs: 10
     max_total_mpi_tasks: 64
     max_total_allocated_cpus: 128
+    max_failed_attempts: 2
     startup_delay_seconds: 5
     coordinator:
       time: "00:10:00"
@@ -160,6 +161,7 @@ protect different resources:
 | `max_active_jobs` | Launcher workers running or pending in Slurm. |
 | `max_total_mpi_tasks` | Sum of requested MPI ranks (`--ntasks`). |
 | `max_total_allocated_cpus` | Sum of Slurm CPUs requested by jobs. |
+| `max_failed_attempts` | Hard failures allowed after the last successful worker before automatic retries stop. Defaults to `2`; timeouts and preemptions do not count. |
 
 Set `modules` to the same HPC modules used to build `ngen` and model
 libraries. `environment` sets literal environment values such as

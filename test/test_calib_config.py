@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import tempfile
 import unittest
 
+import pandas as pd
 import yaml
 
 from src.python.calibration_config import load_calibration_settings
@@ -24,7 +25,7 @@ class TestCalibrationConfig(unittest.TestCase):
     def _state_file(directory, name="ngen_cal_nex-1_parameter_df_state.parquet"):
         directory.mkdir(parents=True, exist_ok=True)
         state_file = directory / name
-        state_file.touch()
+        pd.DataFrame({"0": [1.0]}, index=["parameter"]).to_parquet(state_file)
         (directory / "best_params.txt").write_text("1\n1\n0.5\n")
         return state_file
 
@@ -166,6 +167,19 @@ class TestCalibrationConfig(unittest.TestCase):
             config = self._state_config(state_file, ngen_cal_type="restart")
 
             with self.assertRaisesRegex(FileNotFoundError, "best_params.txt"):
+                config.find_state_file()
+
+    def test_state_selection_rejects_empty_checkpoint(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_file = (
+                Path(temp_dir)
+                / "ngen_cal_nex-1_parameter_df_state.parquet"
+            )
+            state_file.touch()
+            (state_file.parent / "best_params.txt").write_text("11\n7\n0.5\n")
+            config = self._state_config(state_file, ngen_cal_type="restart")
+
+            with self.assertRaisesRegex(ValueError, "corrupt or incomplete"):
                 config.find_state_file()
 
     def test_official_cfe_x_instance_gets_cfe_x_calib_params_file(self):

@@ -98,10 +98,18 @@ class TRouteConfigurationGenerator(ConfigurationGenerator):
                 layer="flowpath-attributes",
             ),
         )
-        terminal_nexus = {"nex": [terminal_nexus_id.split("-", 1)[1]]}
+        terminal_flowpaths = {
+            "wb": self._terminal_flowpath_ids(
+                network,
+                terminal_nexus_id,
+                key_column=columns["key"],
+                downstream_column=columns["downstream"],
+                gpkg_file=self.static_data.gpkg_file,
+            )
+        }
         with open(mask_output_file, 'w') as file:
             yaml.dump(
-                terminal_nexus,
+                terminal_flowpaths,
                 file,
                 default_flow_style=False,
                 sort_keys=False,
@@ -121,6 +129,49 @@ class TRouteConfigurationGenerator(ConfigurationGenerator):
 
         with open(os.path.join(troute_dir, "troute_config.yaml"), 'w') as file:
             yaml.dump(d, file, default_flow_style=False, sort_keys=False)
+
+    @staticmethod
+    def _terminal_flowpath_ids(
+        network,
+        terminal_nexus_id,
+        *,
+        key_column,
+        downstream_column,
+        gpkg_file,
+    ):
+        required = {key_column, downstream_column}
+        missing = required.difference(network.columns)
+        if missing:
+            raise ValueError(
+                f"Cannot mask routing output for terminal nexus "
+                f"'{terminal_nexus_id}' in {gpkg_file}: network is missing "
+                f"column(s) {', '.join(sorted(missing))}."
+            )
+
+        downstream = network[downstream_column].astype("string").str.strip()
+        matches = (
+            network.loc[downstream == str(terminal_nexus_id), key_column]
+            .dropna()
+            .astype(str)
+            .drop_duplicates()
+        )
+        if matches.empty:
+            raise ValueError(
+                f"No contributing flowpaths found for terminal nexus "
+                f"'{terminal_nexus_id}' in {gpkg_file}."
+            )
+
+        flowpath_ids = []
+        for value in matches:
+            identifier = value.rsplit("-", 1)[-1]
+            try:
+                flowpath_ids.append(int(identifier))
+            except ValueError as error:
+                raise ValueError(
+                    f"Invalid flowpath ID '{value}' for terminal nexus "
+                    f"'{terminal_nexus_id}' in {gpkg_file}."
+                ) from error
+        return flowpath_ids
 
     @staticmethod
     def _terminal_nexus_id(

@@ -11,33 +11,31 @@ from src.python.models.troute import TRouteConfigurationGenerator
 
 
 class TestTRouteConfigurationGenerator(unittest.TestCase):
-    def test_all_tasks_mask_stream_output_to_terminal_nexus(self):
+    def test_all_tasks_mask_stream_output_to_terminal_flowpaths(self):
         network = pd.DataFrame(
             {
-                "hl_uri": ["gages-02299950"],
-                "toid": ["nex-423186"],
+                "id": ["wb-423185", "wb-423184"],
+                "hl_uri": ["gages-02299950", None],
+                "toid": ["nex-423186", "nex-423186"],
             }
         )
         attributes = {
-            name: [value]
-            for name, value in {
-                "key": 1,
-                "downstream": 2,
-                "mainstem": 0,
-                "dx": 100.0,
-                "n": 0.03,
-                "ncc": 0.03,
-                "s0": 0.001,
-                "bw": 5.0,
-                "waterbody": 0,
-                "gages": "02299950",
-                "tw": 6.0,
-                "twcc": 6.0,
-                "musk": 0.0,
-                "musx": 0.0,
-                "cs": 1.0,
-                "alt": 0.0,
-            }.items()
+            "key": "id",
+            "downstream": "toid",
+            "mainstem": "mainstem",
+            "dx": "Length_m",
+            "n": "n",
+            "ncc": "nCC",
+            "s0": "So",
+            "bw": "BtmWdth",
+            "waterbody": "WaterbodyID",
+            "gages": "gage",
+            "tw": "TopWdth",
+            "twcc": "TopWdthCC",
+            "musk": "MusK",
+            "musx": "MusX",
+            "cs": "ChSlp",
+            "alt": "alt",
         }
 
         for task_type in (
@@ -89,7 +87,7 @@ class TestTRouteConfigurationGenerator(unittest.TestCase):
 
                 self.assertEqual(
                     yaml.safe_load(mask_file.read_text()),
-                    {"nex": ["423186"]},
+                    {"wb": [423185, 423184]},
                 )
                 self.assertEqual(stream_output["mask_output"], str(mask_file))
                 expected_directory = (
@@ -101,6 +99,23 @@ class TestTRouteConfigurationGenerator(unittest.TestCase):
                     stream_output["stream_output_directory"],
                     expected_directory,
                 )
+
+    def test_terminal_flowpath_mask_rejects_missing_contributors(self):
+        network = pd.DataFrame(
+            {
+                "id": ["wb-1"],
+                "toid": ["nex-2"],
+            }
+        )
+
+        with self.assertRaisesRegex(ValueError, "No contributing flowpaths"):
+            TRouteConfigurationGenerator._terminal_flowpath_ids(
+                network,
+                "nex-3",
+                key_column="id",
+                downstream_column="toid",
+                gpkg_file="/tmp/gage.gpkg",
+            )
 
     def test_terminal_nexus_uses_explicit_gage_id(self):
         network = pd.DataFrame(

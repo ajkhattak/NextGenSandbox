@@ -95,6 +95,7 @@ launcher:
     max_active_jobs: 10
     max_total_mpi_tasks: 64
     max_total_allocated_cpus: 128
+    max_failed_attempts: 2
     startup_delay_seconds: 5
     coordinator:
       time: "00:10:00"
