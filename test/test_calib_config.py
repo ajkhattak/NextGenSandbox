@@ -22,11 +22,18 @@ def make_parameter_context(sandbox_dir, instances_by_model):
 
 class TestCalibrationConfig(unittest.TestCase):
     @staticmethod
-    def _state_file(directory, name="ngen_cal_nex-1_parameter_df_state.parquet"):
+    def _state_file(
+        directory,
+        name="ngen_cal_nex-1_parameter_df_state.parquet",
+        *,
+        current_iteration=1,
+    ):
         directory.mkdir(parents=True, exist_ok=True)
         state_file = directory / name
         pd.DataFrame({"0": [1.0]}, index=["parameter"]).to_parquet(state_file)
-        (directory / "best_params.txt").write_text("1\n1\n0.5\n")
+        (directory / "best_params.txt").write_text(
+            f"{current_iteration}\n1\n0.5\n"
+        )
         return state_file
 
     @staticmethod
@@ -35,7 +42,10 @@ class TestCalibrationConfig(unittest.TestCase):
         config.ngen_cal_type = ngen_cal_type
         config.output_dir = root
         config.state_dir = Path(root)
-        config.ctx = SimpleNamespace(restart_dir=root)
+        config.ctx = SimpleNamespace(
+            restart_dir=root,
+            calibration_iterations=300,
+        )
         return config
 
     def test_state_selection_uses_latest_completed_indexed_run(self):
@@ -75,6 +85,29 @@ class TestCalibrationConfig(unittest.TestCase):
             config = self._state_config(root)
 
             self.assertEqual(config.find_state_file(), latest_state)
+
+    def test_validation_uses_complete_checkpoint_from_failed_run(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            worker = root / "20260902_ngen_failed_worker"
+            state = self._state_file(worker, current_iteration=300)
+            (root / "run_index.yml").write_text(
+                yaml.safe_dump(
+                    {
+                        "runs": [
+                            {
+                                "task_type": "calibration",
+                                "status": "failed",
+                                "worker_dirs": [str(worker)],
+                            }
+                        ]
+                    }
+                )
+            )
+
+            config = self._state_config(root)
+
+            self.assertEqual(config.find_state_file(), state)
 
     def test_state_selection_uses_pso_global_best_for_indexed_run(self):
         with tempfile.TemporaryDirectory() as temp_dir:

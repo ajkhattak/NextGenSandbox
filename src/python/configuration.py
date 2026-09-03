@@ -318,7 +318,18 @@ class ConfigurationCalib:
 
         run_index = params_state_path / "run_index.yml"
         if run_index.is_file():
-            return self._state_file_from_run_index(params_state_path, run_index)
+            include_failed = self.ngen_cal_type in {"restart", "validation"}
+            failed_minimum_iteration = (
+                self.ctx.calibration_iterations
+                if self.ngen_cal_type == "validation"
+                else None
+            )
+            return self._state_file_from_run_index(
+                params_state_path,
+                run_index,
+                include_failed=include_failed,
+                failed_minimum_iteration=failed_minimum_iteration,
+            )
 
         return self._single_unindexed_state_file(params_state_path)
 
@@ -378,7 +389,14 @@ class ConfigurationCalib:
         return path if path.is_absolute() else root / path
 
     @classmethod
-    def _state_file_from_run_index(cls, root, run_index):
+    def _state_file_from_run_index(
+        cls,
+        root,
+        run_index,
+        *,
+        include_failed=False,
+        failed_minimum_iteration=None,
+    ):
         index = yaml.safe_load(run_index.read_text()) or {}
         runs = index.get("runs")
         if not isinstance(runs, list):
@@ -386,42 +404,94 @@ class ConfigurationCalib:
                 f"Invalid run index: 'runs' must be a list in {run_index}"
             )
 
-        completed_runs = [
+        indexed_runs = [
             run
             for run in runs
             if isinstance(run, dict)
-            and run.get("status") == "completed"
+            and run.get("status") in {"completed", "failed"}
             and run.get("task_type") in {"calibration", "restart"}
         ]
-        if not completed_runs:
+        if not indexed_runs:
             raise FileNotFoundError(
-                f"No completed calibration or restart run is recorded in "
+                f"No calibration or restart run is recorded in "
                 f"{run_index}"
             )
 
-        latest_run = completed_runs[-1]
-        indexed_state = latest_run.get("state_file")
+        for run in reversed(indexed_runs):
+            if run.get("status") == "failed" and not include_failed:
+                continue
+
+            state_file = cls._state_file_for_indexed_run(root, run, run_index)
+            if run.get("status") == "failed" and failed_minimum_iteration is not None:
+                current_iteration = cls._best_params_iteration(state_file)
+                if current_iteration < int(failed_minimum_iteration):
+                    continue
+                print(
+                    "WARNING: Using a readable calibration checkpoint from a "
+                    "run marked failed because it reached the configured "
+                    f"iteration count ({current_iteration}/"
+                    f"{failed_minimum_iteration})."
+                )
+            return state_file
+
+        if failed_minimum_iteration is not None:
+            raise FileNotFoundError(
+                "No completed calibration or restart run, or usable failed "
+                f"run reaching iteration {failed_minimum_iteration}, is "
+                f"recorded in {run_index}"
+            )
+        raise FileNotFoundError(
+            f"No completed calibration or restart run is recorded in {run_index}"
+        )
+
+    @classmethod
+    def _state_file_for_indexed_run(cls, root, run, run_index):
+        indexed_state = run.get("state_file")
         if indexed_state:
             state_file = cls._resolve_index_path(root, indexed_state)
             return cls._validate_state_file(state_file)
 
-        worker_dirs = latest_run.get("worker_dirs") or []
+        worker_dirs = run.get("worker_dirs") or []
         if not isinstance(worker_dirs, list):
             raise ValueError(
-                f"Invalid worker_dirs for the latest completed run in {run_index}"
+                f"Invalid worker_dirs for an indexed run in {run_index}"
             )
 
         worker_paths = [
             cls._resolve_index_path(root, worker_dir)
             for worker_dir in worker_dirs
         ]
-        return cls.resolve_completed_run_state_file(
-            root,
-            worker_paths,
-            prefer_pso=latest_run.get("algorithm") == "pso",
-            run_name=latest_run.get("name", latest_run.get("task_type")),
-            run_index=run_index,
+        return cls._validate_state_file(
+            cls.resolve_completed_run_state_file(
+                root,
+                worker_paths,
+                prefer_pso=run.get("algorithm") == "pso",
+                run_name=run.get("name", run.get("task_type")),
+                run_index=run_index,
+            )
         )
+
+    @staticmethod
+    def _best_params_iteration(state_file):
+        best_params = Path(state_file).parent / "best_params.txt"
+        lines = [
+            line.strip()
+            for line in best_params.read_text().splitlines()
+            if line.strip()
+        ]
+        if not lines:
+            raise ValueError(
+                f"Calibration checkpoint has an empty best_params.txt: "
+                f"{best_params}"
+            )
+        value = lines[0].split("=", 1)[-1].strip()
+        try:
+            return int(float(value))
+        except ValueError as error:
+            raise ValueError(
+                f"Calibration checkpoint has an invalid current iteration "
+                f"in {best_params}: {lines[0]!r}"
+            ) from error
 
     @classmethod
     def resolve_completed_run_state_file(
