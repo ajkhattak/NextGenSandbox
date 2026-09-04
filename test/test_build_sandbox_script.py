@@ -43,6 +43,35 @@ class TestBuildSandboxScript(unittest.TestCase):
             self.script,
         )
 
+    def test_rejects_rebuilding_active_virtual_environment(self):
+        self.assertIn(
+            'same_directory "$ACTIVE_PYTHON_ENV" "$SANDBOX_ENV"',
+            self.script,
+        )
+        self.assertIn(
+            "Deactivate it before rebuilding it:",
+            self.script,
+        )
+
+    def test_finds_module_conda_through_conda_exe(self):
+        self.assertIn('if [ -n "${CONDA_EXE:-}" ]', self.script)
+        self.assertIn(
+            'eval "$("$CONDA_EXE_PATH" shell.bash hook)"',
+            self.script,
+        )
+        self.assertIn('CONDA_AVAILABLE=ON', self.script)
+        self.assertIn(
+            'status_ok "conda: $CONDA_EXE (from CONDA_EXE)"',
+            self.bootstrap,
+        )
+
+    def test_ignores_unrelated_build_environment_variable(self):
+        self.assertNotIn("BUILD_SANDBOX=${BUILD:-ON}", self.script)
+        self.assertIn(
+            "BUILD_SANDBOX=${BUILD_SANDBOX:-ON}",
+            self.script,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

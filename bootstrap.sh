@@ -500,6 +500,8 @@ run_check() {
     check_python_version
     if command -v conda >/dev/null 2>&1; then
         status_ok "conda: $(command -v conda)"
+    elif [ -n "${CONDA_EXE:-}" ] && [ -x "$CONDA_EXE" ]; then
+        status_ok "conda: $CONDA_EXE (from CONDA_EXE)"
     else
         status_warn "conda not found; Python venv fallback can build the sandbox env, but --subset requires conda"
     fi

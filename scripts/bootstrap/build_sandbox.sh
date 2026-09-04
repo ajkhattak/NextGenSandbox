@@ -10,7 +10,7 @@
 ###############################################################
 
 ###### Config #######
-BUILD_SANDBOX=${BUILD:-ON}
+BUILD_SANDBOX=${BUILD_SANDBOX:-ON}
 
 # Validate environment
 for var in \
@@ -64,6 +64,30 @@ print_build_status()
     local status="$1"
     local message="$2"
     printf "  [%s] %s\n" "$status" "$message"
+}
+
+same_directory()
+{
+    local first="$1"
+    local second="$2"
+
+    [ -d "$first" ] && [ -d "$second" ] &&
+        [ "$(cd "$first" && pwd -P)" = "$(cd "$second" && pwd -P)" ]
+}
+
+find_conda_exe()
+{
+    if command -v conda >/dev/null 2>&1; then
+        command -v conda
+        return 0
+    fi
+
+    if [ -n "${CONDA_EXE:-}" ] && [ -x "$CONDA_EXE" ]; then
+        printf "%s\n" "$CONDA_EXE"
+        return 0
+    fi
+
+    return 1
 }
 
 summarize_sandbox_build()
@@ -133,6 +157,12 @@ build_sandbox()
 
     echo "Sandbox environment definition: $SANDBOX_ENV_FILE"
 
+    CONDA_AVAILABLE=OFF
+    if CONDA_EXE_PATH="$(find_conda_exe)"; then
+        eval "$("$CONDA_EXE_PATH" shell.bash hook)"
+        CONDA_AVAILABLE=ON
+    fi
+
     # FIND PYTHON >= 3.11
     for cmd in python3 python; do
         if command -v "$cmd" &>/dev/null; then
@@ -155,9 +185,7 @@ build_sandbox()
     # -------------------------------
     # USE CONDA / MAMBA
     # -------------------------------
-    if command -v conda &>/dev/null; then
-
-        source "$(conda info --base)/etc/profile.d/conda.sh"
+    if [ "$CONDA_AVAILABLE" = "ON" ]; then
 
 	# Prefer mamba if available
         if command -v mamba &>/dev/null; then
@@ -192,9 +220,20 @@ build_sandbox()
         # -------------------------------
         # FALLBACK TO VIRTUALENV
         # -------------------------------
+        ACTIVE_PYTHON_ENV="${VIRTUAL_ENV:-${CONDA_PREFIX:-}}"
+        if [ -n "$ACTIVE_PYTHON_ENV" ] && same_directory "$ACTIVE_PYTHON_ENV" "$SANDBOX_ENV"; then
+            echo "ERROR: The Sandbox Python environment is currently active:" >&2
+            echo "  $SANDBOX_ENV" >&2
+            echo "Deactivate it before rebuilding it:" >&2
+            echo "  deactivate        # Python venv" >&2
+            echo "  conda deactivate  # Conda environment" >&2
+            echo "  ./bootstrap.sh --sandbox" >&2
+            return 1
+        fi
+
 	echo "Conda not found -- building sandbox virtual python environment ($SANDBOX_ENV)"
-        mkdir -p "$SANDBOX_ENV"
-        $PYTHON_CMD -m venv "$SANDBOX_ENV"
+        mkdir -p "$(dirname "$SANDBOX_ENV")"
+        "$PYTHON_CMD" -m venv "$SANDBOX_ENV"
         source "$SANDBOX_ENV/bin/activate"
 	"$SANDBOX_ENV/bin/python" -m pip install --upgrade pip --no-cache-dir
 	"$SANDBOX_ENV/bin/python" -m pip install \
@@ -222,7 +261,7 @@ build_sandbox()
  
     echo "Sandbox Python Environment Created ($SANDBOX_ENV)"
     
-    if command -v conda &>/dev/null; then
+    if [ "$CONDA_AVAILABLE" = "ON" ]; then
         conda deactivate
     else
         deactivate
@@ -233,9 +272,7 @@ build_sandbox()
     ############################################
     echo "Creating virtual python environment for forcing downloader ($FORCING_ENV)"
 
-    if command -v conda >/dev/null 2>&1; then
-	source "$(conda info --base)/etc/profile.d/conda.sh"
-
+    if [ "$CONDA_AVAILABLE" = "ON" ]; then
 	# Prefer mamba if available
         if command -v mamba &>/dev/null; then
             SOLVER="mamba"
@@ -258,9 +295,9 @@ build_sandbox()
     else
 	echo "Conda not found -- building forcing virtual python environment ($FORCING_ENV)"
 
-	mkdir -p "$FORCING_ENV"
+	mkdir -p "$(dirname "$FORCING_ENV")"
 
-	$PYTHON_CMD -m venv "$FORCING_ENV"
+	"$PYTHON_CMD" -m venv "$FORCING_ENV"
 	source "$FORCING_ENV/bin/activate"
 	"$FORCING_ENV/bin/python" -m pip install --upgrade pip --no-cache-dir
 	"$FORCING_ENV/bin/python" -m pip install \
@@ -280,5 +317,5 @@ if [[ "$BUILD_SANDBOX" == "ON" ]]; then
     echo "=== Building NextGen Sandbox ==="
     build_sandbox
 else
-    echo "BUILD=OFF — skipping"
+    echo "BUILD_SANDBOX=OFF - skipping"
 fi
