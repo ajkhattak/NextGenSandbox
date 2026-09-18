@@ -381,6 +381,10 @@ class SandboxContext:
                 "best, all"
             )
 
+        self.streamflow_metric_settings = outputs.get("metrics", {}) or {}
+        if not isinstance(self.streamflow_metric_settings, dict):
+            raise TypeError("simulation.outputs.metrics must be a mapping")
+
         self.divide_output_variables = outputs.get("divide_variables", {}) or {}
         if not isinstance(self.divide_output_variables, dict) or not all(
             isinstance(variable, str)

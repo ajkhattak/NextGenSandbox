@@ -56,6 +56,56 @@ class TestObservationLoader(unittest.TestCase):
         ):
             context.load_simulation_config()
 
+    def test_metric_output_settings_must_be_a_mapping(self):
+        from src.python.context import SandboxContext
+
+        context = SandboxContext.__new__(SandboxContext)
+        context.formulation = ""
+        context.project_gages = ["12345678"]
+        context.sandbox_config = {
+            "simulation": {
+                "tasks": ["control"],
+                "gages": "12345678",
+                "outputs": {"metrics": "enabled"},
+            }
+        }
+
+        with self.assertRaisesRegex(
+            TypeError,
+            "simulation.outputs.metrics",
+        ):
+            context.load_simulation_config()
+
+    def test_loads_metric_output_settings(self):
+        from src.python.context import SandboxContext
+
+        context = SandboxContext.__new__(SandboxContext)
+        context.formulation = ""
+        context.project_gages = ["12345678"]
+        context.sandbox_config = {
+            "simulation": {
+                "tasks": ["control"],
+                "gages": "12345678",
+                "simulation_time": {
+                    "start_time": "2020-01-01 00:00:00",
+                    "end_time": "2020-01-02 00:00:00",
+                },
+                "outputs": {
+                    "metrics": {
+                        "peak_percentile": 85,
+                        "peak_window": 18,
+                    }
+                },
+            }
+        }
+
+        context.load_simulation_config()
+
+        self.assertEqual(
+            context.streamflow_metric_settings,
+            {"peak_percentile": 85, "peak_window": 18},
+        )
+
     def test_loads_output_variable_units(self):
         from src.python.context import SandboxContext
 

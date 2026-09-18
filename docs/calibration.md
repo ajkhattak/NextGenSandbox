@@ -268,3 +268,42 @@ and the current best iteration.
 With `retention: all`, outputs are stored by iteration. This is useful for
 diagnostics but can require substantial storage for long or highly distributed
 calibrations.
+
+### Per-candidate streamflow diagnostics
+
+The metrics plugin writes lightweight scalar diagnostics for every evaluated
+candidate to each worker's `metrics.parquet`. Calibration hydrographs remain
+limited to iteration 0 and the current best candidate when `retention: best`;
+storing every hydrograph is not required for these diagnostics.
+
+The defaults add NNSE, KGE components, percent bias, Q10 and Q90 errors, a
+six-point flow-duration-curve error, nonzero low-flow log MAE, zero/false/missed
+flow rates, mean peak timing, mean absolute percentage peak error (MAPPE), and
+missed-peak percentage. Peak diagnostics reproduce the NeuralHydrology metric
+definitions using NumPy, pandas, and SciPy, so NeuralHydrology is not required
+in the sandbox environment.
+
+Optional settings are available under `simulation.outputs.metrics`:
+
+```yaml
+simulation:
+  outputs:
+    calibration:
+      retention: best
+    metrics:
+      minimum_flow: 1.0e-6
+      peak_metrics: true
+      peak_percentile: 80
+      peak_window: 12
+      peak_resolution: 1h
+```
+
+`peak_window` is measured in samples and `peak_resolution` controls the units
+reported by `mean_peak_timing`. The default pair therefore uses a +/-12-hour
+search window and reports timing error in hours for hourly output.
+
+Metrics are restricted to `evaluation_start` through `evaluation_stop`, so a
+preceding spinup interval is simulated but not scored. This behavior is shared
+by DDS and PSO. A DDS worker stores iterations as columns in one metrics file;
+PSO stores each particle's metrics in its isolated worker directory, with the
+generation/particle mapping recorded by the launcher in `pso_progress.json`.

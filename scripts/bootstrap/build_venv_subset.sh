@@ -165,7 +165,7 @@ if ! "$SUBSET_RSCRIPT" -e \
   >/dev/null 2>&1; then
   echo "Installing binary RANN dependency for hfsubsetR..."
   "${SANDBOX_BUILD_DIR}/rvenv/mamba/bin/mamba" install -y \
-    -p "$SUBSET_ENV" -c conda-forge r-rann
+    -p "$SUBSET_ENV" --override-channels -c conda-forge r-rann
 fi
 
 if [ "$GENERATE_LOCKFILE" = true ]; then

@@ -758,6 +758,15 @@ class ConfigurationCalib:
         ] = {
             "mode": output_retention,
         }
+        metric_settings = getattr(
+            self.ctx,
+            "streamflow_metric_settings",
+            {},
+        )
+        if metric_settings:
+            df_new["model"]["plugin_settings"]["compute_metrics"] = dict(
+                metric_settings
+            )
         if self.ctx.calibration_objective_metrics:
             df_new["model"]["plugin_settings"]["composite_objective"] = {
                 "metrics": self.ctx.calibration_objective_metrics,
