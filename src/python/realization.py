@@ -44,6 +44,11 @@ class RealizationGenerator:
         self.ensemble_enabled   = self.ctx.ensemble_enabled
         self.ensemble_size      = self.ctx.ensemble_size
         self.ensemble_member_id = ensemble_member_id
+        self.per_formulation_nexus_files = getattr(
+            self.ctx,
+            "per_formulation_nexus_files",
+            False,
+        )
 
 
         if isinstance(self.ctx.ensemble_models, str):
@@ -88,7 +93,8 @@ class RealizationGenerator:
                     "path": self.forcing_dir,
                     "provider": "CsvPerFeature"
                 }
-            }
+            },
+            "per_formulation_nexus_files": self.per_formulation_nexus_files,
         }
         
         if self.ngen_cal_type not in ['calibration', 'validation', 'restart']:

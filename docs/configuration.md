@@ -379,6 +379,7 @@ partitioning, and output behavior.
 | `time.calibration` | Time period used for calibration. |
 | `time.validations` | One or more validation period definitions. |
 | `restart_dir` | Restart source output directory, worker directory, or exact `*_parameter_df_state.parquet` file. Supports `<gage_id>`. |
+| `outputs.per_formulation_nexus_files` | Request one NetCDF nexus-output file per formulation instead of per-nexus CSV files. Defaults to `false`. |
 | `outputs.divide_variables` | BMI variables written to divide CSV files. Each variable requires units. |
 | `outputs.calibration.retention` | Calibration output retention: `best` or `all`. |
 | `outputs.metadata.enabled` | Write run metadata during configuration generation. |
@@ -387,6 +388,12 @@ partitioning, and output behavior.
 | `partitioning.mode` | ngen execution mode: `serial` or `parallel`. |
 | `partitioning.max_nexus_per_proc` | Maximum nexus count assigned to one process in parallel mode. |
 | `partitioning.max_procs` | Maximum number of ngen processes. |
+
+Set `outputs.per_formulation_nexus_files: true` to reduce the number of nexus
+output files written by ngen. Sandbox writes the setting as the top-level
+`per_formulation_nexus_files` realization option. The option is disabled by
+default. If the selected ngen build does not support this output mode, ngen
+uses its default per-nexus CSV output.
 
 #### Time periods
 

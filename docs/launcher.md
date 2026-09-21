@@ -117,6 +117,12 @@ separate job and uses `slurm.validation.time` and memory.
 The launcher automatically enables `simulation.outputs.metadata`; add that
 block only when a non-default metadata location is needed.
 
+Other `simulation.outputs` settings are shared with normal Sandbox projects.
+For example, set
+`simulation.outputs.per_formulation_nexus_files: true` to replace per-nexus
+CSV output with one NetCDF file per formulation when supported by the selected
+ngen build.
+
 ## Launcher Settings
 
 The `launcher` block contains campaign-specific settings only.

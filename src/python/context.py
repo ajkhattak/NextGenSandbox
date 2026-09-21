@@ -368,6 +368,16 @@ class SandboxContext:
         if not isinstance(outputs, dict):
             raise TypeError("simulation.outputs must be a mapping")
 
+        per_formulation_nexus_files = outputs.get(
+            "per_formulation_nexus_files",
+            False,
+        )
+        if type(per_formulation_nexus_files) is not bool:
+            raise TypeError(
+                "simulation.outputs.per_formulation_nexus_files must be true or false"
+            )
+        self.per_formulation_nexus_files = per_formulation_nexus_files
+
         calibration_outputs = outputs.get("calibration", {}) or {}
         if not isinstance(calibration_outputs, dict):
             raise TypeError("simulation.outputs.calibration must be a mapping")

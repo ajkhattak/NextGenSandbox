@@ -78,6 +78,9 @@ simulation:
         start: "2020-10-01"
         spinup: "12 months"
         evaluation: "1 year"
+  outputs:
+    # Request one NetCDF nexus-output file per formulation when ngen supports it.
+    per_formulation_nexus_files: false
   partitioning:
     mode: parallel
     max_nexus_per_proc: 15

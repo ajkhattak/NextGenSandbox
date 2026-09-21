@@ -156,6 +156,9 @@ simulation:
   # restart_dir: "<path/to/restart>/<gage_id>"
 
   outputs:
+    # Request one NetCDF nexus-output file per formulation. Unsupported ngen
+    # builds use their default per-nexus CSV output.
+    per_formulation_nexus_files: false
     divide_variables: {}
       # ACTUAL_ET:
       #   units: "m/h"
