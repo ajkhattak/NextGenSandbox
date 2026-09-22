@@ -2403,6 +2403,78 @@ def coordinator_lock_path(ctx: LauncherContext) -> Path:
     )
 
 
+def reset_launcher_history(ctx: LauncherContext) -> Path | None:
+    """Archive campaign tracking while preserving experiment results."""
+    expected_names = expected_slurm_job_names(ctx)
+    expected_names.add(f"{ctx.campaign_name}_launcher")
+
+    history_path = submission_history_path(ctx)
+    if history_path.is_file():
+        for line in history_path.read_text().splitlines():
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            job_name = str(record.get("job_name", "")).strip()
+            if job_name:
+                expected_names.add(job_name)
+
+    active_jobs = [
+        job for job in get_active_slurm_jobs() if job.name in expected_names
+    ]
+    if active_jobs:
+        details = ", ".join(
+            f"{job.job_id} ({job.name}, {job.state})" for job in active_jobs
+        )
+        raise RuntimeError(
+            "Cannot reset launcher history while campaign jobs are active: "
+            f"{details}. Cancel or wait for these jobs, then retry."
+        )
+
+    launcher_dir = history_path.parent
+    launcher_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = coordinator_lock_path(ctx)
+    with lock_path.open("a+") as lock_file:
+        try:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise RuntimeError(
+                "Cannot reset launcher history while the campaign "
+                "coordinator owns its lock. Cancel or wait for the "
+                "coordinator, then retry."
+            ) from error
+
+        tracked_files = (
+            history_path,
+            coordinator_state_path(ctx),
+        )
+        existing_files = [path for path in tracked_files if path.is_file()]
+        archive_dir = None
+        if existing_files:
+            timestamp = datetime.now().strftime("%Y%m%dT%H%M%S%f")
+            archive_dir = (
+                launcher_dir
+                / "archive"
+                / f"{ctx.campaign_name}_{timestamp}"
+            )
+            archive_dir.mkdir(parents=True)
+            for path in existing_files:
+                path.replace(archive_dir / path.name)
+
+        # An empty history file marks a new campaign generation and prevents
+        # legacy log-file discovery from restoring archived Slurm attempts.
+        history_path.touch()
+
+    if archive_dir is None:
+        print(
+            f"No previous launcher history found for '{ctx.campaign_name}'."
+        )
+    else:
+        print(f"Archived previous launcher history: {archive_dir}")
+    print("Experiment outputs and logs were preserved.")
+    return archive_dir
+
+
 def write_coordinator_state(
     ctx: LauncherContext,
     *,
@@ -3093,7 +3165,8 @@ def submitted_worker_jobs(
     """Return submitted Slurm worker job IDs mapped to experiment names."""
     jobs: dict[str, str] = {}
     history_path = submission_history_path(ctx)
-    if history_path.is_file():
+    history_exists = history_path.is_file()
+    if history_exists:
         try:
             lines = history_path.read_text().splitlines()
         except OSError:
@@ -3109,9 +3182,10 @@ def submitted_worker_jobs(
                 jobs[job_id] = job_name
 
     # Recover campaigns submitted before the history file was introduced from
-    # their persistent Slurm output/error filenames.
+    # their persistent Slurm output/error filenames. An empty history file is
+    # also a deliberate reset marker, so do not recover logs when one exists.
     log_dir = getattr(ctx, "log_dir", ctx.output_dir / "logs")
-    if log_dir.is_dir():
+    if not history_exists and log_dir.is_dir():
         for path in log_dir.iterdir():
             match = re.match(r"^(.+)_(\d+)\.(?:out|err)$", path.name)
             if match is None:
@@ -4139,6 +4213,14 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help=argparse.SUPPRESS,
     )
+    parser.add_argument(
+        "--reset",
+        action="store_true",
+        help=(
+            "Before submit, archive this campaign's launcher history and "
+            "retry counts while preserving experiment outputs and logs."
+        ),
+    )
     status_view = parser.add_mutually_exclusive_group()
     status_view.add_argument(
         "--summary",
@@ -4171,6 +4253,9 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    reset_requested = getattr(args, "reset", False)
+    if reset_requested and args.mode != "submit":
+        raise ValueError("--reset may only be used with 'submit'")
     ctx = load_context(Path(args.config))
     print(f"\n=== Sandbox Launcher Started @ {datetime.now()} ===")
 
@@ -4188,6 +4273,8 @@ def main() -> None:
         return
     validate_launcher_resources(ctx)
     if args.mode == "submit":
+        if reset_requested:
+            reset_launcher_history(ctx)
         submit_launcher(ctx)
         return
 

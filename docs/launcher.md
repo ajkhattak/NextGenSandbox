@@ -296,6 +296,20 @@ Re-run `sandbox-launcher run` or `sandbox-launcher submit` with the same
 configuration after a failure or wall-clock limit. Completed work is left
 alone; incomplete calibrations use their available restart state.
 
+To forget previous Slurm failures, cancellations, and retry counts before
+submitting incomplete work again, reset the campaign history:
+
+```bash
+sandbox-launcher submit --reset --config launcher_dds.yaml
+```
+
+Reset refuses to run while a worker or coordinator for the campaign is active.
+It archives the submission history and coordinator heartbeat below
+`<output_dir>/launcher/archive/`, but preserves logs, generated configurations,
+checkpoints, and model outputs. Completed experiments therefore remain
+complete, while failed or cancelled experiments become eligible for another
+submission.
+
 Launcher artifacts are written below `general.output_dir`:
 
 ```text

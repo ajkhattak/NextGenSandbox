@@ -226,6 +226,22 @@ class TestLauncherSelection(unittest.TestCase):
         self.assertEqual(args.mode, "submit")
         self.assertEqual(args.config, "launcher_pso.yaml")
 
+    def test_submit_accepts_reset(self):
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "sandbox-launcher",
+                "submit",
+                "--reset",
+                "--config",
+                "launcher_pso.yaml",
+            ],
+        ):
+            args = launcher.parse_args()
+
+        self.assertTrue(args.reset)
+
     def test_status_defaults_to_summary_view(self):
         with patch.object(
             sys,
@@ -1288,6 +1304,98 @@ class TestLauncherSelection(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "requires a slurm block"):
             launcher.submit_launcher(context)
+
+    def test_reset_archives_history_and_preserves_outputs_and_logs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            context = SimpleNamespace(
+                campaign_name="regime_dds",
+                output_dir=root / "outputs",
+                log_dir=root / "outputs" / "logs",
+            )
+            history = launcher.submission_history_path(context)
+            state = launcher.coordinator_state_path(context)
+            history.parent.mkdir(parents=True)
+            history.write_text(
+                '{"job_id": "101", "job_name": "pet_cfe_ref_01109403"}\n'
+            )
+            state.write_text("state: FAILED\n")
+            context.log_dir.mkdir(parents=True)
+            log_file = context.log_dir / "pet_cfe_ref_01109403_101.err"
+            log_file.write_text("old failure\n")
+            result_file = context.output_dir / "pet_cfe" / "result.txt"
+            result_file.parent.mkdir(parents=True)
+            result_file.write_text("completed result\n")
+
+            with (
+                patch.object(
+                    launcher,
+                    "expected_slurm_job_names",
+                    return_value={"pet_cfe_ref_01109403"},
+                ),
+                patch.object(launcher, "get_active_slurm_jobs", return_value=[]),
+            ):
+                archive = launcher.reset_launcher_history(context)
+
+            self.assertIsNotNone(archive)
+            self.assertEqual(history.read_text(), "")
+            self.assertFalse(state.exists())
+            self.assertTrue((archive / history.name).is_file())
+            self.assertTrue((archive / state.name).is_file())
+            self.assertEqual(log_file.read_text(), "old failure\n")
+            self.assertEqual(result_file.read_text(), "completed result\n")
+
+    def test_reset_refuses_when_campaign_job_is_active(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            context = SimpleNamespace(
+                campaign_name="regime_dds",
+                output_dir=Path(tmp) / "outputs",
+            )
+            with (
+                patch.object(
+                    launcher,
+                    "expected_slurm_job_names",
+                    return_value={"pet_cfe_ref_01109403"},
+                ),
+                patch.object(
+                    launcher,
+                    "get_active_slurm_jobs",
+                    return_value=[
+                        launcher.ActiveSlurmJob(
+                            "101",
+                            "pet_cfe_ref_01109403",
+                            1,
+                            "RUNNING",
+                        )
+                    ],
+                ),
+            ):
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "campaign jobs are active.*101",
+                ):
+                    launcher.reset_launcher_history(context)
+
+    def test_empty_history_after_reset_does_not_restore_old_logs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            context = SimpleNamespace(
+                campaign_name="regime_dds",
+                output_dir=root / "outputs",
+                log_dir=root / "outputs" / "logs",
+            )
+            history = launcher.submission_history_path(context)
+            history.parent.mkdir(parents=True)
+            history.touch()
+            context.log_dir.mkdir(parents=True)
+            (context.log_dir / "pet_cfe_ref_01109403_101.err").touch()
+
+            jobs = launcher.submitted_worker_jobs(
+                context,
+                {"pet_cfe_ref_01109403"},
+            )
+
+            self.assertEqual(jobs, {})
 
     def test_slurm_uses_stage_specific_resources(self):
         slurm = {
