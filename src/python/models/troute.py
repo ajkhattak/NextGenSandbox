@@ -1,5 +1,6 @@
 import os
 import sys
+import math
 import yaml
 import geopandas as gpd
 import pandas as pd
@@ -75,17 +76,24 @@ class TRouteConfigurationGenerator(ConfigurationGenerator):
                 "outputs/div",
             )
 
-        forcing_parameters['qlat_file_pattern_filter'] = "nex-*"
         if getattr(self.ctx, "per_formulation_nexus_files", False):
             forcing_parameters['qlat_input_file'] = (
                 "formulation_default_nexuses.nc"
             )
+            # t-route reads this key unconditionally but ignores its value when
+            # qlat_input_file is provided.
+            forcing_parameters['qlat_file_pattern_filter'] = None
+            forcing_parameters['max_loop_size'] = max(
+                1,
+                math.ceil(diff_time / 3600),
+            )
         else:
             forcing_parameters.pop('qlat_input_file', None)
+            forcing_parameters['qlat_file_pattern_filter'] = "nex-*"
+            forcing_parameters['max_loop_size'] = 10000000
 
         forcing_parameters.pop('binary_nexus_file_folder', None)
         forcing_parameters['nts'] = int(diff_time / dt)
-        forcing_parameters['max_loop_size'] = 10000000
 
         d['compute_parameters']['cpu_pool'] = 1
 

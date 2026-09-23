@@ -109,6 +109,7 @@ class TestTRouteConfigurationGenerator(unittest.TestCase):
                 ]
                 self.assertEqual(forcing["qlat_file_pattern_filter"], "nex-*")
                 self.assertNotIn("qlat_input_file", forcing)
+                self.assertEqual(forcing["max_loop_size"], 10000000)
 
     def test_per_formulation_nexus_output_uses_netcdf_forcing(self):
         network = pd.DataFrame(
@@ -189,6 +190,8 @@ class TestTRouteConfigurationGenerator(unittest.TestCase):
                     forcing["qlat_input_file"],
                     "formulation_default_nexuses.nc",
                 )
+                self.assertIsNone(forcing["qlat_file_pattern_filter"])
+                self.assertEqual(forcing["max_loop_size"], 24)
 
     def test_terminal_flowpath_mask_rejects_missing_contributors(self):
         network = pd.DataFrame(
