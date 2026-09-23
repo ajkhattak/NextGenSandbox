@@ -50,7 +50,7 @@ class TestLauncherSelection(unittest.TestCase):
             tmp_path = Path(tmp)
             csv_path = tmp_path / "gages.csv"
             csv_path.write_text(
-                "gage_id,group_name\n"
+                "STAID,group_name\n"
                 "01109403,snowy\n"
                 "01109403,benchmark\n"
                 "02299950,arid\n"
@@ -62,7 +62,7 @@ class TestLauncherSelection(unittest.TestCase):
                         "option": "file",
                         "file": {
                             "path": str(csv_path),
-                            "id_column": "gage_id",
+                            "column": "STAID",
                             "group_column": "group_name",
                         },
                     }
@@ -103,6 +103,22 @@ class TestLauncherSelection(unittest.TestCase):
                 "selection",
                 map_config["formulations"]["pet_cfe_s"],
             )
+
+    def test_launcher_rejects_id_column_alias(self):
+        config = {
+            "general": {
+                "gages": {
+                    "option": "file",
+                    "file": {
+                        "path": "gages.csv",
+                        "id_column": "STAID",
+                    },
+                }
+            }
+        }
+
+        with self.assertRaisesRegex(ValueError, "use general.gages.file.column"):
+            launcher.load_launcher_gages(config, Path.cwd())
 
     def test_formulation_selection_combines_groups_and_ids(self):
         gage_groups = {

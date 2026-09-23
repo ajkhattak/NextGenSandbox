@@ -44,6 +44,42 @@ class TestGageSelection(unittest.TestCase):
 
             self.assertEqual(load_general_gages(config), ["01308000", "03366500"])
 
+    def test_general_gages_from_file_with_custom_column(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "gages.csv"
+            pd.DataFrame({"STAID": ["01308000", "03366500"]}).to_csv(
+                path, index=False
+            )
+            config = {
+                "general": {
+                    "gages": {
+                        "option": "file",
+                        "file": {
+                            "path": str(path),
+                            "column": "STAID",
+                        },
+                    }
+                }
+            }
+
+            self.assertEqual(load_general_gages(config), ["01308000", "03366500"])
+
+    def test_general_gages_rejects_id_column_alias(self):
+        config = {
+            "general": {
+                "gages": {
+                    "option": "file",
+                    "file": {
+                        "path": "gages.csv",
+                        "id_column": "STAID",
+                    },
+                }
+            }
+        }
+
+        with self.assertRaisesRegex(ValueError, "use general.gages.file.column"):
+            load_general_gages(config)
+
     def test_general_gages_from_gpkg_select(self):
         with tempfile.TemporaryDirectory() as tmp:
             hydrofabric = Path(tmp) / "hydrofabric"

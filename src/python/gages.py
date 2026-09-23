@@ -31,6 +31,11 @@ def load_general_gages(config: dict) -> list[str]:
         return _normalize_gage_list(general_gages.get("ids"), "general.gages.ids")
     if option == "file":
         file_config = general_gages.get("file") or {}
+        if "id_column" in file_config:
+            raise ValueError(
+                "general.gages.file.id_column is not supported; "
+                "use general.gages.file.column"
+            )
         return _load_gages_from_file(
             file_config.get("path"),
             file_config.get("column", "gage_id"),

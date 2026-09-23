@@ -359,7 +359,12 @@ def load_launcher_gages(
     if not isinstance(path_value, str) or not path_value.strip():
         raise ValueError("general.gages.file.path must be provided")
     path = resolve_path(launcher_dir, path_value)
-    id_column = file_cfg.get("id_column") or file_cfg.get("column", "gage_id")
+    if "id_column" in file_cfg:
+        raise ValueError(
+            "general.gages.file.id_column is not supported; "
+            "use general.gages.file.column"
+        )
+    column = file_cfg.get("column", "gage_id")
     group_column = file_cfg.get("group_column")
 
     if not path.exists():
@@ -368,13 +373,13 @@ def load_launcher_gages(
     gage_groups: dict[str, list[str]] = {}
     with path.open(newline="") as file:
         reader = csv.DictReader(file)
-        if id_column not in (reader.fieldnames or []):
-            raise ValueError(f"{path} must contain gage ID column '{id_column}'")
+        if column not in (reader.fieldnames or []):
+            raise ValueError(f"{path} must contain gage ID column '{column}'")
         if group_column and group_column not in (reader.fieldnames or []):
             raise ValueError(f"{path} must contain group column '{group_column}'")
 
         for row in reader:
-            gage_id = str(row[id_column]).strip()
+            gage_id = str(row[column]).strip()
             if not gage_id:
                 continue
             groups = split_group_value(row.get(group_column)) if group_column else []
