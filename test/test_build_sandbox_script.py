@@ -79,6 +79,16 @@ class TestBuildSandboxScript(unittest.TestCase):
             2,
         )
 
+    def test_profile_exposes_sandbox_shared_libraries_on_linux(self):
+        self.assertIn(
+            'export LD_LIBRARY_PATH="$SANDBOX_ENV/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"',
+            self.profile,
+        )
+        self.assertIn(
+            'export LIBRARY_PATH="$SANDBOX_ENV/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"',
+            self.profile,
+        )
+
     def test_subset_uses_binary_rann_dependency(self):
         self.assertIn("  - r-rann", self.subset_environment)
         self.assertIn("requireNamespace(\"RANN\"", self.subset_script)

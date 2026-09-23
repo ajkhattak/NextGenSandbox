@@ -143,14 +143,21 @@ else
     echo "  Run: $SANDBOX_REPO/bootstrap.sh --sandbox"
 fi
 
-# Conda packages can require a newer, backward-compatible GNU C++ runtime than
-# the compiler modules provide. Apply this after activation, while retaining
-# the compiler, MPI, and NetCDF library paths supplied by the loaded modules.
-if [ "$(uname -s)" = "Linux" ] && [ -f "$SANDBOX_ENV/lib/libstdc++.so.6" ]; then
-    case ":${LIBRARY_PATH:-}:" in
+# Linux executables built against the Sandbox Python environment need its
+# shared libraries when launched directly or through mpirun. Retain the MPI,
+# NetCDF, and compiler library paths supplied by the loaded modules.
+if [ "$(uname -s)" = "Linux" ] && [ -d "$SANDBOX_ENV/lib" ]; then
+    case ":${LD_LIBRARY_PATH:-}:" in
         *":$SANDBOX_ENV/lib:"*) ;;
-        *) export LIBRARY_PATH="$SANDBOX_ENV/lib${LIBRARY_PATH:+:$LIBRARY_PATH}" ;;
+        *) export LD_LIBRARY_PATH="$SANDBOX_ENV/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" ;;
     esac
+
+    if [ -f "$SANDBOX_ENV/lib/libstdc++.so.6" ]; then
+        case ":${LIBRARY_PATH:-}:" in
+            *":$SANDBOX_ENV/lib:"*) ;;
+            *) export LIBRARY_PATH="$SANDBOX_ENV/lib${LIBRARY_PATH:+:$LIBRARY_PATH}" ;;
+        esac
+    fi
 fi
 
 case ":$PATH:" in

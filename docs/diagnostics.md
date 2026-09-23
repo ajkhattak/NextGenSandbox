@@ -200,12 +200,11 @@ version `CXXABI_1.3.15' not found
 
 This means compiled Conda libraries require a newer C++ runtime than the one
 selected from the HPC compiler modules. Current conda-forge Python and NumPy
-builds cannot be solved against the older GCC 11 runtime. Sandbox therefore
-keeps the compiler, MPI, NetCDF, and UDUNITS module paths and applies Conda's
-newer, backward-compatible C++ runtime only to ngen and ngen-cal child
-processes. On Linux, `sandbox_profile.sh` also prepends `$SANDBOX_ENV/lib` to
-`LIBRARY_PATH` so the same runtime is available when linking ngen and model
-libraries. Existing module library paths remain available after it.
+builds cannot be solved against the older GCC 11 runtime. On Linux,
+`sandbox_profile.sh` prepends `$SANDBOX_ENV/lib` to `LD_LIBRARY_PATH` and
+`LIBRARY_PATH`. This lets direct ngen and `mpirun` commands find the Sandbox
+Python and C++ libraries while retaining the compiler, MPI, NetCDF, and
+UDUNITS paths supplied by the loaded modules.
 
 Confirm the runtime and other shared dependencies with:
 
@@ -226,9 +225,10 @@ source ./sandbox_profile.sh
 ./bootstrap.sh --check
 ```
 
-Do not globally override `PATH`, `LD_LIBRARY_PATH`, or `LD_PRELOAD` in a shell
-startup file. Sandbox scopes the required runtime paths to processes it starts,
-so unrelated HPC applications retain their module environment.
+Do not override `PATH`, `LD_LIBRARY_PATH`, or `LD_PRELOAD` in a shell startup
+file. Source the installation-specific `sandbox_profile.sh` instead, so these
+settings apply only to the current Sandbox shell and launcher jobs that source
+the same profile.
 
 ## MPI Compiler Variables Are Not Set
 

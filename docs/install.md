@@ -77,10 +77,11 @@ are expected because they have not been built yet.
 source ./sandbox_profile.sh
 ```
 
-On Linux, current conda-forge Python packages may use a newer C++ runtime than
-the compiler modules used for ngen, MPI, and NetCDF. Sandbox keeps the HPC
-module paths intact and selects the Conda C++ runtime only for ngen processes
-that it launches; no global library-path changes are required.
+On Linux, the profile prepends `$SANDBOX_ENV/lib` to the current shell's
+runtime library path. This lets directly launched ngen processes find the
+Sandbox Python and C++ libraries while retaining the MPI, NetCDF, and compiler
+paths supplied by the loaded modules. No shell-startup-file changes are
+required.
 
 Sourcing the profile again activates either the Conda environment or Python
 virtual environment created by the build. The shell prompt should indicate the
