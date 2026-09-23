@@ -120,8 +120,8 @@ block only when a non-default metadata location is needed.
 Other `simulation.outputs` settings are shared with normal Sandbox projects.
 For example, set
 `simulation.outputs.per_formulation_nexus_files: true` to replace per-nexus
-CSV output with one NetCDF file per formulation when supported by the selected
-ngen build.
+CSV output with one NetCDF file per formulation. Sandbox also configures
+t-route to read that file. The selected ngen build must support NetCDF.
 
 ## Launcher Settings
 

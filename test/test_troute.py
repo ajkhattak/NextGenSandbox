@@ -62,6 +62,7 @@ class TestTRouteConfigurationGenerator(unittest.TestCase):
                 context = SimpleNamespace(
                     sandbox_dir=Path(__file__).resolve().parents[1],
                     task_type=task_type,
+                    per_formulation_nexus_files=False,
                     simulation_time={
                         "start_time": "2015-10-01 00:00:00",
                         "end_time": "2015-10-02 00:00:00",
@@ -101,6 +102,92 @@ class TestTRouteConfigurationGenerator(unittest.TestCase):
                 self.assertEqual(
                     stream_output["stream_output_directory"],
                     expected_directory,
+                )
+
+                forcing = troute_config["compute_parameters"][
+                    "forcing_parameters"
+                ]
+                self.assertEqual(forcing["qlat_file_pattern_filter"], "nex-*")
+                self.assertNotIn("qlat_input_file", forcing)
+
+    def test_per_formulation_nexus_output_uses_netcdf_forcing(self):
+        network = pd.DataFrame(
+            {
+                "id": ["wb-423185"],
+                "hl_uri": ["gages-02299950"],
+                "toid": ["nex-423186"],
+            }
+        )
+        attributes = {
+            "key": "id",
+            "downstream": "toid",
+            "mainstem": "mainstem",
+            "dx": "Length_m",
+            "n": "n",
+            "ncc": "nCC",
+            "s0": "So",
+            "bw": "BtmWdth",
+            "waterbody": "WaterbodyID",
+            "gages": "gage",
+            "tw": "TopWdth",
+            "twcc": "TopWdthCC",
+            "musk": "MusK",
+            "musx": "MusX",
+            "cs": "ChSlp",
+            "alt": "alt",
+        }
+
+        for task_type in ("calibration", "validation", "restart", "control"):
+            with (
+                self.subTest(task_type=task_type),
+                tempfile.TemporaryDirectory() as tmp,
+            ):
+                root = Path(tmp)
+                config_dir = root / "configs"
+                config_dir.mkdir()
+                static_data = SimpleNamespace(
+                    gdf=pd.DataFrame(),
+                    catids=[],
+                    config_dir=config_dir,
+                    gpkg_file=str(root / "gage_02299950.gpkg"),
+                    gage_id="02299950",
+                    get_flowpath_attributes=lambda **kwargs: attributes,
+                )
+                context = SimpleNamespace(
+                    sandbox_dir=Path(__file__).resolve().parents[1],
+                    task_type=task_type,
+                    per_formulation_nexus_files=True,
+                    simulation_time={
+                        "start_time": "2015-10-01 00:00:00",
+                        "end_time": "2015-10-02 00:00:00",
+                    },
+                )
+
+                with patch(
+                    "src.python.models.troute.gpd.read_file",
+                    return_value=network,
+                ):
+                    TRouteConfigurationGenerator(
+                        context,
+                        static_data,
+                        root / "output",
+                    ).write_troute_input_files()
+
+                troute_config = yaml.safe_load(
+                    (config_dir / "troute_config.yaml").read_text()
+                )
+                forcing = troute_config["compute_parameters"][
+                    "forcing_parameters"
+                ]
+                expected_folder = (
+                    "./"
+                    if task_type != "control"
+                    else str(root / "output" / "outputs" / "div")
+                )
+                self.assertEqual(forcing["qlat_input_folder"], expected_folder)
+                self.assertEqual(
+                    forcing["qlat_input_file"],
+                    "formulation_default_nexuses.nc",
                 )
 
     def test_terminal_flowpath_mask_rejects_missing_contributors(self):

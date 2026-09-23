@@ -391,9 +391,9 @@ partitioning, and output behavior.
 
 Set `outputs.per_formulation_nexus_files: true` to reduce the number of nexus
 output files written by ngen. Sandbox writes the setting as the top-level
-`per_formulation_nexus_files` realization option. The option is disabled by
-default. If the selected ngen build does not support this output mode, ngen
-uses its default per-nexus CSV output.
+`per_formulation_nexus_files` realization option and configures t-route to read
+the resulting `formulation_default_nexuses.nc` file. The option is disabled by
+default and requires an ngen build with NetCDF support.
 
 #### Time periods
 

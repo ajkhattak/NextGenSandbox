@@ -66,15 +66,26 @@ class TRouteConfigurationGenerator(ConfigurationGenerator):
         d['compute_parameters']['restart_parameters']['start_datetime'] = start_time.strftime("%Y-%m-%d_%H:%M:%S")
 
         calibration_tasks = {'calibration', 'validation', 'restart'}
+        forcing_parameters = d['compute_parameters']['forcing_parameters']
         if self.ctx.task_type in calibration_tasks:
-            d['compute_parameters']['forcing_parameters']['qlat_input_folder'] = "./"
+            forcing_parameters['qlat_input_folder'] = "./"
         else:
-            d['compute_parameters']['forcing_parameters']['qlat_input_folder'] = os.path.join(self.output_dir, "outputs/div")
+            forcing_parameters['qlat_input_folder'] = os.path.join(
+                self.output_dir,
+                "outputs/div",
+            )
 
-        d['compute_parameters']['forcing_parameters']['qlat_file_pattern_filter'] = "nex-*"
-        del d['compute_parameters']['forcing_parameters']['binary_nexus_file_folder']
-        d['compute_parameters']['forcing_parameters']['nts'] = int(diff_time / dt)
-        d['compute_parameters']['forcing_parameters']['max_loop_size'] = 10000000
+        forcing_parameters['qlat_file_pattern_filter'] = "nex-*"
+        if getattr(self.ctx, "per_formulation_nexus_files", False):
+            forcing_parameters['qlat_input_file'] = (
+                "formulation_default_nexuses.nc"
+            )
+        else:
+            forcing_parameters.pop('qlat_input_file', None)
+
+        forcing_parameters.pop('binary_nexus_file_folder', None)
+        forcing_parameters['nts'] = int(diff_time / dt)
+        forcing_parameters['max_loop_size'] = 10000000
 
         d['compute_parameters']['cpu_pool'] = 1
 
