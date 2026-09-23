@@ -46,6 +46,10 @@ Each entry under `formulations` is a regular formulation definition plus a
 required `selection`. Selection happens after `general.gages` establishes the
 project gage set and `simulation.gages` optionally narrows it.
 
+A launcher configuration with one named formulation can be used directly with
+`sandbox`; the launcher-only `selection` field is ignored. Multiple named
+formulations require `sandbox-launcher`.
+
 ```yaml
 formulations:
   nom_cfe_s:
@@ -88,6 +92,10 @@ general:
       column: gage_id
       group_column: group_name
 ```
+
+`general.gages.file.column` is the gage ID column for both `sandbox` and
+`sandbox-launcher`; launcher configurations use the normal Sandbox schema.
+`group_column` is optional and is used only for launcher assignments.
 
 Keep `model_instances` as a wrapper because it has the same form as a normal
 Sandbox `formulations.<name>.model_instances` block and supports more than one

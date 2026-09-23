@@ -146,11 +146,6 @@ class SandboxContext:
             raise ValueError(
                 f"formulations.{self.formulation_name}.models must be provided"
             )
-        if "selection" in dformul:
-            raise ValueError(
-                f"formulations.{self.formulation_name}.selection is only used "
-                "by sandbox-launcher. Use simulation.gages with sandbox."
-            )
 
         self.ngen_dir = Path(os.environ.get("NGEN_DIR"))
 

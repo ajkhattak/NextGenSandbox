@@ -85,7 +85,12 @@ launcher:
 ```
 
 Each launcher formulation also includes a `selection` that assigns gages to
-that model setup. `simulation.tasks` accepts `[control]`, `[calibration]`,
+that model setup. When a launcher configuration contains exactly one named
+formulation, it can also be passed directly to `sandbox`; Sandbox ignores
+`selection` and uses `general.gages` plus `simulation.gages`. A configuration
+with multiple formulations must use `sandbox-launcher`.
+
+`simulation.tasks` accepts `[control]`, `[calibration]`,
 `[validation]`, `[restart]`, or `[calibration, validation]`; Launcher supports
 the calibration and validation choices. It translates each selected
 formulation and task into a per-gage Sandbox configuration it executes.
