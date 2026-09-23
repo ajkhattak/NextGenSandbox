@@ -48,7 +48,8 @@ project gage set and `simulation.gages` optionally narrows it.
 
 A launcher configuration with one named formulation can be used directly with
 `sandbox`; the launcher-only `selection` field is ignored. Multiple named
-formulations require `sandbox-launcher`.
+formulations require `sandbox-launcher`. Both commands use the same output
+namespace: `<output_dir>/<formulation>/<gage_id>`.
 
 ```yaml
 formulations:

@@ -13,6 +13,11 @@ A project should use one layout consistently. The code supports both layouts,
 but mixing styles within the same project makes later forcing, configuration,
 and run steps harder to reason about.
 
+Sandbox and Sandbox Launcher both organize outputs by formulation. Direct
+Sandbox outputs created by older versions at `<output_dir>/<gage_id>` are not
+automatically used for restart or validation; move them beneath
+`<output_dir>/<formulation_name>` or regenerate the configuration files.
+
 ## Gage Layout
 
 The default `gage` layout organizes resources by gage first:
@@ -29,27 +34,28 @@ The default `gage` layout organizes resources by gage first:
     dem/  # optional; retained when subsetting.dem.output_dir is "dem"
 
 <output_dir>/
-  <gage_id>[_<label>]/
-    simulation_metadata.yml  # optional; written when simulation.outputs.metadata.enabled is true
-    run_index.yml  # written by sandbox --run for calibration/validation tasks
-    configs/
-      calibration/
-        configuration_manifest.yml
-        realization_*.json
-        ngen-cal_calib_config.yaml
-        troute_config.yaml
-        <model_instance_name>/
-          <model_config_files>
-      validation/
-        configuration_manifest.yml
-        realization_*.json
-        ngen-cal_valid_config.yaml
-        troute_config.yaml
-        <model_instance_name>/
-          <model_config_files>
-    output_*/
-    output_sim_obs/
-    pso_global_best/
+  <formulation_name>/
+    <gage_id>[_<label>]/
+      simulation_metadata.yml  # optional; written when simulation.outputs.metadata.enabled is true
+      run_index.yml  # written by sandbox --run for calibration/validation tasks
+      configs/
+        calibration/
+          configuration_manifest.yml
+          realization_*.json
+          ngen-cal_calib_config.yaml
+          troute_config.yaml
+          <model_instance_name>/
+            <model_config_files>
+        validation/
+          configuration_manifest.yml
+          realization_*.json
+          ngen-cal_valid_config.yaml
+          troute_config.yaml
+          <model_instance_name>/
+            <model_config_files>
+      output_*/
+      output_sim_obs/
+      pso_global_best/
 ```
 
 ## Resource Layout

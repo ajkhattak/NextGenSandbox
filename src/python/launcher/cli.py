@@ -82,6 +82,7 @@ HARD_FAILURE_STATES = {
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from src.python import helper
 from src.python.calibration_config import absolutize_optimizer_settings_file
 from src.python.forcing_files import (
     resolve_netcdf_forcing_pattern,
@@ -1705,8 +1706,7 @@ def slurm_settings_for_restart(
 
 
 def model_name_to_dir(name: str) -> str:
-    safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", name.strip())
-    return safe.strip("_").lower()
+    return helper.formulation_dir_name(name)
 
 
 def get_formulations_for_gage(ctx: LauncherContext, gage_id: str) -> list[tuple[str, dict[str, Any]]]:
@@ -1809,6 +1809,8 @@ def generated_configs_need_refresh(
     paths: dict[str, Path],
     *,
     expected_label: str | None = None,
+    expected_output_dir: Path | None = None,
+    expected_scenario: str | None = None,
 ) -> bool:
     """Return whether launcher-owned YAML files use an obsolete schema."""
     expected_tasks = {
@@ -1828,10 +1830,19 @@ def generated_configs_need_refresh(
             return True
         if not isinstance(config.get("formulations"), dict):
             return True
-        if config.get("simulation", {}).get("tasks") != expected:
+        simulation = config.get("simulation", {})
+        if simulation.get("tasks") != expected:
+            return True
+        if expected_output_dir is not None:
+            configured_output = config.get("general", {}).get("output_dir")
+            if not configured_output or Path(configured_output) != Path(
+                expected_output_dir
+            ):
+                return True
+        if simulation.get("scenario") != expected_scenario:
             return True
         if expected_label is not None:
-            current_label = config.get("simulation", {}).get("label") or ""
+            current_label = simulation.get("label") or ""
             if current_label != expected_label:
                 return True
     return False
@@ -1855,7 +1866,7 @@ def generate_config_files_for_gage(
     output_dir = experiment_output_dir(ctx, model_dir, scenario_name)
 
     general = sandbox_cfg.setdefault("general", {})
-    general["output_dir"] = str(output_dir)
+    general["output_dir"] = str(ctx.output_dir)
     general["gages"] = {
         "option": "ids",
         "ids": [gage_id],
@@ -1869,7 +1880,9 @@ def generate_config_files_for_gage(
     simulation["tasks"] = ["calibration"]
     simulation_label = launcher_simulation_label(sandbox_cfg)
     simulation["label"] = simulation_label
+    simulation.pop("scenario", None)
     if scenario is not None:
+        simulation["scenario"] = scenario.name
         simulation.setdefault("time", {})["calibration"] = (
             copy.deepcopy(scenario.calibration)
         )
@@ -3886,6 +3899,8 @@ def runner(
         refresh_generated_configs = generated_configs_need_refresh(
             generated_paths,
             expected_label=launcher_simulation_label(ctx.sandbox_cfg),
+            expected_output_dir=ctx.output_dir,
+            expected_scenario=scenario.name if scenario else None,
         )
         if not progress.configured or refresh_generated_configs:
             if not progress.configured and "calibration" not in ctx.stages:

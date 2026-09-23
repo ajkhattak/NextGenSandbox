@@ -90,6 +90,12 @@ formulation, it can also be passed directly to `sandbox`; Sandbox ignores
 `selection` and uses `general.gages` plus `simulation.gages`. A configuration
 with multiple formulations must use `sandbox-launcher`.
 
+Both Sandbox and Sandbox Launcher write each simulation beneath its named
+formulation: `<output_dir>/<formulation>/<gage_id>`. An optional
+`simulation.label` changes the final directory to `<gage_id>_<label>`.
+Launcher regime scenarios add one level between the formulation and gage:
+`<output_dir>/<formulation>/<scenario>/<gage_id>`.
+
 `simulation.tasks` accepts `[control]`, `[calibration]`,
 `[validation]`, `[restart]`, or `[calibration, validation]`; Launcher supports
 the calibration and validation choices. It translates each selected

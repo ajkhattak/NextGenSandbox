@@ -665,6 +665,12 @@ class TestLauncherSelection(unittest.TestCase):
                     "sandbox_validation",
                 },
             )
+            generated = yaml.safe_load(paths["sandbox_main"].read_text())
+            self.assertEqual(
+                generated["general"]["output_dir"],
+                str(root / "outputs"),
+            )
+            self.assertNotIn("scenario", generated["simulation"])
             restart = yaml.safe_load(paths["sandbox_restart"].read_text())
             self.assertEqual(
                 restart["simulation"]["tasks"],
@@ -701,6 +707,35 @@ class TestLauncherSelection(unittest.TestCase):
                 )
 
             self.assertTrue(launcher.generated_configs_need_refresh(paths))
+
+    def test_generated_configs_with_expanded_output_path_are_refreshed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = launcher.generated_config_paths(root, "01109403")
+            paths["sandbox_main"].parent.mkdir(parents=True)
+            for path, task in (
+                (paths["sandbox_main"], "calibration"),
+                (paths["sandbox_restart"], "restart"),
+                (paths["sandbox_validation"], "validation"),
+            ):
+                path.write_text(
+                    yaml.safe_dump(
+                        {
+                            "general": {
+                                "output_dir": str(root / "outputs" / "pet_cfe")
+                            },
+                            "formulations": {"pet_cfe": {}},
+                            "simulation": {"tasks": [task]},
+                        }
+                    )
+                )
+
+            self.assertTrue(
+                launcher.generated_configs_need_refresh(
+                    paths,
+                    expected_output_dir=root / "outputs",
+                )
+            )
 
     def test_generated_formulation_label_is_refreshed_when_not_requested(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -830,8 +865,9 @@ class TestLauncherSelection(unittest.TestCase):
             generated = yaml.safe_load(paths["sandbox_main"].read_text())
             self.assertEqual(
                 generated["general"]["output_dir"],
-                str(root / "outputs" / "pet_cfe" / "dry"),
+                str(root / "outputs"),
             )
+            self.assertEqual(generated["simulation"]["scenario"], "dry")
             self.assertEqual(
                 generated["simulation"]["time"]["calibration"],
                 scenario.calibration,

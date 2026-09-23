@@ -98,7 +98,10 @@ class SandboxContext:
 
         self.input_dir = self.sandbox_config["general"].get("input_dir")
 
-        self.output_dir = Path(self.sandbox_config["general"].get("output_dir"))
+        self.project_output_dir = Path(
+            self.sandbox_config["general"].get("output_dir")
+        )
+        self.output_dir = self.project_output_dir
 
         self.resource_layout = self.sandbox_config["general"].get(
             "resource_layout",
@@ -114,6 +117,7 @@ class SandboxContext:
         self.load_forcing_config()
 
         self.load_simulation_config()
+        self.apply_output_layout()
 
         self.load_observations_config()
 
@@ -162,6 +166,17 @@ class SandboxContext:
         self.verbosity = dformul.get("verbosity", 0)
 
         self.schema_type = dformul.get("schema_type", "noaa-owp")
+
+    def apply_output_layout(self):
+        formulation_dir = helper.formulation_dir_name(self.formulation_name)
+        if not formulation_dir:
+            raise ValueError(
+                f"formulations.{self.formulation_name} does not produce a "
+                "usable output directory name"
+            )
+        self.output_dir = self.project_output_dir / formulation_dir
+        if self.simulation_scenario:
+            self.output_dir /= self.simulation_scenario
 
     def load_forcing_config(self):
         # Forcing block
@@ -358,6 +373,22 @@ class SandboxContext:
             if simulation_label and simulation_label.strip()
             else None
         )
+
+        simulation_scenario = dsim.get("scenario")
+        if simulation_scenario is not None and not isinstance(
+            simulation_scenario, str
+        ):
+            raise TypeError("simulation.scenario must be a string")
+        self.simulation_scenario = None
+        if simulation_scenario and simulation_scenario.strip():
+            self.simulation_scenario = helper.formulation_dir_name(
+                simulation_scenario
+            )
+            if not self.simulation_scenario:
+                raise ValueError(
+                    "simulation.scenario does not produce a usable output "
+                    "directory name"
+                )
 
         outputs = dsim.get("outputs", {}) or {}
         if not isinstance(outputs, dict):

@@ -71,6 +71,11 @@ def safe_path_name(value):
     return safe.strip("._") or "validation"
 
 
+def formulation_dir_name(value):
+    safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value).strip())
+    return safe.strip("._").lower()
+
+
 def configuration_dir(
     output_dir,
     task_type,
