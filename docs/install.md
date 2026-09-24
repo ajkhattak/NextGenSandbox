@@ -78,10 +78,10 @@ source ./sandbox_profile.sh
 ```
 
 On Linux, the profile prepends `$SANDBOX_ENV/lib` to the current shell's
-runtime library path. This lets directly launched ngen processes find the
-Sandbox Python and C++ libraries while retaining the MPI, NetCDF, and compiler
-paths supplied by the loaded modules. No shell-startup-file changes are
-required.
+runtime and link-library paths and preloads its compatible C++ runtime. This
+lets both Sandbox and direct `mpirun` commands use the required Python and C++
+libraries while retaining the MPI, NetCDF, and compiler paths supplied by the
+loaded modules. No shell-startup-file changes are required.
 
 Sourcing the profile again activates either the Conda environment or Python
 virtual environment created by the build. The shell prompt should indicate the

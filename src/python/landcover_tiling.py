@@ -11,6 +11,7 @@ import geopandas as gpd
 import numpy as np
 import json
 import re
+import shutil
 
 
 def main() -> None:
@@ -73,8 +74,18 @@ def run(args: dict[str, pathlib.Path]):
         cmd = [ngen, hf, "all", hf, "all", realization_file_calib]
 
 
-        if num_proc > 1:
-            cmd = ["mpirun", "-np", str(num_proc)] + cmd + [partition_file]
+        slurm_singleton = bool(
+            os.environ.get("SLURM_JOB_ID") or os.environ.get("SLURM_JOBID")
+        )
+        if num_proc > 1 or slurm_singleton:
+            if shutil.which("mpirun") is None:
+                raise RuntimeError(
+                    f"MPI execution requested {num_proc} processes, but "
+                    "mpirun was not found in PATH."
+                )
+            cmd = ["mpirun", "-np", str(num_proc)] + cmd
+            if partition_file.is_file():
+                cmd.append(partition_file)
     
 
         exec_cmd(cmd, dryrun=dryrun)

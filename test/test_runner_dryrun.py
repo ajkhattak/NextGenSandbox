@@ -9,6 +9,35 @@ from src.python.runner import Runner
 
 
 class TestRunnerDryRun(unittest.TestCase):
+    def test_slurm_single_process_requires_mpirun(self):
+        with patch("src.python.runner.shutil.which", return_value="/usr/bin/mpirun"):
+            runner = Runner(SimpleNamespace())
+
+        with patch.dict(os.environ, {"SLURM_JOB_ID": "12345"}, clear=False):
+            self.assertTrue(runner.slurm_requires_mpi_launcher())
+
+    def test_single_process_outside_slurm_does_not_require_mpirun(self):
+        with patch("src.python.runner.shutil.which", return_value="/usr/bin/mpirun"):
+            runner = Runner(SimpleNamespace())
+
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertFalse(runner.slurm_requires_mpi_launcher())
+
+    def test_parallel_run_requires_mpirun_in_path(self):
+        with patch("src.python.runner.shutil.which", return_value=None):
+            runner = Runner(SimpleNamespace())
+
+        with self.assertRaisesRegex(RuntimeError, "mpirun was not found"):
+            runner.validate_mpi_launcher(2)
+
+    def test_slurm_single_process_requires_mpirun_in_path(self):
+        with patch("src.python.runner.shutil.which", return_value=None):
+            runner = Runner(SimpleNamespace())
+
+        with patch.dict(os.environ, {"SLURM_JOB_ID": "12345"}, clear=False):
+            with self.assertRaisesRegex(RuntimeError, "mpirun was not found"):
+                runner.validate_mpi_launcher(1)
+
     def test_linux_runtime_is_scoped_to_spawned_processes(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             sandbox_env = Path(temp_dir) / "sandbox"

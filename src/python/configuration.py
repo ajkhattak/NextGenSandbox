@@ -96,6 +96,7 @@ class ConfigurationCalib:
                  gage_id,
                  state_dir=None,
                  config_dir=None,
+                 force_mpi_launcher=False,
                  ):
         self.ctx=ctx
         self.gpkg_file          = gpkg_file
@@ -113,6 +114,7 @@ class ConfigurationCalib:
             if config_dir is not None
             else Path(output_dir) / "configs"
         )
+        self.force_mpi_launcher = force_mpi_launcher
         self.selected_state_file = None
 
     @staticmethod
@@ -706,9 +708,7 @@ class ConfigurationCalib:
             df_new["model"]["args"]  = cmd
 
         
-        if self.num_procs > 1 and self.ctx.ensemble_size == 1:
-            df_new["model"]["parallel"] = self.num_procs
-            df_new["model"]["partitions"] = self.realization_file_par
+        self.configure_ngen_mpi(df_new["model"])
 
         df_new["model"]["params"] = {}
 
@@ -821,3 +821,22 @@ class ConfigurationCalib:
         with config_file.open('w') as file:
             yaml.dump(df_new, file, default_flow_style=False, sort_keys=False)
         return config_file
+
+    def configure_ngen_mpi(self, model_config):
+        """Configure ngen-cal to launch MPI-enabled ngen safely."""
+        if self.ctx.ensemble_size != 1:
+            return
+
+        if self.num_procs > 1:
+            model_config["parallel"] = self.num_procs
+            model_config["partitions"] = self.realization_file_par
+            return
+
+        if not self.force_mpi_launcher:
+            return
+
+        if self.realization_file_par is not None:
+            model_config["parallel"] = 1
+            model_config["partitions"] = self.realization_file_par
+        else:
+            model_config["binary"] = f"mpirun -n 1 {model_config['binary']}"

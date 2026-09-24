@@ -202,9 +202,10 @@ This means compiled Conda libraries require a newer C++ runtime than the one
 selected from the HPC compiler modules. Current conda-forge Python and NumPy
 builds cannot be solved against the older GCC 11 runtime. On Linux,
 `sandbox_profile.sh` prepends `$SANDBOX_ENV/lib` to `LD_LIBRARY_PATH` and
-`LIBRARY_PATH`. This lets direct ngen and `mpirun` commands find the Sandbox
-Python and C++ libraries while retaining the compiler, MPI, NetCDF, and
-UDUNITS paths supplied by the loaded modules.
+`LIBRARY_PATH`, and prepends the Sandbox `libstdc++.so.6` to `LD_PRELOAD`.
+This lets direct ngen and `mpirun` commands find the Sandbox Python and C++
+libraries while retaining the compiler, MPI, NetCDF, and UDUNITS paths
+supplied by the loaded modules.
 
 Confirm the runtime and other shared dependencies with:
 
@@ -229,6 +230,34 @@ Do not override `PATH`, `LD_LIBRARY_PATH`, or `LD_PRELOAD` in a shell startup
 file. Source the installation-specific `sandbox_profile.sh` instead, so these
 settings apply only to the current Sandbox shell and launcher jobs that source
 the same profile.
+
+### Testing ngen directly on Slurm
+
+Sandbox gives spawned ngen processes a scoped C++ runtime. It also launches an
+MPI-enabled ngen through `mpirun` inside a Slurm allocation, including basins
+that use only one process. This avoids OpenMPI treating the process as a direct
+`srun` launch when the site OpenMPI module lacks Slurm PMI support.
+
+A manual ngen command bypasses the Sandbox process setup. After sourcing the
+installation's profile, run it through `mpirun`:
+
+```bash
+source ./sandbox_profile.sh
+mpirun -np 1 "$NGEN_DIR/cmake_build/ngen" <ngen-arguments>
+```
+
+For a one-off test in a shell that has not sourced the profile, use:
+
+```bash
+env \
+  LD_LIBRARY_PATH="$SANDBOX_ENV/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+  LD_PRELOAD="$SANDBOX_ENV/lib/libstdc++.so.6${LD_PRELOAD:+:$LD_PRELOAD}" \
+  mpirun -np 1 "$NGEN_DIR/cmake_build/ngen" <ngen-arguments>
+```
+
+If a partition file is part of the generated Sandbox command, include it as
+the final ngen argument. Do not launch an MPI-enabled ngen executable directly
+from an interactive Slurm allocation.
 
 ## MPI Compiler Variables Are Not Set
 

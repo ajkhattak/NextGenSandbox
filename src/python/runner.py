@@ -30,6 +30,22 @@ class Runner:
         # Check whether `mpirun` exists on the system; if exists, then it assumes that ngen was built with MPI=ON
         self.mpirun_exists = shutil.which("mpirun") is not None
 
+    def slurm_requires_mpi_launcher(self) -> bool:
+        """Return whether a singleton MPI build must run through mpirun."""
+        return bool(
+            os.environ.get("SLURM_JOB_ID") or os.environ.get("SLURM_JOBID")
+        )
+
+    def validate_mpi_launcher(self, num_procs: int) -> None:
+        if (
+            num_procs > 1 or self.slurm_requires_mpi_launcher()
+        ) and not self.mpirun_exists:
+            raise RuntimeError(
+                f"MPI execution requires mpirun for {num_procs} process(es), "
+                "but mpirun was not found in PATH. Load the MPI environment "
+                "used to build ngen and try again."
+            )
+
     def subprocess_environment(self) -> dict[str, str]:
         """Return an isolated environment for ngen and ngen-cal processes."""
         run_env = os.environ.copy()
@@ -153,9 +169,11 @@ class Runner:
             self.file_par = file_par
             self.num_procs = int(num_cpus)
 
-            if self.mpirun_exists and self.num_procs > 1:
-                # Use MPI only when the partitioning request needs multiple processes.
+            self.validate_mpi_launcher(self.num_procs)
 
+            if self.mpirun_exists and (
+                self.num_procs > 1 or self.slurm_requires_mpi_launcher()
+            ):
                 run_cmd = [
                     "mpirun",
                     "-np",
@@ -166,8 +184,9 @@ class Runner:
                     str(gpkg_file),
                     "all",
                     str(realization),
-                    str(self.file_par),
                 ]
+                if self.file_par is not None:
+                    run_cmd.append(str(self.file_par))
 
             run_env = self.subprocess_environment()
             command_text = shlex.join(run_cmd)
@@ -222,6 +241,7 @@ class Runner:
         self.file_par = file_par
 
         self.num_procs = int(num_cpus)
+        self.validate_mpi_launcher(self.num_procs)
 
         if set(self.ctx.simulation_tasks).intersection({"calibration", "restart"}):
             mode = (
@@ -334,6 +354,7 @@ class Runner:
             gage_id              = id,
             state_dir            = restart_dir if mode == "restart" else o_dir,
             config_dir           = config_dir,
+            force_mpi_launcher   = self.slurm_requires_mpi_launcher(),
         )
 
         config_file = ConfigGen.write_calib_input_files()

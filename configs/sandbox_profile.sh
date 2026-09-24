@@ -157,6 +157,11 @@ if [ "$(uname -s)" = "Linux" ] && [ -d "$SANDBOX_ENV/lib" ]; then
             *":$SANDBOX_ENV/lib:"*) ;;
             *) export LIBRARY_PATH="$SANDBOX_ENV/lib${LIBRARY_PATH:+:$LIBRARY_PATH}" ;;
         esac
+
+        case ":${LD_PRELOAD:-}:" in
+            *":$SANDBOX_ENV/lib/libstdc++.so.6:"*) ;;
+            *) export LD_PRELOAD="$SANDBOX_ENV/lib/libstdc++.so.6${LD_PRELOAD:+:$LD_PRELOAD}" ;;
+        esac
     fi
 fi
 

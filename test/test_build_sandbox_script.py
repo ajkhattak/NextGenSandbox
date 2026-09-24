@@ -88,6 +88,10 @@ class TestBuildSandboxScript(unittest.TestCase):
             'export LIBRARY_PATH="$SANDBOX_ENV/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"',
             self.profile,
         )
+        self.assertIn(
+            'export LD_PRELOAD="$SANDBOX_ENV/lib/libstdc++.so.6${LD_PRELOAD:+:$LD_PRELOAD}"',
+            self.profile,
+        )
 
     def test_subset_uses_binary_rann_dependency(self):
         self.assertIn("  - r-rann", self.subset_environment)

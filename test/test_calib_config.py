@@ -22,6 +22,43 @@ def make_parameter_context(sandbox_dir, instances_by_model):
 
 class TestCalibrationConfig(unittest.TestCase):
     @staticmethod
+    def _mpi_config(*, num_procs=1, partitions=None, force=False):
+        config = ConfigurationCalib.__new__(ConfigurationCalib)
+        config.ctx = SimpleNamespace(ensemble_size=1)
+        config.num_procs = num_procs
+        config.realization_file_par = partitions
+        config.force_mpi_launcher = force
+        return config
+
+    def test_slurm_single_process_uses_mpirun_with_partition_file(self):
+        config = self._mpi_config(
+            partitions="partitions_1.json",
+            force=True,
+        )
+        model = {"binary": "/path/to/ngen"}
+
+        config.configure_ngen_mpi(model)
+
+        self.assertEqual(model["parallel"], 1)
+        self.assertEqual(model["partitions"], "partitions_1.json")
+
+    def test_slurm_serial_run_prefixes_singleton_mpirun(self):
+        config = self._mpi_config(force=True)
+        model = {"binary": "/path/to/ngen"}
+
+        config.configure_ngen_mpi(model)
+
+        self.assertEqual(model["binary"], "mpirun -n 1 /path/to/ngen")
+
+    def test_non_slurm_single_process_remains_direct(self):
+        config = self._mpi_config()
+        model = {"binary": "/path/to/ngen"}
+
+        config.configure_ngen_mpi(model)
+
+        self.assertEqual(model, {"binary": "/path/to/ngen"})
+
+    @staticmethod
     def _state_file(
         directory,
         name="ngen_cal_nex-1_parameter_df_state.parquet",
