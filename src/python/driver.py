@@ -101,6 +101,9 @@ class Driver:
                     simulation_time=specification["simulation_time"],
                     hydrofabric=gpkg_dir,
                     forcing=f_dir,
+                    per_formulation_nexus_files=(
+                        ctx.per_formulation_nexus_files
+                    ),
                 )
         finally:
             ctx.task_type = original_task_type

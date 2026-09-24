@@ -108,6 +108,7 @@ def configuration_manifest(
     hydrofabric,
     forcing,
     validation_name=None,
+    per_formulation_nexus_files=False,
 ):
     manifest = {
         "schema_version": 1,
@@ -120,6 +121,8 @@ def configuration_manifest(
     }
     if validation_name is not None:
         manifest["validation_name"] = str(validation_name)
+    if per_formulation_nexus_files:
+        manifest["per_formulation_nexus_files"] = True
     return manifest
 
 
@@ -158,7 +161,7 @@ def validate_configuration_manifest(config_dir, **expected_values):
             "Generated configurations do not match the current Sandbox run:\n"
             f"{details}\n"
             "Run 'sandbox --conf -i <config>' after changing task type, time "
-            "windows, formulation, hydrofabric, or forcing."
+            "windows, formulation, hydrofabric, forcing, or output settings."
         )
     return manifest_file
 

@@ -59,6 +59,23 @@ class TestConfigurationManifest(unittest.TestCase):
                     **self._values(root),
                 )
 
+    def test_manifest_rejects_changed_nexus_output_mode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            helper.write_configuration_manifest(root, **self._values(root))
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "per_formulation_nexus_files",
+            ):
+                helper.validate_configuration_manifest(
+                    root,
+                    **self._values(
+                        root,
+                        per_formulation_nexus_files=True,
+                    ),
+                )
+
     def test_missing_manifest_instructs_user_to_generate_configs(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

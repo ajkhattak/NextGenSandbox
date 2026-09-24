@@ -561,6 +561,9 @@ class Runner:
             simulation_time=simulation_time,
             hydrofabric=gpkg_file,
             forcing=forcing_file,
+            per_formulation_nexus_files=(
+                self.ctx.per_formulation_nexus_files
+            ),
         )
         self.validate_configs(config_dir)
 

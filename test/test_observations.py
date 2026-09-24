@@ -11,6 +11,22 @@ from src.python.observations import ObservationLoader
 
 
 class TestObservationLoader(unittest.TestCase):
+    def test_rejects_misplaced_per_formulation_nexus_output_setting(self):
+        from src.python.context import SandboxContext
+
+        context = SandboxContext.__new__(SandboxContext)
+        context.sandbox_config = {
+            "simulation": {
+                "per_formulation_nexus_files": True,
+            }
+        }
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "simulation.outputs.per_formulation_nexus_files",
+        ):
+            context.load_simulation_config()
+
     def test_rejects_unknown_output_retention(self):
         from src.python.context import SandboxContext
 

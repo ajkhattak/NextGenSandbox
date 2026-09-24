@@ -350,6 +350,11 @@ class SandboxContext:
                 "simulation.ensemble is not supported. Move the block to "
                 "formulations.<name>.ensemble."
             )
+        if "per_formulation_nexus_files" in dsim:
+            raise ValueError(
+                "simulation.per_formulation_nexus_files is not supported; "
+                "use simulation.outputs.per_formulation_nexus_files"
+            )
 
         self.simulation_tasks = normalize_simulation_tasks(dsim)
         self.task_type = self.simulation_tasks[0]
