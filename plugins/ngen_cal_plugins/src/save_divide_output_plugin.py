@@ -16,6 +16,7 @@ def save_output(sim_dir: Path, output_suffix: str):
     lateral_pattern = "nex-*.csv"
     terminal_pattern = "tnx-*.csv"
     coastal_pattern = "cnx-*.csv"
+    nexus_netcdf_pattern = "formulation_*_nexuses.nc"
     routing_output_stream = "troute_output_*"
     routing_csv_output = "flowveldepth_*.csv"
     ngen_json = "realization*.json"
@@ -28,6 +29,7 @@ def save_output(sim_dir: Path, output_suffix: str):
         sim_dir.glob(lateral_pattern),
         sim_dir.glob(terminal_pattern),
         sim_dir.glob(coastal_pattern),
+        sim_dir.glob(nexus_netcdf_pattern),
         sim_dir.glob(routing_output_stream),
         sim_dir.glob(routing_csv_output),
         sim_dir.glob(ngen_json),
@@ -40,6 +42,7 @@ def clean_output(sim_dir: Path):
     lateral_pattern = "nex-*.csv"
     terminal_pattern = "tnx-*.csv"
     coastal_pattern = "cnx-*.csv"
+    nexus_netcdf_pattern = "formulation_*_nexuses.nc"
     routing_output_stream = "troute_output_*"
     routing_csv_output = "flowveldepth_*.csv"
     ngen_json = "realization*.json"
@@ -49,6 +52,7 @@ def clean_output(sim_dir: Path):
         sim_dir.glob(lateral_pattern),
         sim_dir.glob(terminal_pattern),
         sim_dir.glob(coastal_pattern),
+        sim_dir.glob(nexus_netcdf_pattern),
         sim_dir.glob(routing_output_stream),
         sim_dir.glob(routing_csv_output),
         sim_dir.glob(ngen_json),
@@ -73,6 +77,8 @@ class SaveData:
         global _workdir
         # HACK: fix this in future
         _workdir = path
+        for nexus_output in path.glob("formulation_*_nexuses.nc"):
+            nexus_output.unlink()
 
     @hookimpl
     def ngen_cal_model_iteration_finish(self, iteration: int, info: JobMeta) -> None:
