@@ -83,7 +83,10 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from src.python import helper
-from src.python.calibration_config import absolutize_optimizer_settings_file
+from src.python.calibration_config import (
+    absolutize_optimizer_settings_file,
+    load_calibration_settings,
+)
 from src.python.forcing_files import (
     resolve_netcdf_forcing_pattern,
     select_netcdf_forcing_file,
@@ -138,6 +141,7 @@ class LauncherContext:
     calibration_scenarios: dict[str, tuple[CalibrationScenario, ...]]
     scenario_execution_mode: str
     scenario_order: tuple[str, ...]
+    calibration_workers: int
     slurm: dict[str, Any]
 
     @property
@@ -953,6 +957,46 @@ def resolve_scenario_execution(
     return mode, order
 
 
+def optimizer_worker_count(calibration_settings: Any) -> int:
+    """Return the number of model simulations an optimizer runs concurrently."""
+    if calibration_settings.algorithm != "pso":
+        return 1
+
+    settings = calibration_settings.optimizer_settings
+    particles = settings.get("particles", 4)
+    workers = settings.get("pool", 1)
+    for value, field_name in (
+        (particles, "particles"),
+        (workers, "pool"),
+    ):
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise ValueError(
+                f"PSO {field_name} must be a positive integer in "
+                f"{calibration_settings.optimizer_settings_file}"
+            )
+    if particles < 2:
+        raise ValueError(
+            "PSO particles must be at least 2 in "
+            f"{calibration_settings.optimizer_settings_file}"
+        )
+    return min(workers, particles)
+
+
+def calibration_worker_count(ctx: Any) -> int:
+    """Return optimizer concurrency, defaulting old/test contexts to DDS."""
+    return int(getattr(ctx, "calibration_workers", 1))
+
+
+def stage_worker_count(ctx: Any, stage: str) -> int:
+    """Return concurrent model workers for one launcher stage."""
+    return calibration_worker_count(ctx) if stage == "calibration" else 1
+
+
+def stage_mpi_tasks(ctx: Any, model_mpi_tasks: int, stage: str) -> int:
+    """Return total MPI ranks needed by all concurrent stage workers."""
+    return model_mpi_tasks * stage_worker_count(ctx, stage)
+
+
 def load_context(config_file: Path) -> LauncherContext:
     config_file = config_file.expanduser()
     if not config_file.is_absolute():
@@ -1081,6 +1125,12 @@ def load_context(config_file: Path) -> LauncherContext:
         config_file,
     )
     validate_sandbox_config(sandbox_cfg)
+    calibration_settings = load_calibration_settings(
+        sandbox_cfg,
+        config_file,
+        REPO_ROOT,
+    )
+    calibration_workers = optimizer_worker_count(calibration_settings)
 
     formulation_config = copy.deepcopy(sandbox_cfg)
     formulation_config["formulations"] = copy.deepcopy(
@@ -1147,6 +1197,7 @@ def load_context(config_file: Path) -> LauncherContext:
         calibration_scenarios=calibration_scenarios,
         scenario_execution_mode=scenario_execution_mode,
         scenario_order=scenario_order,
+        calibration_workers=calibration_workers,
         slurm=slurm,
     )
 
@@ -1260,6 +1311,12 @@ def validate_context(ctx: LauncherContext) -> None:
                 "or list them under slurm.modules, but not both."
             )
     validate_slurm_config(ctx.slurm)
+    if ctx.slurm:
+        slurm_settings_for_stage(
+            ctx.slurm,
+            "calibration",
+            workers=calibration_worker_count(ctx),
+        )
     validate_sandbox_config(ctx.sandbox_cfg)
     validate_mapping_config(ctx.map_cfg)
     validate_project_paths(ctx)
@@ -1629,6 +1686,8 @@ def validate_slurm_config(slurm: dict[str, Any]) -> None:
 def slurm_settings_for_stage(
     slurm: dict[str, Any],
     stage: str,
+    *,
+    workers: int = 1,
 ) -> dict[str, Any]:
     if stage not in {"calibration", "validation"}:
         raise ValueError(f"Unsupported launcher stage: {stage}")
@@ -1639,7 +1698,32 @@ def slurm_settings_for_stage(
         if key in slurm
     }
     settings.update(slurm[stage])
+    if stage == "calibration" and workers > 1:
+        settings["memory"] = scale_slurm_memory(settings["memory"], workers)
     return settings
+
+
+def scale_slurm_memory(value: str, workers: int) -> str:
+    """Scale a per-worker Slurm memory request to the complete job."""
+    if workers < 1:
+        raise ValueError("Calibration worker count must be greater than zero")
+
+    text = str(value).strip()
+    if workers == 1:
+        return text
+
+    match = re.fullmatch(r"(?P<size>\d+)(?P<unit>[KMGT]?)", text, re.IGNORECASE)
+    if match is None:
+        raise ValueError(
+            "slurm.calibration.memory must be an integer with an optional "
+            "K, M, G, or T suffix when PSO pool is greater than 1; "
+            f"received {value!r}"
+        )
+    size = int(match.group("size"))
+    if size < 1:
+        raise ValueError("slurm.calibration.memory must be greater than zero")
+    unit = match.group("unit").upper()
+    return f"{size * workers}{unit}"
 
 
 def slurm_walltime_seconds(value: str) -> int | None:
@@ -2840,7 +2924,9 @@ def run_experiment(
         stage = "calibration"
 
     if use_slurm:
-        num_mpi_tasks = get_num_cpus(metadata_index_dir, gage_id)
+        model_mpi_tasks = get_num_cpus(metadata_index_dir, gage_id)
+        workers = stage_worker_count(ctx, stage)
+        num_mpi_tasks = stage_mpi_tasks(ctx, model_mpi_tasks, stage)
         metadata = read_metadata_index_file(metadata_index_dir, gage_id)
         output_dir = (
             Path(metadata["output_dir"])
@@ -2855,8 +2941,18 @@ def run_experiment(
                 max_iter,
             )
             if stage == "restart"
-            else slurm_settings_for_stage(ctx.slurm, stage)
+            else slurm_settings_for_stage(
+                ctx.slurm,
+                stage,
+                workers=workers,
+            )
         )
+        if workers > 1:
+            print(
+                f"[{gage_id}] PSO resources: {workers} concurrent workers x "
+                f"{model_mpi_tasks} MPI task(s); total memory "
+                f"{slurm_settings['memory']}."
+            )
         cmd = build_slurm_submit_command(
             worker_script_path(ctx),
             sandbox_file,
@@ -3936,9 +4032,20 @@ def runner(
         incomplete_exists = True
 
         if use_slurm:
-            requested_mpi_tasks = get_num_cpus(
+            model_mpi_tasks = get_num_cpus(
                 metadata_index_dir,
                 gage_id,
+            )
+            max_iter = get_max_iter(exp_config_dir, gage_id)
+            pending_stage = (
+                "validation"
+                if calibration_is_complete(progress, max_iter)
+                else "calibration"
+            )
+            requested_mpi_tasks = stage_mpi_tasks(
+                ctx,
+                model_mpi_tasks,
+                pending_stage,
             )
             limit_reason = slurm_limit_reason(
                 active_jobs=active_job_count,
@@ -4124,6 +4231,7 @@ def print_check_report(ctx: LauncherContext) -> None:
     )
     print(f"Local workers   : {ctx.local['max_workers']}")
     print(f"Local delay     : {ctx.local['startup_delay_seconds']} sec")
+    print(f"Calibration workers: {calibration_worker_count(ctx)}")
     print(f"Mapped gages    : {len(ctx.map_cfg['mapping'])}")
     print(f"Formulations    : {len(ctx.map_cfg['formulations'])}")
     if ctx.slurm:
@@ -4156,9 +4264,20 @@ def print_check_report(ctx: LauncherContext) -> None:
         )
         for stage in ("calibration", "validation"):
             settings = ctx.slurm[stage]
+            workers = (
+                calibration_worker_count(ctx)
+                if stage == "calibration"
+                else 1
+            )
+            total_memory = scale_slurm_memory(settings["memory"], workers)
+            memory_text = settings["memory"]
+            if workers > 1:
+                memory_text += (
+                    f" per worker ({total_memory} total for {workers} workers)"
+                )
             print(
                 f"Slurm {stage:<11}: time={settings['time']}, "
-                f"memory={settings['memory']}"
+                f"memory={memory_text}"
             )
     if ctx.selection_summary:
         print("\nResolved formulation selection")
@@ -4183,11 +4302,14 @@ def print_check_report(ctx: LauncherContext) -> None:
                 scenario.name,
             )
             metadata_file = metadata_index_dir / f"run_{gage_id}.yml"
-            tasks = (
-                str(get_num_cpus(metadata_index_dir, gage_id))
-                if metadata_file.is_file()
-                else "pending config"
-            )
+            if metadata_file.is_file():
+                model_tasks = get_num_cpus(metadata_index_dir, gage_id)
+                workers = calibration_worker_count(ctx)
+                tasks = str(model_tasks * workers)
+                if workers > 1:
+                    tasks += f" ({workers} workers x {model_tasks})"
+            else:
+                tasks = "pending config"
             years = (
                 ",".join(str(year) for year in scenario.selected_years)
                 if scenario.selected_years

@@ -129,6 +129,9 @@ one ngen simulation per generation.
 
 `pool` is the maximum number of particle simulations run concurrently. If ngen
 itself uses MPI parallelism, approximate CPU demand is `pool * ngen_parallel`.
+For Slurm launcher runs, `slurm.calibration.memory` is interpreted per particle
+worker. The launcher multiplies that memory and the model's MPI ranks by the
+effective pool size, capped by `particles`.
 
 `options` are the starting PSO coefficients:
 

@@ -1473,6 +1473,45 @@ class TestLauncherSelection(unittest.TestCase):
             },
         )
 
+    def test_pso_pool_sets_concurrent_calibration_workers(self):
+        settings = SimpleNamespace(
+            algorithm="pso",
+            optimizer_settings={"particles": 16, "pool": 4},
+            optimizer_settings_file=Path("/tmp/pso.yaml"),
+        )
+
+        self.assertEqual(launcher.optimizer_worker_count(settings), 4)
+
+    def test_pso_pool_is_limited_by_particle_count(self):
+        settings = SimpleNamespace(
+            algorithm="pso",
+            optimizer_settings={"particles": 3, "pool": 8},
+            optimizer_settings_file=Path("/tmp/pso.yaml"),
+        )
+
+        self.assertEqual(launcher.optimizer_worker_count(settings), 3)
+
+    def test_pso_scales_calibration_memory_and_mpi_tasks(self):
+        context = SimpleNamespace(calibration_workers=4)
+        slurm = {
+            "calibration": {"time": "04:00:00", "memory": "8G"},
+            "validation": {"time": "12:00:00", "memory": "64G"},
+        }
+
+        settings = launcher.slurm_settings_for_stage(
+            slurm,
+            "calibration",
+            workers=launcher.stage_worker_count(context, "calibration"),
+        )
+
+        self.assertEqual(settings["memory"], "32G")
+        self.assertEqual(launcher.stage_mpi_tasks(context, 2, "calibration"), 8)
+        self.assertEqual(launcher.stage_mpi_tasks(context, 2, "validation"), 2)
+
+    def test_pso_memory_scaling_rejects_ambiguous_units(self):
+        with self.assertRaisesRegex(ValueError, "optional K, M, G, or T"):
+            launcher.scale_slurm_memory("8GB", 4)
+
     def test_slurm_requires_resources_for_both_stages(self):
         with self.assertRaisesRegex(ValueError, "slurm.validation"):
             launcher.validate_slurm_config(
@@ -3058,6 +3097,55 @@ class TestLauncherSelection(unittest.TestCase):
             job_name="pet_cfe_01109403",
             stage="calibration",
         )
+
+    def test_slurm_pso_run_scales_worker_resources(self):
+        main_config = Path("/tmp/sandbox_main.yaml")
+        paths = {
+            "sandbox_main": main_config,
+            "sandbox_restart": Path("/tmp/sandbox_restart.yaml"),
+            "sandbox_validation": Path("/tmp/sandbox_validation.yaml"),
+        }
+        context = SimpleNamespace(
+            stages=("calibration",),
+            calibration_workers=4,
+            slurm={
+                "calibration": {"time": "24:00:00", "memory": "8G"},
+            },
+            log_dir=Path("/tmp/logs"),
+            output_dir=Path("/tmp/outputs"),
+            campaign_name="test",
+        )
+
+        with (
+            patch.object(
+                launcher,
+                "generated_config_paths",
+                return_value=paths,
+            ),
+            patch.object(launcher, "get_max_iter", return_value=40),
+            patch.object(launcher, "get_num_cpus", return_value=1),
+            patch.object(
+                launcher.subprocess,
+                "run",
+                return_value=SimpleNamespace(stdout="456;anvil\n"),
+            ) as submit,
+            patch.object(launcher, "record_slurm_submission"),
+        ):
+            launcher.run_experiment(
+                context,
+                "pet_cfe",
+                "01109403",
+                "pet_cfe_01109403",
+                Path("/tmp/configs"),
+                Path("/tmp/metadata"),
+                launcher.ExperimentProgress(configured=True),
+                0,
+                use_slurm=True,
+            )
+
+        command = submit.call_args.args[0]
+        self.assertIn("--ntasks-per-node=4", command)
+        self.assertIn("--mem=32G", command)
 
     def test_local_worker_rejects_missing_validation_output(self):
         validation_config = Path("/tmp/sandbox_validation.yaml")

@@ -164,6 +164,7 @@ launcher:
       OMP_NUM_THREADS: "1"
     calibration:
       time: "12:00:00"
+      # Memory for one calibration worker. PSO multiplies this by pool.
       memory: "8G"
     validation:
       time: "12:00:00"
@@ -176,9 +177,20 @@ protect different resources:
 | Setting | Limits |
 | --- | --- |
 | `max_active_jobs` | Launcher workers running or pending in Slurm. |
-| `max_total_mpi_tasks` | Sum of requested MPI ranks (`--ntasks`). |
+| `max_total_mpi_tasks` | Sum of requested MPI ranks (`--ntasks`). A PSO calibration requests `pool` times the ranks needed by one model simulation. |
 | `max_total_allocated_cpus` | Sum of Slurm CPUs requested by jobs. |
 | `max_failed_attempts` | Hard failures allowed after the last successful worker before automatic retries stop. Defaults to `2`; timeouts and preemptions do not count. |
+
+The calibration `time` and `memory` values describe one model worker, matching
+a DDS run. DDS runs one worker. PSO runs up to `pool` particle workers at once,
+so the launcher multiplies both calibration memory and model MPI ranks by the
+effective pool size. For example, `pool: 4`, `memory: "8G"`, and two MPI ranks
+per model produce one Slurm job requesting `32G` and eight MPI ranks. Walltime
+is not multiplied because the particle workers run concurrently. Validation
+always uses the validation resources directly.
+
+`local.max_workers` counts launcher experiments, not PSO particles. Local PSO
+concurrency can therefore reach `local.max_workers * pool` model simulations.
 
 Source the installation profile before invoking `sandbox-launcher`:
 

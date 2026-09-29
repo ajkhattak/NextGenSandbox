@@ -114,6 +114,7 @@ launcher:
       OMP_NUM_THREADS: "1"
     calibration:
       time: "12:00:00"
+      # Per calibration worker; PSO multiplies memory and MPI tasks by pool.
       memory: "8G"
     validation:
       time: "12:00:00"

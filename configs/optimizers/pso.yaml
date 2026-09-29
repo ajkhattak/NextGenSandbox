@@ -1,4 +1,6 @@
 particles: 16
+# Concurrent model workers. The launcher allocates calibration memory and MPI
+# tasks per worker, then multiplies both by this value.
 pool: 4
 options:
   c1: 1.2
