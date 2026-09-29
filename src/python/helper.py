@@ -24,7 +24,11 @@ def ensure_troute_available(ngen_dir=None):
     candidates = []
     if ngen_dir:
         ngen_dir = Path(ngen_dir)
-        for rel_path in ["extern/t-route-hf2.2", "extern/t-route"]:
+        for rel_path in [
+            "extern/t-route-hfv3",
+            "extern/t-route-hf2.2",
+            "extern/t-route",
+        ]:
             troute_dir = ngen_dir / rel_path
             if troute_dir.exists():
                 candidates.append(troute_dir)

@@ -30,6 +30,9 @@ fi
 # commit deliberately after the Sandbox smoke tests pass with the new version.
 readonly NGEN_REPOSITORY="https://github.com/NOAA-OWP/ngen"
 readonly NGEN_COMMIT="cdf43350f6be911dd59ba68e82ac212c6deefc14"
+readonly TROUTE_REPOSITORY="https://github.com/shorvath-noaa/t-route"
+readonly TROUTE_BRANCH="HFv3"
+readonly TROUTE_DIRECTORY="t-route-hfv3"
 
 # -------------------------------
 # Override from command-line arguments
@@ -48,8 +51,6 @@ for arg in "$@"; do
     esac
 done
 
-
-HF_VERSION=2.2     # provide hydrofabric version
 
 ###############################################################
 # Check if current active venv matches the sandbox venv
@@ -161,18 +162,24 @@ build_troute()
     local fc_version
     local setup_file
 
-    if [ ${HF_VERSION} == 2.2 ]; then
-	pushd $NGEN_DIR/extern
-	clone_or_update "https://github.com/shorvath-noaa/t-route" "t-route-hf2.2"
+    pushd "$NGEN_DIR/extern" >/dev/null || return 1
+    clone_or_update "$TROUTE_REPOSITORY" "$TROUTE_DIRECTORY" || {
+        popd >/dev/null || true
+        return 1
+    }
 
-	cd t-route-hf2.2
-	git checkout conus_timing_runs
-	git pull
-    else
-	pushd $NGEN_DIR/extern/t-route
-	git checkout master
-	git pull
-    fi
+    cd "$TROUTE_DIRECTORY" || {
+        popd >/dev/null || true
+        return 1
+    }
+    git checkout "$TROUTE_BRANCH" || {
+        popd >/dev/null || true
+        return 1
+    }
+    git pull --ff-only origin "$TROUTE_BRANCH" || {
+        popd >/dev/null || true
+        return 1
+    }
 
     ##hot patch nc config to nf config
     #sed -i 's/nc-config/nf-config/g' src/kernel/reservoir/makefile
