@@ -226,11 +226,18 @@ class SandboxContext:
         self.observations = observations
 
     def load_calibration_config(self):
-        if (
-            set(self.simulation_tasks)
-            .intersection({"calibration", "restart", "validation"})
-            and "calibration" not in self.sandbox_config
-        ):
+        calibration_tasks = {"calibration", "restart", "validation"}
+        if not set(self.simulation_tasks).intersection(calibration_tasks):
+            self.calibration_algorithm = None
+            self.calibration_iterations = 0
+            self.calibration_random_seed = None
+            self.calibration_objective = None
+            self.calibration_objective_metrics = {}
+            self.optimizer_settings = {}
+            self.optimizer_settings_file = None
+            return
+
+        if "calibration" not in self.sandbox_config:
             raise ValueError(
                 "A top-level calibration block is required for "
                 f"simulation.tasks: {list(self.simulation_tasks)}"

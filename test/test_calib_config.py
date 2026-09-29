@@ -8,6 +8,7 @@ import yaml
 
 from src.python.calibration_config import load_calibration_settings
 from src.python.configuration import ConfigurationCalib
+from src.python.context import SandboxContext
 from src.python.model_instances import build_model_instances
 
 
@@ -21,6 +22,28 @@ def make_parameter_context(sandbox_dir, instances_by_model):
 
 
 class TestCalibrationConfig(unittest.TestCase):
+    def test_control_task_does_not_load_calibration_settings(self):
+        context = SandboxContext(
+            sandbox_dir=Path("/sandbox"),
+            sandbox_config_path="/project/config.yaml",
+        )
+        context.simulation_tasks = ("control",)
+        context.sandbox_config = {
+            "calibration": {
+                "optimizer": {
+                    "algorithm": "pso",
+                    "settings_file": "malformed-pso.yaml",
+                }
+            }
+        }
+
+        context.load_calibration_config()
+
+        self.assertIsNone(context.calibration_algorithm)
+        self.assertEqual(context.calibration_iterations, 0)
+        self.assertEqual(context.optimizer_settings, {})
+        self.assertIsNone(context.optimizer_settings_file)
+
     @staticmethod
     def _mpi_config(*, num_procs=1, partitions=None, force=False):
         config = ConfigurationCalib.__new__(ConfigurationCalib)
