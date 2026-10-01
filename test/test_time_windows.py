@@ -2,11 +2,33 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+import yaml
+
 from src.python.context import SandboxContext
-from src.python.time_windows import normalize_forcing_time_config
+from src.python.time_windows import (
+    normalize_forcing_time_config,
+    normalize_simulation_tasks,
+)
 
 
 class TestSimulationTimeWindows(unittest.TestCase):
+    def test_accepts_quoted_and_unquoted_scalar_tasks(self):
+        for yaml_text in ('tasks: control', 'tasks: "control"'):
+            with self.subTest(yaml_text=yaml_text):
+                simulation = yaml.safe_load(yaml_text)
+                self.assertEqual(
+                    normalize_simulation_tasks(simulation),
+                    ("control",),
+                )
+
+    def test_accepts_all_supported_single_tasks_as_strings(self):
+        for task in ("control", "calibration", "validation", "restart"):
+            with self.subTest(task=task):
+                self.assertEqual(
+                    normalize_simulation_tasks({"tasks": task}),
+                    (task,),
+                )
+
     def test_rejects_retired_task_type_field(self):
         context = SandboxContext.__new__(SandboxContext)
         context.formulation = ""

@@ -383,7 +383,7 @@ partitioning, and output behavior.
 
 | Field | Meaning |
 |---|---|
-| `tasks` | Workflow tasks: `[control]`, `[calibration]`, `[validation]`, `[restart]`, or `[calibration, validation]`. |
+| `tasks` | Workflow task as a string (`control`) or list (`[control]`, `[calibration]`, `[validation]`, `[restart]`, or `[calibration, validation]`). |
 | `gages` | Optional filter on `general.gages`. |
 | `label` | Label appended to each gage ID when naming its simulation output directory. For example, `pet_cfe` produces `<gage_id>_pet_cfe`. |
 | `time.control` | Time period for a control run. |

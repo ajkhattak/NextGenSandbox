@@ -18,10 +18,13 @@ def normalize_simulation_tasks(simulation_config):
         )
 
     tasks = simulation_config.get("tasks")
-    if not isinstance(tasks, list) or not tasks:
+    if isinstance(tasks, str):
+        tasks = [tasks]
+    elif not isinstance(tasks, list) or not tasks:
         raise ValueError(
-            "simulation.tasks must be one of: [control], [calibration], "
-            "[validation], [restart], or [calibration, validation]"
+            "simulation.tasks must be one of: control, calibration, "
+            "validation, restart, [control], [calibration], [validation], "
+            "[restart], or [calibration, validation]"
         )
 
     normalized = tuple(str(task).strip().lower() for task in tasks)
@@ -34,8 +37,9 @@ def normalize_simulation_tasks(simulation_config):
     }
     if normalized not in supported:
         raise ValueError(
-            "simulation.tasks must be one of: [control], [calibration], "
-            "[validation], [restart], or [calibration, validation]"
+            "simulation.tasks must be one of: control, calibration, "
+            "validation, restart, [control], [calibration], [validation], "
+            "[restart], or [calibration, validation]"
         )
     return normalized
 

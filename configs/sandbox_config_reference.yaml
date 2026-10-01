@@ -111,7 +111,7 @@ formulations:
       #   CFE: global
 
 simulation:
-  tasks: [calibration, validation]  # control, calibration, validation, or restart
+  tasks: [calibration, validation]  # A single task may also be written as: tasks: control
   gages: all
   label: pet_cfe
   time:
