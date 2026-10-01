@@ -68,6 +68,10 @@ class TRouteConfigurationGenerator(ConfigurationGenerator):
 
         calibration_tasks = {'calibration', 'validation', 'restart'}
         forcing_parameters = d['compute_parameters']['forcing_parameters']
+        forcing_parameters['max_loop_size'] = self._resolve_max_loop_size(
+            forcing_parameters.get('max_loop_size', -1),
+            diff_time,
+        )
         if self.ctx.task_type in calibration_tasks:
             forcing_parameters['qlat_input_folder'] = "./"
         else:
@@ -83,14 +87,9 @@ class TRouteConfigurationGenerator(ConfigurationGenerator):
             # t-route reads this key unconditionally but ignores its value when
             # qlat_input_file is provided.
             forcing_parameters['qlat_file_pattern_filter'] = None
-            forcing_parameters['max_loop_size'] = max(
-                1,
-                math.ceil(diff_time / 3600),
-            )
         else:
             forcing_parameters.pop('qlat_input_file', None)
             forcing_parameters['qlat_file_pattern_filter'] = "nex-*"
-            forcing_parameters['max_loop_size'] = 10000000
 
         forcing_parameters.pop('binary_nexus_file_folder', None)
         forcing_parameters['nts'] = int(diff_time / dt)
@@ -155,6 +154,24 @@ class TRouteConfigurationGenerator(ConfigurationGenerator):
 
         with open(os.path.join(troute_dir, "troute_config.yaml"), 'w') as file:
             yaml.dump(d, file, default_flow_style=False, sort_keys=False)
+
+    @staticmethod
+    def _resolve_max_loop_size(configured_value, simulation_seconds):
+        if (
+            isinstance(configured_value, bool)
+            or not isinstance(configured_value, int)
+            or configured_value == 0
+            or configured_value < -1
+        ):
+            raise ValueError(
+                "t-route max_loop_size must be -1 or a positive integer "
+                "number of hours"
+            )
+
+        if configured_value == -1:
+            return max(1, math.ceil(simulation_seconds / 3600))
+
+        return configured_value
 
     @staticmethod
     def _terminal_flowpath_ids(

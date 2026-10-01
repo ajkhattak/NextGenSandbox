@@ -109,7 +109,7 @@ class TestTRouteConfigurationGenerator(unittest.TestCase):
                 ]
                 self.assertEqual(forcing["qlat_file_pattern_filter"], "nex-*")
                 self.assertNotIn("qlat_input_file", forcing)
-                self.assertEqual(forcing["max_loop_size"], 10000000)
+                self.assertEqual(forcing["max_loop_size"], 720)
 
     def test_per_formulation_nexus_output_uses_netcdf_forcing(self):
         network = pd.DataFrame(
@@ -191,7 +191,35 @@ class TestTRouteConfigurationGenerator(unittest.TestCase):
                     "formulation_default_nexuses.nc",
                 )
                 self.assertIsNone(forcing["qlat_file_pattern_filter"])
-                self.assertEqual(forcing["max_loop_size"], 24)
+                self.assertEqual(forcing["max_loop_size"], 720)
+
+    def test_max_loop_size_minus_one_uses_full_simulation(self):
+        self.assertEqual(
+            TRouteConfigurationGenerator._resolve_max_loop_size(-1, 86400),
+            24,
+        )
+        self.assertEqual(
+            TRouteConfigurationGenerator._resolve_max_loop_size(-1, 1),
+            1,
+        )
+
+    def test_max_loop_size_preserves_positive_hours(self):
+        self.assertEqual(
+            TRouteConfigurationGenerator._resolve_max_loop_size(720, 86400),
+            720,
+        )
+
+    def test_max_loop_size_rejects_invalid_values(self):
+        for value in (True, 0, -2, 1.5, "720", None):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "must be -1 or a positive integer",
+                ):
+                    TRouteConfigurationGenerator._resolve_max_loop_size(
+                        value,
+                        86400,
+                    )
 
     def test_terminal_flowpath_mask_rejects_missing_contributors(self):
         network = pd.DataFrame(

@@ -78,7 +78,8 @@ compute_parameters:
         binary_nexus_file_folder    : ./ # this is required if qlat_file_pattern_filter="nex-*"
         #coastal_boundary_input_file : channel_forcing/schout_1.nc  
         nts                         : 8640 #288 for 1day
-        max_loop_size               : 720 # [hr]  
+        # Processing window [hr]. Use -1 for the full simulation period.
+        max_loop_size               : 720
     data_assimilation_parameters:
     #    #----------
     #    usgs_timeslices_folder   : #usgs_TimeSlice/
