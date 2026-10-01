@@ -11,7 +11,7 @@ from src.python.models.troute import TRouteConfigurationGenerator
 
 
 class TestTRouteConfigurationGenerator(unittest.TestCase):
-    def test_all_tasks_mask_stream_output_to_terminal_nexus_and_flowpaths(self):
+    def test_all_tasks_subset_single_netcdf_to_terminal_nexus_and_flowpaths(self):
         network = pd.DataFrame(
             {
                 "id": ["wb-423185", "wb-423184"],
@@ -80,29 +80,37 @@ class TestTRouteConfigurationGenerator(unittest.TestCase):
                 ):
                     generator.write_troute_input_files()
 
-                mask_file = config_dir / "mask_output.yaml"
+                subset_file = config_dir / "subset_output.yaml"
                 troute_config = yaml.safe_load(
                     (config_dir / "troute_config.yaml").read_text()
                 )
-                stream_output = troute_config["output_parameters"]["stream_output"]
+                netcdf_output = troute_config["output_parameters"]["netcdf_output"]
 
                 self.assertEqual(
-                    yaml.safe_load(mask_file.read_text()),
+                    yaml.safe_load(subset_file.read_text()),
                     {
-                        "nex": [423186],
-                        "wb": [423185, 423184],
+                        "nexuses": [423186],
+                        "feature_ids": [423185, 423184],
                     },
                 )
-                self.assertEqual(stream_output["mask_output"], str(mask_file))
-                expected_directory = (
-                    "./"
+                self.assertEqual(netcdf_output["subset_file"], str(subset_file))
+                expected_output = (
+                    "troute_output_201510010000.nc"
                     if task_type != "control"
-                    else str(root / "output" / "outputs" / "troute")
+                    else str(
+                        root
+                        / "output"
+                        / "outputs"
+                        / "troute"
+                        / "troute_output_201510010000.nc"
+                    )
                 )
                 self.assertEqual(
-                    stream_output["stream_output_directory"],
-                    expected_directory,
+                    netcdf_output["output_path"],
+                    expected_output,
                 )
+                self.assertEqual(netcdf_output["output_interval"], 3600)
+                self.assertNotIn("stream_output", troute_config["output_parameters"])
 
                 forcing = troute_config["compute_parameters"][
                     "forcing_parameters"

@@ -96,13 +96,20 @@ class TRouteConfigurationGenerator(ConfigurationGenerator):
 
         d['compute_parameters']['cpu_pool'] = 1
 
-        stream_output_directory = (
-            "./"
+        output_filename = (
+            f"troute_output_{start_time.strftime('%Y%m%d%H%M')}.nc"
+        )
+        output_path = (
+            output_filename
             if self.ctx.task_type in calibration_tasks
-            else os.path.join(self.output_dir, "outputs/troute")
+            else os.path.join(
+                self.output_dir,
+                "outputs/troute",
+                output_filename,
+            )
         )
 
-        mask_output_file = os.path.join(troute_dir, "mask_output.yaml")
+        subset_output_file = os.path.join(troute_dir, "subset_output.yaml")
         network = gpd.read_file(
             self.static_data.gpkg_file,
             layer="network",
@@ -116,15 +123,15 @@ class TRouteConfigurationGenerator(ConfigurationGenerator):
                 layer="flowpath-attributes",
             ),
         )
-        output_mask = {
-            "nex": [
+        output_subset = {
+            "nexuses": [
                 self._numeric_feature_id(
                     terminal_nexus_id,
                     feature_type="nexus",
                     gpkg_file=self.static_data.gpkg_file,
                 )
             ],
-            "wb": self._terminal_flowpath_ids(
+            "feature_ids": self._terminal_flowpath_ids(
                 network,
                 terminal_nexus_id,
                 key_column=columns["key"],
@@ -132,25 +139,32 @@ class TRouteConfigurationGenerator(ConfigurationGenerator):
                 gpkg_file=self.static_data.gpkg_file,
             )
         }
-        with open(mask_output_file, 'w') as file:
+        with open(subset_output_file, 'w') as file:
             yaml.dump(
-                output_mask,
+                output_subset,
                 file,
                 default_flow_style=False,
                 sort_keys=False,
             )
 
-        stream_output = {
-            "stream_output": {
-                'stream_output_directory': stream_output_directory,
-                'mask_output': mask_output_file,
-                'stream_output_time': -1,
-                'stream_output_type': '.nc',
-                'stream_output_internal_frequency': 60,
+        netcdf_output = (
+            d.get("output_parameters", {}).get("netcdf_output", {}) or {}
+        )
+        netcdf_output.update(
+            {
+                "output_path": output_path,
+                "output_interval": 3600,
+                "subset_file": subset_output_file,
             }
-        }
-
-        d['output_parameters'] = stream_output
+        )
+        netcdf_output.setdefault(
+            "variables",
+            {
+                "stream": ["streamflow", "velocity", "depth"],
+                "reservoir": ["inflow", "outflow", "water_sfc_elev"],
+            },
+        )
+        d['output_parameters'] = {"netcdf_output": netcdf_output}
 
         with open(os.path.join(troute_dir, "troute_config.yaml"), 'w') as file:
             yaml.dump(d, file, default_flow_style=False, sort_keys=False)

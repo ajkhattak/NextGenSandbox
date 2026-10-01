@@ -106,16 +106,17 @@ compute_parameters:
                 reservoir_rfc_forecasts: False
 #--------------------------------------------------------------------------------
 output_parameters:
-    #----------
-    #test_output: output/unit_test_hyfeature.pkl 
-    #lite_restart:
-    #    #----------
-    #    lite_restart_output_directory: restart/
-    chrtout_output:
-        #----------
-        #wrf_hydro_channel_output_source_folder: ./
-    chanobs_output:
-        #----------
-        chanobs_output_directory: ./ 
-        chanobs_filepath        : Chanobs.nc
-    lakeout_output: ./
+    netcdf_output:
+        # output_path and subset_file are set for each generated run.
+        output_path: ./troute_output.nc
+        output_interval: 3600
+        subset_file:
+        variables:
+            stream:
+                - streamflow
+                - velocity
+                - depth
+            reservoir:
+                - inflow
+                - outflow
+                - water_sfc_elev
