@@ -21,24 +21,14 @@ def ensure_troute_available(ngen_dir=None):
     if importlib.util.find_spec("nwm_routing") is not None:
         return
 
-    candidates = []
-    if ngen_dir:
-        ngen_dir = Path(ngen_dir)
-        for rel_path in [
-            "extern/t-route-hfv3",
-            "extern/t-route-hf2.2",
-            "extern/t-route",
-        ]:
-            troute_dir = ngen_dir / rel_path
-            if troute_dir.exists():
-                candidates.append(troute_dir)
+    sandbox_dir = os.environ.get("SANDBOX_DIR", str(Path(__file__).resolve().parents[2]))
+    troute_dir = Path(sandbox_dir) / "extern" / "t-route"
+    candidates = [troute_dir] if troute_dir.exists() else []
 
     location_hint = ""
     if candidates:
         joined = "\n".join(f"  - {path}" for path in candidates)
         location_hint = f"\nDetected t-route source directory:\n{joined}\n"
-
-    sandbox_dir = os.environ.get("SANDBOX_DIR", "<sandbox repo>")
 
     raise ModuleNotFoundError(
         "T-ROUTE routing module `nwm_routing` is not available in the active sandbox environment.\n"

@@ -6,7 +6,8 @@ be run directly.
 
 - `build_sandbox.sh` builds the Sandbox and forcing Python environments.
 - `build_venv_subset.sh` builds the R subsetting environment.
-- `build_models.sh` builds ngen, model libraries, and t-route.
+- `build_models.sh` builds ngen and model libraries in the build directory,
+  and builds t-route directly in `extern/t-route` into the active environment.
 - `sandbox_env.sh` is the internal, non-persistent path initializer sourced
   by `configs/sandbox_profile.sh`.
 - `venv/` contains the environment definitions and validation reference.

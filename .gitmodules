@@ -10,3 +10,7 @@
 [submodule "extern/dhbv2"]
 	path = extern/dhbv2
 	url = https://github.com/mhpi/dhbv2
+[submodule "extern/t-route"]
+	path = extern/t-route
+	url = https://github.com/ajkhattak/t-route
+	branch = sandbox-hf2.2

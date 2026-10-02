@@ -50,7 +50,7 @@ compiler, MPI, NetCDF, CMake, Python, and conda module stack for their site.
 ### 1. Clone and load the environment profile
 
 ```bash
-git clone https://github.com/ajkhattak/NextGenSandbox.git
+git clone --recurse-submodules https://github.com/ajkhattak/NextGenSandbox.git
 cd NextGenSandbox
 cp configs/sandbox_profile.sh sandbox_profile.sh
 ```
@@ -126,6 +126,10 @@ The final check should find the `ngen` executable, the Sandbox and forcing
 Python environments, key Python imports, required R packages, and initialized
 submodules.
 
+The t-route source is pinned as `extern/t-route`. The build compiles directly
+in that directory and installs into `$SANDBOX_ENV`, including local source
+edits. It does not pull, switch branches, or create a copy under `$NGEN_DIR`.
+
 ### 5. Run the smoke test
 
 Download a CONUS hydrofabric geopackage from
@@ -147,7 +151,7 @@ SUCCESS: NextGenSandbox smoke test completed. Installation and the core workflow
 ### Step 1: Clone the repository
 
 ```bash
-git clone https://github.com/ajkhattak/NextGenSandbox.git
+git clone --recurse-submodules https://github.com/ajkhattak/NextGenSandbox.git
 cd NextGenSandbox
 ```
 
@@ -317,6 +321,13 @@ The components may also be built separately:
 ./bootstrap.sh --models
 ./bootstrap.sh --troute
 ```
+
+To share an updated t-route revision, commit and push the change in
+`extern/t-route`, then commit the updated submodule pointer in NextGenSandbox.
+Local edits can be tested with `./bootstrap.sh --troute` before committing.
+Build artifacts and Linux compiler compatibility patches are created directly
+in the submodule. Rebuild t-route when switching compiler profiles, and do not
+run two t-route builds simultaneously from the same checkout.
 
 Set a distinct `SANDBOX_BUILD_DIR` in each profile, such as `build/gcc` or
 `build/intel`, so compiled libraries from different toolchains never mix. Do
