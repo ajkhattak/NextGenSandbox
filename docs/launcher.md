@@ -241,7 +241,18 @@ launcher:
       regimes:
         wet: Wet
         dry: Dry
+      exclude_labels:
+        - Unclassified_Missing_Signature
 ```
+
+`exclude_labels` explicitly permits known unusable source labels without
+assigning those years to a calibration regime. For example, a year labeled
+`Unclassified_Missing_Signature` lacks the signatures needed for classification
+and should not be forced into wet/dry or low/high. The reference scenario still
+spans its configured period; excluded years are omitted only from the selected
+regime evaluation years. Labels that are neither configured under `regimes` nor
+listed under `exclude_labels` remain errors, which catches misspellings and
+unexpected classifier output.
 
 `priority` admits scenarios in the listed order while still using remaining
 campaign capacity when an earlier scenario cannot fit the configured limits.

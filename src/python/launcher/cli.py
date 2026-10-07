@@ -775,6 +775,28 @@ def resolve_regime_scenarios(
         normalized_regimes[safe_name] = folded_label
         source_labels[folded_label] = safe_name
 
+    exclude_labels = selection.get("exclude_labels", [])
+    if (
+        not isinstance(exclude_labels, list)
+        or any(
+            not isinstance(label, str) or not label.strip()
+            for label in exclude_labels
+        )
+    ):
+        raise TypeError(
+            "regime_calibration.selection.exclude_labels must be a list of "
+            "non-empty CSV labels"
+        )
+    normalized_exclude_labels = {
+        label.strip().casefold() for label in exclude_labels
+    }
+    overlapping_labels = sorted(normalized_exclude_labels & set(source_labels))
+    if overlapping_labels:
+        raise ValueError(
+            "regime_calibration.selection.exclude_labels cannot also be assigned "
+            "to a regime scenario: " + ", ".join(overlapping_labels)
+        )
+
     reference_period = {
         "start": reference["start"],
         "end": reference["end"],
@@ -788,11 +810,12 @@ def resolve_regime_scenarios(
             f"Regime source file {source_file} is missing eligible year(s): "
             f"{', '.join(str(year) for year in missing_years)}"
         )
+    configured_labels = set(source_labels) | normalized_exclude_labels
     unknown_labels = sorted(
         {
             rows[year]
             for year in eligible_years
-            if rows[year].casefold() not in source_labels
+            if rows[year].casefold() not in configured_labels
         }
     )
     if unknown_labels:

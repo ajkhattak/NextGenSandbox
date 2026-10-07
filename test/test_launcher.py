@@ -2511,6 +2511,75 @@ class TestLauncherSelection(unittest.TestCase):
             self.assertEqual(by_name["wet"].selected_years, (2019, 2021))
             self.assertEqual(by_name["dry"].selected_years, (2020,))
 
+    def test_regime_scenarios_can_exclude_known_unclassified_labels(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "regimes.csv").write_text(
+                "year,regime\n"
+                "2019,Wet\n"
+                "2020,Unclassified_Missing_Signature\n"
+                "2021,Dry\n"
+            )
+            config = {
+                "reference": {
+                    "start": "2017-10-01",
+                    "end": "2021-09-30 23:00:00",
+                    "spinup": "12 months",
+                    "year_type": "water_year",
+                },
+                "source": {
+                    "file": "regimes.csv",
+                    "year_column": "year",
+                    "regime_column": "regime",
+                },
+                "selection": {
+                    "max_years": 5,
+                    "regimes": {"wet": "Wet", "dry": "Dry"},
+                    "exclude_labels": ["Unclassified_Missing_Signature"],
+                },
+            }
+
+            scenarios = launcher.resolve_regime_scenarios(
+                config,
+                "01109403",
+                root,
+            )
+            by_name = {scenario.name: scenario for scenario in scenarios}
+
+            self.assertEqual(by_name["wet"].selected_years, (2019,))
+            self.assertEqual(by_name["dry"].selected_years, (2021,))
+
+    def test_regime_excluded_label_cannot_also_define_a_scenario(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "regimes.csv").write_text(
+                "year,regime\n2019,Wet\n2020,Dry\n2021,Wet\n"
+            )
+            config = {
+                "reference": {
+                    "start": "2017-10-01",
+                    "end": "2021-09-30 23:00:00",
+                    "spinup": "12 months",
+                    "year_type": "water_year",
+                },
+                "source": {
+                    "file": "regimes.csv",
+                    "year_column": "year",
+                    "regime_column": "regime",
+                },
+                "selection": {
+                    "regimes": {"wet": "Wet", "dry": "Dry"},
+                    "exclude_labels": ["Wet"],
+                },
+            }
+
+            with self.assertRaisesRegex(ValueError, "cannot also be assigned"):
+                launcher.resolve_regime_scenarios(
+                    config,
+                    "01109403",
+                    root,
+                )
+
     def test_regime_config_requires_per_gage_path_for_multiple_gages(self):
         config = {
             "reference": {
