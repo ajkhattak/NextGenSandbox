@@ -3593,6 +3593,9 @@ def print_status_filter(
 ) -> None:
     matches = [status for status in statuses if status.state == state]
     title = f"{state.replace('_', ' ').title()} Experiments"
+    if matches and state == "RUNNING":
+        print_detailed_status(matches, title=title, include_job_id=True)
+        return
     print(f"\n{title}")
     print("=" * len(title))
     if not matches:
@@ -3685,13 +3688,24 @@ def check_status(
     if not detailed:
         return
 
-    print("\nDetailed Experiment Status")
-    print("==========================")
+    print_detailed_status(statuses)
+
+
+def print_detailed_status(
+    statuses: list[CampaignStatus],
+    *,
+    title: str = "Detailed Experiment Status",
+    include_job_id: bool = False,
+) -> None:
+    print(f"\n{title}")
+    print("=" * len(title))
     header = (
         f"{'Gage':<12} {'Formulation':<24} {'Scenario':<12} "
         f"{'State':<20} {'Calib (cur|max|obj)':<24} "
         f"{'Est. avg/iter':<14} {'Est. remaining':<15} {'Validation':<14}"
     )
+    if include_job_id:
+        header = f"{'Job ID':<14} " + header
     print(header)
     print("-" * len(header))
     for status in sorted(statuses, key=detailed_status_sort_key):
@@ -3725,7 +3739,8 @@ def check_status(
         else:
             remaining_time = "-"
         print(
-            f"{status.gage_id:<12} {status.formulation:<24} "
+            (f"{(status.slurm_job_id or '-'):<14} " if include_job_id else "")
+            + f"{status.gage_id:<12} {status.formulation:<24} "
             f"{status.scenario:<12} {status.state:<20} "
             f"{calibration:<24} {average_time:<14} "
             f"{remaining_time:<15} {status.validation:<14}"

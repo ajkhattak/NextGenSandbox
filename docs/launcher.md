@@ -323,6 +323,8 @@ The summary distinguishes `COMPLETED`, `RUNNING`, `QUEUED`,
 `WILL_BE_REQUEUED`, `NOT_SUBMITTED`, `TIMEOUT`, `OUT_OF_MEMORY`, `FAILED`, and
 `CANCELLED`. The detailed view also reports calibration iteration progress and
 estimated remaining calibration time when enough progress is available.
+`--running` shows the same detailed columns for running experiments only,
+along with their Slurm job IDs, using the detailed view's sorting order.
 
 Re-run `sandbox-launcher run` or `sandbox-launcher submit` with the same
 configuration after a failure or wall-clock limit. Completed work is left
