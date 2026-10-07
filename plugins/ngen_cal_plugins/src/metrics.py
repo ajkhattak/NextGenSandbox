@@ -45,6 +45,7 @@ class ComputeMetrics:
         self.out_file: Path = Path("metrics.parquet")
         self.metric_settings = StreamflowMetricSettings()
 
+    @hookimpl
     def ngen_cal_model_configure(self, config: ModelExec) -> None:
         plugin_settings = getattr(config, "plugin_settings", {}) or {}
         self.metric_settings = StreamflowMetricSettings.from_mapping(
