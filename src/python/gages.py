@@ -14,7 +14,8 @@ from src.python.resource_paths import (
     has_gpkg_file,
 )
 
-SUPPORTED_GAGE_ID_LENGTHS = (8, 10, 12)
+SUPPORTED_GAGE_ID_LENGTHS = tuple(range(8, 16))
+SUPPORTED_GAGE_ID_LENGTH_DESCRIPTION = "8 to 15"
 GAGE_ID_PLACEHOLDER = "<gage_id>"
 
 
@@ -270,11 +271,11 @@ def _gage_id_from_gpkg_filename(path: Path) -> str:
     ]
 
     if len(numeric_tokens) != 1 or len(valid_tokens) != 1:
-        supported = ", ".join(str(length) for length in SUPPORTED_GAGE_ID_LENGTHS)
         raise ValueError(
             f"Cannot infer a USGS gage ID from geopackage '{path.name}'. "
             "Its filename must contain exactly one numeric gage ID with "
-            f"{supported} digits. Gage IDs are never truncated."
+            f"{SUPPORTED_GAGE_ID_LENGTH_DESCRIPTION} digits. "
+            "Gage IDs are never truncated."
         )
 
     return valid_tokens[0]

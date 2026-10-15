@@ -101,8 +101,35 @@ python utils/python/download_usgs_streamflow.py \
 
 By default, the utility averages instantaneous values into hourly values and
 keeps missing hours as `NaN`. Add `--no-aggregate` to retain only observations
-recorded exactly on the hour. Run the following for all command options and
-embedded examples:
+recorded exactly on the hour.
+Downloads use two concurrent gage workers by default, each with its own HTTP
+session. Use `--workers 1` for serial downloads or `--workers 3` for a third
+worker. Transient USGS errors are retried with backoff. `--audit-existing`
+does not make network requests and runs serially.
+
+The downloader also writes `hourly_streamflow_qc.csv` and
+`excluded_hourly_gages.csv` in `--output-dir`. The latter uses a `STAID`
+column suitable for the basin selection notebook's exclusion file. QC defaults
+to at least 95% of scored hours overall, at least 90% in every water year
+(October through September, in UTC), and no continuous scored gap longer than
+720 hours (30 days). A failed QC check does not delete the observation CSV.
+Use `--qc-start` to exclude model spin-up from the scored period; a date-only
+`--qc-end` includes the full last day. For example:
+
+```bash
+python utils/python/download_usgs_streamflow.py \
+  --gages-file /path/to/gages.csv --id-column gage_id \
+  --start "1998-10-01 00:00:00" --end "2023-09-30 23:00:00" \
+  --qc-start 2000-10-01 --qc-end 2023-09-30 \
+  --min-hourly-coverage 0.95 --min-water-year-coverage 0.90 \
+  --max-gap-hours 720 \
+  --output-dir /path/to/observations/streamflow
+```
+
+To audit the files already downloaded without another USGS request, run the
+same command with `--audit-existing`. The audit treats missing files as QC
+failures. `--qc-summary` can set the summary CSV path. Run the following for
+all command options and embedded examples:
 
 ```bash
 python utils/python/download_usgs_streamflow.py --help

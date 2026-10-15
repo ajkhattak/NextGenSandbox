@@ -128,7 +128,13 @@ class TestGageSelection(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             hydrofabric = Path(tmp) / "hydrofabric"
             hydrofabric.mkdir()
-            expected = ["01308000", "1234567890", "123456789012"]
+            expected = [
+                "01308000",
+                "023177483",
+                "1234567890",
+                "123456789012",
+                "123456789012345",
+            ]
             for gage_id in expected:
                 (hydrofabric / f"gage_{gage_id}.gpkg").touch()
 
@@ -149,7 +155,7 @@ class TestGageSelection(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             hydrofabric = Path(tmp) / "hydrofabric"
             hydrofabric.mkdir()
-            (hydrofabric / "gage_011094030.gpkg").touch()
+            (hydrofabric / "gage_1234567890123456.gpkg").touch()
 
             config = {
                 "general": {

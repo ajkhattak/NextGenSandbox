@@ -14,7 +14,7 @@ subsetting_gpkg_id <- function(gpkg_file, gpkg_template = NULL) {
     )
     template_regex <- sub(
       marker,
-      "(?<![0-9])([0-9]{12}|[0-9]{10}|[0-9]{8})(?![0-9])",
+      "(?<![0-9])([0-9]{8,15})(?![0-9])",
       template_regex,
       fixed = TRUE
     )
@@ -35,13 +35,14 @@ subsetting_gpkg_id <- function(gpkg_file, gpkg_template = NULL) {
     basename(gpkg_file),
     gregexpr("[0-9]+", basename(gpkg_file))
   )[[1]]
-  valid_tokens <- numeric_tokens[nchar(numeric_tokens) %in% c(8, 10, 12)]
+  token_lengths <- nchar(numeric_tokens)
+  valid_tokens <- numeric_tokens[token_lengths >= 8 & token_lengths <= 15]
   if (length(numeric_tokens) != 1 || length(valid_tokens) != 1) {
     stop(sprintf(
       paste(
         "Cannot infer a USGS gage ID from geopackage '%s'.",
-        "Its filename must contain exactly one numeric gage ID with 8, 10,",
-        "or 12 digits, or general$gages$gpkg$dir must use <gage_id>."
+        "Its filename must contain exactly one numeric gage ID with 8 to 15",
+        "digits, or general$gages$gpkg$dir must use <gage_id>."
       ),
       basename(gpkg_file)
     ))

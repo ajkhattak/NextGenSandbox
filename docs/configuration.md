@@ -133,7 +133,7 @@ full set of gages available to workflow steps.
 | `resource_layout` | Resource organization. Options: `gage` or `resource`. Use one layout consistently within a project. |
 | `domain` | Common project domain: `conus`, `hi`, `ak`, or `prvi`. `pr` and `vi` are accepted as aliases for `prvi`. Set this for batch subsetting to avoid a USGS metadata request for every gage. |
 | `gages.option` | How the project gage set is defined. Options: `ids`, `file`, or `gpkg`. |
-| `gages.ids` | Gage ID list used with `option: ids`. Quote IDs so leading zeros are preserved. USGS gage IDs may contain 8, 10, or 12 digits. |
+| `gages.ids` | Gage ID list used with `option: ids`. Quote IDs so leading zeros are preserved. USGS gage IDs may contain 8 to 15 digits. |
 | `gages.file.path` | CSV file used with `option: file`. |
 | `gages.file.column` | CSV column containing gage IDs. |
 | `gages.gpkg.dir` | Existing geopackage directory, individual geopackage, or path template used with `option: gpkg`. A custom template must contain `<gage_id>`, for example `/path/to/*_<gage_id>_*.gpkg`. If omitted, Sandbox searches `input_dir` using `resource_layout`. |
@@ -149,7 +149,7 @@ individual workflow stage. A step filter accepts:
 
 CSV and geopackage discovery belong only under `general.gages`. When
 `gages.gpkg.dir` points to a directory or one file, each filename must contain
-exactly one numeric gage ID with 8, 10, or 12 digits. For custom filenames or
+exactly one numeric gage ID with 8 to 15 digits. For custom filenames or
 locations, use `<gage_id>` in the path template:
 
 ```yaml

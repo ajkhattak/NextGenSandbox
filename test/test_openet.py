@@ -122,6 +122,10 @@ class TestOpenETDownloader(unittest.TestCase):
             openet.infer_gage_id(Path("vendor-gage_01308000-final.gpkg")),
             "01308000",
         )
+        self.assertEqual(
+            openet.infer_gage_id(Path("vendor-gage_023177483-final.gpkg")),
+            "023177483",
+        )
 
     def test_normalizes_nested_multipolygon_response(self):
         frame = openet._normalize_timeseries(

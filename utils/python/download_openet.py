@@ -20,7 +20,8 @@ from shapely.ops import unary_union
 
 
 OPENET_API_URL = "https://openet-api.org"
-SUPPORTED_GAGE_ID_LENGTHS = (8, 10, 12)
+SUPPORTED_GAGE_ID_LENGTHS = tuple(range(8, 16))
+SUPPORTED_GAGE_ID_LENGTH_DESCRIPTION = "8-to-15"
 SUPPORTED_FORMATS = {"csv", "parquet"}
 SUPPORTED_INTERVALS = {"daily", "monthly"}
 
@@ -154,10 +155,10 @@ def infer_gage_id(gpkg: Path) -> str:
         token for token in numeric_tokens if len(token) in SUPPORTED_GAGE_ID_LENGTHS
     ]
     if len(numeric_tokens) != 1 or len(valid) != 1:
-        lengths = ", ".join(str(value) for value in SUPPORTED_GAGE_ID_LENGTHS)
         raise ValueError(
             f"Cannot infer a gage ID from '{gpkg.name}'. Provide --gage-id, "
-            f"or use a filename containing exactly one {lengths}-digit ID."
+            "or use a filename containing exactly one "
+            f"{SUPPORTED_GAGE_ID_LENGTH_DESCRIPTION}-digit ID."
         )
     return valid[0]
 

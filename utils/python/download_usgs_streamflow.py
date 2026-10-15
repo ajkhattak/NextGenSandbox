@@ -39,11 +39,15 @@ import argparse
 import glob
 import html
 import re
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 
 class USGSIVDataService:
@@ -54,6 +58,18 @@ class USGSIVDataService:
     def __init__(self, session: requests.Session | None = None):
         self.session = session or requests.Session()
         self._owns_session = session is None
+        if self._owns_session:
+            retries = Retry(
+                total=3,
+                connect=3,
+                read=2,
+                status=3,
+                backoff_factor=2,
+                status_forcelist=(429, 500, 502, 503, 504),
+                allowed_methods={"GET"},
+                respect_retry_after_header=True,
+            )
+            self.session.mount("https://", HTTPAdapter(max_retries=retries))
 
     def __enter__(self):
         return self
@@ -294,6 +310,49 @@ def parse_args() -> argparse.Namespace:
         dest="aggregate",
         help="Keep top-of-hour values instead of hourly averages.",
     )
+    parser.add_argument(
+        "--audit-existing",
+        action="store_true",
+        help="Audit existing hourly CSV files without downloading them again.",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        choices=(1, 2, 3),
+        default=2,
+        help="Concurrent gage downloads (default: 2; 1 runs serially).",
+    )
+    parser.add_argument(
+        "--qc-start",
+        help="First scored UTC hour; defaults to --start (exclude spin-up here).",
+    )
+    parser.add_argument(
+        "--qc-end",
+        help="Last scored UTC hour; a date alone includes its full day. Defaults to --end.",
+    )
+    parser.add_argument(
+        "--min-hourly-coverage",
+        type=float,
+        default=0.95,
+        help="Minimum fraction of scored hours available (default: 0.95).",
+    )
+    parser.add_argument(
+        "--min-water-year-coverage",
+        type=float,
+        default=0.90,
+        help="Minimum hourly coverage in every scored water year (default: 0.90).",
+    )
+    parser.add_argument(
+        "--max-gap-hours",
+        type=int,
+        default=720,
+        help="Maximum consecutive missing scored hours (default: 720, or 30 days).",
+    )
+    parser.add_argument(
+        "--qc-summary",
+        type=Path,
+        help="QC CSV path; defaults to <output-dir>/hourly_streamflow_qc.csv.",
+    )
     parser.set_defaults(aggregate=True)
     return parser.parse_args()
 
@@ -310,6 +369,117 @@ def resolve_gage_ids(args: argparse.Namespace) -> list[str]:
             f"No geopackages matched --gpkg-pattern: {args.gpkg_pattern}"
         )
     return gage_ids
+
+
+def _qc_time(value: str, *, end: bool = False) -> pd.Timestamp:
+    try:
+        timestamp = pd.Timestamp(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Invalid QC timestamp: {value!r}") from exc
+    if pd.isna(timestamp):
+        raise ValueError(f"Invalid QC timestamp: {value!r}")
+    if timestamp.tzinfo is not None:
+        timestamp = timestamp.tz_convert("UTC").tz_localize(None)
+    if end and re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(value).strip()):
+        timestamp += pd.Timedelta(hours=23)
+    return timestamp
+
+
+def audit_hourly_streamflow(
+    path: Path,
+    gage_id: str,
+    qc_start: str,
+    qc_end: str,
+    min_hourly_coverage: float = 0.95,
+    min_water_year_coverage: float = 0.90,
+    max_gap_hours: int = 720,
+) -> dict[str, object]:
+    """Assess complete UTC hours in the scored interval, grouped by water year."""
+    start = _qc_time(qc_start).ceil("h")
+    end = _qc_time(qc_end, end=True).floor("h")
+    if start > end:
+        raise ValueError("QC end must be on or after QC start")
+    if not 0 <= min_hourly_coverage <= 1 or not 0 <= min_water_year_coverage <= 1:
+        raise ValueError("QC coverage thresholds must be between 0 and 1")
+    if max_gap_hours < 0:
+        raise ValueError("--max-gap-hours must be nonnegative")
+
+    result: dict[str, object] = {
+        "gage_id": gage_id,
+        "qc_start": start.isoformat(),
+        "qc_end": end.isoformat(),
+        "file_exists": path.is_file(),
+        "expected_hours": 0,
+        "available_hours": 0,
+        "overall_hourly_coverage": 0.0,
+        "minimum_water_year_coverage": 0.0,
+        "failed_water_years": "",
+        "water_year_coverage": "",
+        "longest_gap_hours": 0,
+        "longest_gap_start": "",
+        "longest_gap_end": "",
+        "passes_hourly_qc": False,
+        "exclusion_reasons": "",
+    }
+    if not path.is_file():
+        result["exclusion_reasons"] = "missing_hourly_file"
+        return result
+
+    try:
+        frame = pd.read_csv(path, usecols=["value_time", "value"])
+    except (OSError, ValueError, pd.errors.ParserError):
+        result["exclusion_reasons"] = "unreadable_hourly_file"
+        return result
+    times = pd.to_datetime(frame["value_time"], utc=True, errors="coerce")
+    if times.isna().any():
+        result["exclusion_reasons"] = "invalid_timestamps"
+        return result
+    times = times.dt.tz_localize(None)
+    if times.duplicated().any():
+        result["exclusion_reasons"] = "duplicate_timestamps"
+        return result
+
+    values = pd.to_numeric(frame["value"], errors="coerce")
+    series = pd.Series(values.to_numpy(), index=pd.DatetimeIndex(times))
+    hours = pd.date_range(start, end, freq="h")
+    available = np.isfinite(series.reindex(hours).to_numpy(dtype=float))
+    expected = len(hours)
+    total_coverage = float(available.mean())
+    water_years = hours.year + (hours.month >= 10)
+    yearly = pd.DataFrame({"water_year": water_years, "available": available})
+    yearly_coverage = yearly.groupby("water_year", sort=True)["available"].mean()
+    failed_years = yearly_coverage[yearly_coverage < min_water_year_coverage].index.tolist()
+
+    missing_positions = np.flatnonzero(~available)
+    if len(missing_positions):
+        breaks = np.flatnonzero(np.diff(missing_positions) != 1) + 1
+        runs = np.split(missing_positions, breaks)
+        longest = max(runs, key=len)
+        result["longest_gap_hours"] = len(longest)
+        result["longest_gap_start"] = hours[longest[0]].isoformat()
+        result["longest_gap_end"] = hours[longest[-1]].isoformat()
+
+    reasons = []
+    if total_coverage < min_hourly_coverage:
+        reasons.append("overall_coverage")
+    if failed_years:
+        reasons.append("water_year_coverage")
+    if result["longest_gap_hours"] > max_gap_hours:
+        reasons.append("longest_gap")
+
+    result.update(
+        expected_hours=expected,
+        available_hours=int(available.sum()),
+        overall_hourly_coverage=total_coverage,
+        minimum_water_year_coverage=float(yearly_coverage.min()),
+        failed_water_years=";".join(map(str, failed_years)),
+        water_year_coverage=";".join(
+            f"{year}:{coverage:.4f}" for year, coverage in yearly_coverage.items()
+        ),
+        passes_hourly_qc=not reasons,
+        exclusion_reasons=";".join(reasons),
+    )
+    return result
 
 
 def fetch_and_save_hourly_usgs_data(service,
@@ -440,6 +610,15 @@ def get_usgs_data_driver(
     start: str,
     end: str,
     aggregate: bool = True,
+    *,
+    audit_existing: bool = False,
+    qc_start: str | None = None,
+    qc_end: str | None = None,
+    min_hourly_coverage: float = 0.95,
+    min_water_year_coverage: float = 0.90,
+    max_gap_hours: int = 720,
+    qc_summary: str | Path | None = None,
+    workers: int = 2,
 ):
     """
     Download hourly streamflow data for each supplied USGS gage ID.
@@ -460,19 +639,84 @@ def get_usgs_data_driver(
         raise ValueError("At least one gage ID must be provided")
     print(f"[INFO] Processing {len(gage_ids)} gage IDs.")
 
+    qc_start = qc_start or start
+    qc_end = qc_end or end
+    # Validate settings even when no gage file is present.
+    if _qc_time(qc_start).ceil("h") > _qc_time(qc_end, end=True).floor("h"):
+        raise ValueError("QC end must be on or after QC start")
+    if not 0 <= min_hourly_coverage <= 1 or not 0 <= min_water_year_coverage <= 1:
+        raise ValueError("QC coverage thresholds must be between 0 and 1")
+    if max_gap_hours < 0:
+        raise ValueError("--max-gap-hours must be nonnegative")
+    if workers not in (1, 2, 3):
+        raise ValueError("--workers must be 1, 2, or 3")
+
     failed_gages = []
-    with USGSIVDataService() as service:
+    qc_rows = []
+    output_dir = Path(output_dir)
+    def process_gage(gage_id: str) -> tuple[str, bool, dict[str, object]]:
+        success = True
+        if not audit_existing:
+            with USGSIVDataService() as service:
+                success = fetch_and_save_hourly_usgs_data(
+                    service=service,
+                    gage_id=gage_id,
+                    start=start,
+                    end=end,
+                    output_dir=output_dir,
+                    aggregate=aggregate,
+                )
+        qc = audit_hourly_streamflow(
+            output_dir / f"gage_{gage_id}_hourly_streamflow.csv",
+            gage_id,
+            qc_start,
+            qc_end,
+            min_hourly_coverage,
+            min_water_year_coverage,
+            max_gap_hours,
+        )
+        if not success:
+            qc["passes_hourly_qc"] = False
+            qc["exclusion_reasons"] = "download_failed"
+        return gage_id, success, qc
+
+    def record_result(result: tuple[str, bool, dict[str, object]]) -> None:
+        gage_id, success, qc = result
+        if not success:
+            failed_gages.append(gage_id)
+        qc_rows.append(qc)
+        status = "PASS" if qc["passes_hourly_qc"] else "FAIL"
+        print(
+            f"[QC {status}] Gage {gage_id}: "
+            f"coverage={qc['overall_hourly_coverage']:.2%}, "
+            f"minimum water-year coverage={qc['minimum_water_year_coverage']:.2%}, "
+            f"longest scored gap={qc['longest_gap_hours']} hours; "
+            f"reasons={qc['exclusion_reasons'] or 'none'}"
+        )
+
+    if audit_existing or workers == 1 or len(gage_ids) == 1:
         for gage_id in gage_ids:
-            success = fetch_and_save_hourly_usgs_data(
-                service=service,
-                gage_id=gage_id,
-                start=start,
-                end=end,
-                output_dir=output_dir,
-                aggregate=aggregate
-            )
-            if not success:
-                failed_gages.append(gage_id)
+            record_result(process_gage(gage_id))
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            for result in executor.map(process_gage, gage_ids):
+                record_result(result)
+
+    summary_path = Path(qc_summary) if qc_summary else output_dir / "hourly_streamflow_qc.csv"
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(qc_rows).to_csv(summary_path, index=False)
+    print(f"[INFO] Saved hourly QC for {len(qc_rows)} gages to {summary_path}")
+    excluded_path = summary_path.with_name("excluded_hourly_gages.csv")
+    excluded = pd.DataFrame(
+        [
+            {"STAID": row["gage_id"], "exclusion_reasons": row["exclusion_reasons"]}
+            for row in qc_rows
+            if not row["passes_hourly_qc"]
+        ],
+        columns=["STAID", "exclusion_reasons"],
+    )
+    excluded.to_csv(excluded_path, index=False)
+    print(f"[INFO] Saved {len(excluded)} hourly QC exclusions to {excluded_path}")
 
     if failed_gages:
         raise RuntimeError(
@@ -480,7 +724,12 @@ def get_usgs_data_driver(
             + ", ".join(failed_gages)
         )
 
-    print("All gages processed successfully.", flush=True)
+    passed = sum(bool(row["passes_hourly_qc"]) for row in qc_rows)
+    print(
+        f"Hourly QC complete: {passed}/{len(qc_rows)} gages passed; "
+        f"exclude the other {len(qc_rows) - passed} before calibration.",
+        flush=True,
+    )
 
 
 # ============================================================
@@ -492,4 +741,12 @@ if __name__ == "__main__":
         start=args.start,
         end=args.end,
         aggregate=args.aggregate,
+        audit_existing=args.audit_existing,
+        qc_start=args.qc_start,
+        qc_end=args.qc_end,
+        min_hourly_coverage=args.min_hourly_coverage,
+        min_water_year_coverage=args.min_water_year_coverage,
+        max_gap_hours=args.max_gap_hours,
+        qc_summary=args.qc_summary,
+        workers=args.workers,
     )

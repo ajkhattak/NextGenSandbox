@@ -2,6 +2,7 @@ import argparse
 import importlib.util
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -99,6 +100,89 @@ class TestDownloadUsgsStreamflow(unittest.TestCase):
         service_factory.assert_called_once_with()
         fetch.assert_called_once()
         self.assertTrue(service.closed)
+
+    def test_driver_downloads_two_gages_concurrently_with_separate_services(self):
+        barrier = threading.Barrier(2)
+        lock = threading.Lock()
+        active = 0
+        peak = 0
+        services = []
+
+        class FakeService:
+            def __init__(self):
+                self.closed = False
+                services.append(self)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                self.closed = True
+
+        def fake_fetch(*, gage_id, output_dir, **_kwargs):
+            nonlocal active, peak
+            with lock:
+                active += 1
+                peak = max(peak, active)
+            barrier.wait(timeout=5)
+            pd.DataFrame(
+                {
+                    "value_time": ["2020-10-01 00:00:00", "2020-10-01 01:00:00"],
+                    "value": [1.0, 1.0],
+                }
+            ).to_csv(Path(output_dir) / f"gage_{gage_id}_hourly_streamflow.csv", index=False)
+            with lock:
+                active -= 1
+            return True
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                patch("download_usgs_streamflow.USGSIVDataService", FakeService),
+                patch.object(downloader, "fetch_and_save_hourly_usgs_data", side_effect=fake_fetch),
+            ):
+                downloader.get_usgs_data_driver(
+                    ["01109403", "08070500"],
+                    tmp,
+                    "2020-10-01 00:00:00",
+                    "2020-10-01 01:00:00",
+                    workers=2,
+                )
+            qc = pd.read_csv(Path(tmp) / "hourly_streamflow_qc.csv", dtype={"gage_id": str})
+
+        self.assertEqual(peak, 2)
+        self.assertEqual(len(services), 2)
+        self.assertTrue(all(service.closed for service in services))
+        self.assertEqual(qc["gage_id"].tolist(), ["01109403", "08070500"])
+        self.assertEqual(qc["passes_hourly_qc"].tolist(), [True, True])
+
+    def test_owned_service_retries_transient_http_errors(self):
+        with downloader.USGSIVDataService() as service:
+            retries = service.session.get_adapter("https://").max_retries
+            self.assertEqual(retries.total, 3)
+            self.assertIn(429, retries.status_forcelist)
+            self.assertIn(503, retries.status_forcelist)
+
+    def test_failed_download_does_not_pass_qc_using_an_old_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "gage_01109403_hourly_streamflow.csv"
+            pd.DataFrame(
+                {
+                    "value_time": ["2020-10-01 00:00:00"],
+                    "value": [1.0],
+                }
+            ).to_csv(path, index=False)
+            with patch.object(downloader, "fetch_and_save_hourly_usgs_data", return_value=False):
+                with self.assertRaisesRegex(RuntimeError, "01109403"):
+                    downloader.get_usgs_data_driver(
+                        ["01109403"], tmp, "2020-10-01", "2020-10-01",
+                    )
+            qc = pd.read_csv(Path(tmp) / "hourly_streamflow_qc.csv")
+            excluded = pd.read_csv(
+                Path(tmp) / "excluded_hourly_gages.csv", dtype={"STAID": str}
+            )
+
+        self.assertFalse(qc.loc[0, "passes_hourly_qc"])
+        self.assertEqual(excluded.loc[0, "exclusion_reasons"], "download_failed")
 
     def test_synchronous_service_parses_usgs_json(self):
         payload = {
@@ -199,6 +283,58 @@ class TestDownloadUsgsStreamflow(unittest.TestCase):
         self.assertIn("hourly coverage=50.00% (2/4 hours available; 2 missing)", messages)
         self.assertIn("missing observations occur in 2 separate gap(s)", messages)
         self.assertIn("longest continuous gap=1 hours (0.0 days)", messages)
+
+    def test_hourly_qc_excludes_spinup_and_checks_water_years_and_gap(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "gage_02146211_hourly_streamflow.csv"
+            hours = pd.date_range("2019-10-01", "2021-09-30 23:00", freq="h")
+            values = pd.Series(1.0, index=hours)
+            values.loc["2019-10-01":"2020-09-30 23:00"] = float("nan")
+            values.loc["2020-10-02":"2020-11-30 23:00"] = float("nan")
+            pd.DataFrame({"value_time": hours, "value": values.to_numpy()}).to_csv(
+                path, index=False
+            )
+
+            qc = downloader.audit_hourly_streamflow(
+                path,
+                "02146211",
+                "2020-10-01",
+                "2021-09-30",
+                min_hourly_coverage=0.80,
+                min_water_year_coverage=0.90,
+                max_gap_hours=720,
+            )
+
+        self.assertEqual(qc["expected_hours"], 365 * 24)
+        self.assertEqual(qc["longest_gap_hours"], 60 * 24)
+        self.assertEqual(qc["failed_water_years"], "2021")
+        self.assertEqual(qc["exclusion_reasons"], "water_year_coverage;longest_gap")
+
+    def test_audit_existing_writes_reusable_exclusion_list(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            path = output_dir / "gage_01109403_hourly_streamflow.csv"
+            hours = pd.date_range("2020-10-01", "2020-10-02 23:00", freq="h")
+            pd.DataFrame({"value_time": hours, "value": 1.0}).to_csv(path, index=False)
+            with patch(
+                "download_usgs_streamflow.USGSIVDataService",
+                side_effect=AssertionError("audit must not access USGS"),
+            ):
+                downloader.get_usgs_data_driver(
+                    ["01109403", "02146211"],
+                    output_dir,
+                    "2020-10-01",
+                    "2020-10-02 23:00:00",
+                    audit_existing=True,
+                )
+
+            qc = pd.read_csv(output_dir / "hourly_streamflow_qc.csv", dtype={"gage_id": str})
+            excluded = pd.read_csv(
+                output_dir / "excluded_hourly_gages.csv", dtype={"STAID": str}
+            )
+            self.assertEqual(qc["passes_hourly_qc"].tolist(), [True, False])
+            self.assertEqual(excluded["STAID"].tolist(), ["02146211"])
+            self.assertEqual(excluded["exclusion_reasons"].tolist(), ["missing_hourly_file"])
 
 
 if __name__ == "__main__":
