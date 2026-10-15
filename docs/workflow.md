@@ -384,6 +384,24 @@ The helper writes per-gage logs and these summary files under its log directory:
 - `success_gages.txt`
 - `failed_gages.txt`
 
+Successful subset and forcing results are also recorded in
+`<general.input_dir>/sandbox_status.json`. Resume an interrupted batch with
+the same command plus `--resume`:
+
+```bash
+tools/batch/run_sandbox_resources_parallel.sh \
+  --step forc \
+  --config configs/my_project.yaml \
+  --jobs 2 \
+  --resume
+```
+
+Resume skips only gages recorded as successful for the selected step. Failed,
+pending, and previously unrecorded gages run again. Running without `--resume`
+processes every selected gage and refreshes its status. Do not use `--resume`
+after changing the subset or forcing settings; run without it to rebuild the
+selected resources.
+
 The shell script contains an editable Slurm header. It can also be run directly
 from a local Linux or macOS terminal.
 

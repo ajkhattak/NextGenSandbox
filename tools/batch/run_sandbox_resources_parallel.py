@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import json
 import os
 import shutil
 import subprocess
 import sys
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
@@ -22,6 +23,11 @@ from src.python.gages import load_general_gages, resolve_step_gages
 STEP_BLOCK = {
     "subset": "subsetting",
     "forc": "forcings",
+}
+
+STATUS_BLOCK = {
+    "subset": "subset",
+    "forc": "forcing",
 }
 
 
@@ -76,6 +82,14 @@ def parse_args():
         help="Directory for per-gage logs and success/failure lists.",
     )
     parser.add_argument(
+        "--resume",
+        action="store_true",
+        help=(
+            "Skip gages already recorded as successful for this step in "
+            "<general.input_dir>/sandbox_status.json."
+        ),
+    )
+    parser.add_argument(
         "--allow-oversubscribe",
         action="store_true",
         help=(
@@ -123,6 +137,67 @@ def load_gages(config_path: Path, step: str) -> list[str]:
 
 def duplicate_gages(gages: list[str]) -> list[str]:
     return sorted(gage_id for gage_id, count in Counter(gages).items() if count > 1)
+
+
+def load_status(path: Path) -> dict:
+    if not path.exists():
+        return {"version": 1, "subset": {}, "forcing": {}}
+
+    with path.open("r") as file:
+        status = json.load(file)
+    if not isinstance(status, dict):
+        raise ValueError(f"Status file must contain a JSON object: {path}")
+
+    status.setdefault("version", 1)
+    status.setdefault("subset", {})
+    status.setdefault("forcing", {})
+    return status
+
+
+def save_status(path: Path, status: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp")
+    with temporary.open("w") as file:
+        json.dump(status, file, indent=2, sort_keys=True)
+        file.write("\n")
+    os.replace(temporary, path)
+
+
+def set_gage_status(
+    status: dict,
+    step: str,
+    gage_id: str,
+    state: str,
+    *,
+    returncode: int | None = None,
+) -> None:
+    record = {
+        "status": state,
+        "updated_at_utc": datetime.now(timezone.utc).isoformat(),
+    }
+    if returncode is not None:
+        record["returncode"] = returncode
+    status[STATUS_BLOCK[step]][gage_id] = record
+
+
+def pending_gages(
+    status: dict,
+    step: str,
+    gages: list[str],
+    resume: bool,
+) -> tuple[list[str], list[str]]:
+    if not resume:
+        return list(gages), []
+
+    step_status = status[STATUS_BLOCK[step]]
+    completed = [
+        gage_id
+        for gage_id in gages
+        if (step_status.get(gage_id) or {}).get("status") == "success"
+    ]
+    completed_set = set(completed)
+    pending = [gage_id for gage_id in gages if gage_id not in completed_set]
+    return pending, completed
 
 
 def subset_domain_warning(config: dict, step: str, gage_count: int) -> str | None:
@@ -205,6 +280,24 @@ def main() -> int:
         )
         return 2
 
+    input_dir_value = (sandbox_config.get("general") or {}).get("input_dir")
+    if not input_dir_value:
+        print("general.input_dir must be provided", file=sys.stderr)
+        return 2
+    status_file = Path(input_dir_value).expanduser() / "sandbox_status.json"
+    try:
+        status = load_status(status_file)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        print(f"Failed to read {status_file}: {exc}", file=sys.stderr)
+        return 2
+
+    run_gages, completed_gages = pending_gages(
+        status,
+        args.step,
+        gages,
+        args.resume,
+    )
+
     log_dir = args.log_dir
     if log_dir is None:
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
@@ -215,29 +308,47 @@ def main() -> int:
     failed_file = log_dir / "failed_gages.txt"
     selected_file = log_dir / "selected_gages.txt"
 
-    success_file.write_text("")
+    success_file.write_text(
+        "" if not completed_gages else "\n".join(completed_gages) + "\n"
+    )
     failed_file.write_text("")
     selected_file.write_text("\n".join(gages) + "\n")
 
     total = len(gages)
-    jobs = min(args.jobs, total)
+    jobs = min(args.jobs, len(run_gages)) if run_gages else 0
 
     warning = subset_domain_warning(sandbox_config, args.step, total)
     if warning:
         print(f"WARNING: {warning}", file=sys.stderr)
 
-    print(
-        f"Running sandbox --{args.step} for {total} selected gage(s) "
-        f"with {jobs} parallel job(s)."
-    )
+    print(f"Selected             : {total}")
+    print(f"Previously completed : {len(completed_gages)}")
+    print(f"Remaining            : {len(run_gages)}")
     print(f"Config : {config}")
     print(f"Logs   : {log_dir}")
+    print(f"Status : {status_file}")
+
+    if not run_gages:
+        print(f"All selected gages have completed the {args.step} step.")
+        return 0
+
+    print(
+        f"Running sandbox --{args.step} with {jobs} parallel job(s)."
+    )
+
+    for gage_id in run_gages:
+        set_gage_status(status, args.step, gage_id, "pending")
+    try:
+        save_status(status_file, status)
+    except OSError as exc:
+        print(f"Failed to write {status_file}: {exc}", file=sys.stderr)
+        return 2
 
     failed = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as executor:
         futures = {
             executor.submit(run_one, args.step, config, log_dir, gage): gage
-            for gage in gages
+            for gage in run_gages
         }
         for future in concurrent.futures.as_completed(futures):
             gage = futures[future]
@@ -245,17 +356,29 @@ def main() -> int:
                 gage_id, returncode = future.result()
             except Exception as exc:
                 failed.append(gage)
+                set_gage_status(status, args.step, gage, "failed")
+                save_status(status_file, status)
                 with failed_file.open("a") as file:
                     file.write(f"{gage}\n")
                 print(f"FAIL  {args.step} {gage}: {exc}", file=sys.stderr)
                 continue
 
             if returncode == 0:
+                set_gage_status(status, args.step, gage_id, "success")
+                save_status(status_file, status)
                 with success_file.open("a") as file:
                     file.write(f"{gage_id}\n")
                 print(f"DONE  {args.step} {gage_id}")
             else:
                 failed.append(gage_id)
+                set_gage_status(
+                    status,
+                    args.step,
+                    gage_id,
+                    "failed",
+                    returncode=returncode,
+                )
+                save_status(status_file, status)
                 with failed_file.open("a") as file:
                     file.write(f"{gage_id}\n")
                 print(
@@ -265,7 +388,7 @@ def main() -> int:
                     file=sys.stderr,
                 )
 
-    success_count = total - len(failed)
+    success_count = len(completed_gages) + len(run_gages) - len(failed)
     print("")
     print(f"Completed {args.step} batch.")
     print(f"  Success: {success_count}")
