@@ -197,6 +197,7 @@ class ActiveSlurmJob:
     num_tasks: int
     state: str
     num_cpus: int | None = None
+    start_time: float | None = None
 
 
 @dataclass(frozen=True)
@@ -2687,6 +2688,7 @@ def record_slurm_submission(
     job_id: str,
     job_name: str,
     stage: str,
+    timing_baseline_samples: int | None = None,
 ) -> None:
     path = submission_history_path(ctx)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -2696,6 +2698,8 @@ def record_slurm_submission(
         "stage": stage,
         "submitted_at": datetime.now().astimezone().isoformat(),
     }
+    if timing_baseline_samples is not None:
+        record["timing_baseline_samples"] = timing_baseline_samples
     with path.open("a") as file:
         file.write(json.dumps(record, sort_keys=True) + "\n")
 
@@ -3055,6 +3059,14 @@ def run_experiment(
     if dryrun:
         return ExperimentRun(sandbox_file)
 
+    timing_baseline_samples = (
+        calibration_timing_sample_count(output_dir, progress)
+        if use_slurm
+        and stage in {"calibration", "restart"}
+        and output_dir is not None
+        else None
+    )
+
     if not use_slurm:
         time.sleep(delay_seconds)
         if stage in {"restart", "validation"}:
@@ -3086,6 +3098,7 @@ def run_experiment(
             job_id=job_id,
             job_name=job_name,
             stage=stage,
+            timing_baseline_samples=timing_baseline_samples,
         )
         return ExperimentRun(
             sandbox_file,
@@ -3227,17 +3240,66 @@ def objective_log_evaluations(path: Path) -> int:
     return evaluations
 
 
+def calibration_timing_sample_count(
+    output_dir: Path,
+    progress: ExperimentProgress,
+) -> int:
+    if progress.algorithm == "pso":
+        progress_file = output_dir / "pso_progress.json"
+        if not progress_file.is_file():
+            return 0
+        try:
+            completed = json.loads(progress_file.read_text()).get(
+                "completed_generations",
+                0,
+            )
+        except (OSError, json.JSONDecodeError):
+            return 0
+        return (
+            completed
+            if isinstance(completed, int)
+            and not isinstance(completed, bool)
+            and completed >= 0
+            else 0
+        )
+
+    return sum(
+        objective_log_evaluations(path)
+        for path in output_dir.glob("*_worker/objective_log.txt")
+    )
+
+
 def estimate_calibration_timing(
     output_dir: Path,
     progress: ExperimentProgress,
     max_iterations: int,
+    *,
+    attempt_start_time: float | None = None,
+    baseline_samples: int = 0,
 ) -> tuple[float | None, float | None]:
     if not progress.started:
         return None, None
 
     elapsed_seconds = 0.0
     completed_samples = 0
-    if progress.algorithm == "pso":
+    if attempt_start_time is not None:
+        current_samples = calibration_timing_sample_count(output_dir, progress)
+        completed_samples = max(0, current_samples - baseline_samples)
+        if progress.algorithm == "pso":
+            evidence_file = output_dir / "pso_progress.json"
+            evidence_files = [evidence_file] if evidence_file.is_file() else []
+        else:
+            evidence_files = list(
+                output_dir.glob("*_worker/objective_log.txt")
+            )
+        try:
+            evidence_time = max(
+                path.stat().st_mtime for path in evidence_files
+            )
+        except (OSError, ValueError):
+            evidence_time = 0.0
+        elapsed_seconds = max(0.0, evidence_time - attempt_start_time)
+    elif progress.algorithm == "pso":
         progress_file = output_dir / "pso_progress.json"
         worker_starts = [
             start
@@ -3373,6 +3435,35 @@ def submitted_worker_jobs(
             if job_name in expected_names:
                 jobs[job_id] = job_name
     return jobs
+
+
+def latest_submission_records(
+    ctx: LauncherContext,
+    expected_names: set[str],
+) -> dict[str, dict[str, Any]]:
+    """Return the latest recorded submission for each experiment."""
+    history_path = submission_history_path(ctx)
+    if not history_path.is_file():
+        return {}
+
+    latest: dict[str, dict[str, Any]] = {}
+    try:
+        lines = history_path.read_text().splitlines()
+    except OSError:
+        return latest
+    for line in lines:
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        job_name = str(record.get("job_name", "")).strip()
+        job_id = str(record.get("job_id", "")).strip()
+        if job_name not in expected_names or not job_id.isdigit():
+            continue
+        previous = latest.get(job_name)
+        if previous is None or int(job_id) > int(previous["job_id"]):
+            latest[job_name] = record
+    return latest
 
 
 def normalize_slurm_state(state: str) -> str:
@@ -3522,6 +3613,7 @@ def collect_campaign_status(
     scheduler_error = None
     active_by_name: dict[str, ActiveSlurmJob] = {}
     history_by_name: dict[str, SlurmJobHistory] = {}
+    submissions_by_name: dict[str, dict[str, Any]] = {}
     if ctx.slurm:
         try:
             expected_names = expected_slurm_job_names(ctx)
@@ -3533,6 +3625,10 @@ def collect_campaign_status(
                     active_by_name[job.name] = job
             submitted_jobs = submitted_worker_jobs(ctx, expected_names)
             history_by_name = get_slurm_job_history(submitted_jobs)
+            submissions_by_name = latest_submission_records(
+                ctx,
+                expected_names,
+            )
         except RuntimeError as error:
             scheduler_error = str(error)
     else:
@@ -3543,6 +3639,10 @@ def collect_campaign_status(
         for formulation_name, _ in get_formulations_for_gage(ctx, gage_id):
             model_dir = model_name_to_dir(formulation_name)
             for scenario in get_calibration_scenarios(ctx, gage_id):
+                scenario_suffix = f"_{scenario.name}" if scenario.name else ""
+                job_name = f"{model_dir}{scenario_suffix}_{gage_id}"
+                active_job = active_by_name.get(job_name)
+                submission = submissions_by_name.get(job_name)
                 exp_config_dir, metadata_index_dir = experiment_dirs(
                     ctx,
                     model_dir,
@@ -3559,13 +3659,42 @@ def collect_campaign_status(
                     gage_id,
                 )
                 if metadata is not None and metadata.get("output_dir"):
-                    average_seconds, remaining_seconds = (
-                        estimate_calibration_timing(
-                            Path(metadata["output_dir"]),
-                            progress,
-                            max_iter,
-                        )
+                    baseline_samples = 0
+                    current_attempt = (
+                        active_job is not None
+                        and submission is not None
+                        and str(submission.get("job_id")) == active_job.job_id
                     )
+                    has_timing_baseline = (
+                        current_attempt
+                        and "timing_baseline_samples" in submission
+                    )
+                    if current_attempt:
+                        baseline = submission.get("timing_baseline_samples", 0)
+                        if isinstance(baseline, int) and not isinstance(
+                            baseline,
+                            bool,
+                        ):
+                            baseline_samples = max(0, baseline)
+                    if current_attempt and (
+                        active_job.start_time is None
+                        or not has_timing_baseline
+                    ):
+                        average_seconds, remaining_seconds = None, None
+                    else:
+                        average_seconds, remaining_seconds = (
+                            estimate_calibration_timing(
+                                Path(metadata["output_dir"]),
+                                progress,
+                                max_iter,
+                                attempt_start_time=(
+                                    active_job.start_time
+                                    if current_attempt
+                                    else None
+                                ),
+                                baseline_samples=baseline_samples,
+                            )
+                        )
                 else:
                     average_seconds, remaining_seconds = None, None
                 calibration_complete = calibration_is_complete(
@@ -3584,9 +3713,6 @@ def collect_campaign_status(
                     validation = "-"
                     finished = calibration_complete
 
-                scenario_suffix = f"_{scenario.name}" if scenario.name else ""
-                job_name = f"{model_dir}{scenario_suffix}_{gage_id}"
-                active_job = active_by_name.get(job_name)
                 history = history_by_name.get(job_name)
                 if finished:
                     state = "COMPLETED"
@@ -3825,7 +3951,7 @@ def get_active_slurm_jobs() -> list[ActiveSlurmJob]:
         user,
         "-h",
         "-O",
-        "JobID:20,Name:200,NumTasks:12,NumCPUs:12,State:30",
+        "JobID:20,Name:200,NumTasks:12,NumCPUs:12,StartTime:32,State:30",
     ]
     try:
         output = subprocess.check_output(cmd, text=True)
@@ -3840,7 +3966,13 @@ def get_active_slurm_jobs() -> list[ActiveSlurmJob]:
         if not line.strip():
             continue
         try:
-            job_id, name, num_tasks, num_cpus, state = line.split(maxsplit=4)
+            job_id, name, num_tasks, num_cpus, start_time, state = line.split(
+                maxsplit=5
+            )
+            try:
+                start_timestamp = datetime.fromisoformat(start_time).timestamp()
+            except ValueError:
+                start_timestamp = None
             jobs.append(
                 ActiveSlurmJob(
                     job_id.strip(),
@@ -3848,6 +3980,7 @@ def get_active_slurm_jobs() -> list[ActiveSlurmJob]:
                     int(num_tasks.strip()),
                     state.strip().upper(),
                     int(num_cpus.strip()),
+                    start_timestamp,
                 )
             )
         except (TypeError, ValueError) as error:

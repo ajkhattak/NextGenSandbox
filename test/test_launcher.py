@@ -1549,8 +1549,8 @@ class TestLauncherSelection(unittest.TestCase):
             launcher.subprocess,
             "check_output",
             return_value=(
-                "101 pet_cfe_01109403 4 5 RUNNING\n"
-                "102 pet_cfe_08070500 12 18 PENDING\n"
+                "101 pet_cfe_01109403 4 5 2026-08-25T01:00:00 RUNNING\n"
+                "102 pet_cfe_08070500 12 18 N/A PENDING\n"
             ),
         ) as check_output:
             jobs = launcher.get_active_slurm_jobs()
@@ -1564,7 +1564,14 @@ class TestLauncherSelection(unittest.TestCase):
             jobs,
             [
                 launcher.ActiveSlurmJob(
-                    "101", "pet_cfe_01109403", 4, "RUNNING", 5
+                    "101",
+                    "pet_cfe_01109403",
+                    4,
+                    "RUNNING",
+                    5,
+                    launcher.datetime.fromisoformat(
+                        "2026-08-25T01:00:00"
+                    ).timestamp(),
                 ),
                 launcher.ActiveSlurmJob(
                     "102", "pet_cfe_08070500", 12, "PENDING", 18
@@ -1950,6 +1957,40 @@ class TestLauncherSelection(unittest.TestCase):
         self.assertEqual(launcher.format_estimated_minutes(208), "3 min")
         self.assertEqual(launcher.format_estimated_minutes(223), "4 min")
         self.assertEqual(launcher.format_estimated_minutes(3568), "59 min")
+
+    def test_calibration_timing_uses_only_current_slurm_attempt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            worker = output_dir / "202608250100_ngen_test_worker"
+            worker.mkdir()
+            objective_log = worker / "objective_log.txt"
+            objective_log.write_text(
+                "0, 0.8\n1, 0.6\n2, 0.5\n3, 0.4\n"
+            )
+            attempt_start = launcher.datetime.strptime(
+                "202608270100",
+                "%Y%m%d%H%M",
+            ).timestamp()
+            os.utime(
+                objective_log,
+                (attempt_start + 120, attempt_start + 120),
+            )
+
+            average, remaining = launcher.estimate_calibration_timing(
+                output_dir,
+                launcher.ExperimentProgress(
+                    configured=True,
+                    current_iteration=3,
+                    completed_iterations=3,
+                    algorithm="dds",
+                ),
+                max_iterations=5,
+                attempt_start_time=attempt_start,
+                baseline_samples=3,
+            )
+
+        self.assertEqual(average, 120.0)
+        self.assertEqual(remaining, 240.0)
 
     def test_restart_walltime_uses_observed_iteration_timing(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -3165,6 +3206,7 @@ class TestLauncherSelection(unittest.TestCase):
             job_id="456",
             job_name="pet_cfe_01109403",
             stage="calibration",
+            timing_baseline_samples=None,
         )
 
     def test_slurm_pso_run_scales_worker_resources(self):
