@@ -3466,6 +3466,23 @@ def latest_submission_records(
     return latest
 
 
+def slurm_log_timing_baseline(
+    log_dir: Path,
+    job: ActiveSlurmJob,
+    algorithm: str | None,
+) -> int | None:
+    """Recover a DDS restart baseline from the current Slurm output."""
+    if algorithm == "pso":
+        return None
+    output_file = log_dir / f"{job.name}_{job.job_id}.out"
+    try:
+        text = output_file.read_text()
+    except OSError:
+        return None
+    matches = re.findall(r"^Starting Iteration:\s*(\d+)\s*$", text, re.MULTILINE)
+    return int(matches[-1]) if matches else None
+
+
 def normalize_slurm_state(state: str) -> str:
     return state.strip().upper().split()[0].rstrip("+")
 
@@ -3676,6 +3693,15 @@ def collect_campaign_status(
                             bool,
                         ):
                             baseline_samples = max(0, baseline)
+                        if not has_timing_baseline:
+                            recovered_baseline = slurm_log_timing_baseline(
+                                ctx.log_dir,
+                                active_job,
+                                progress.algorithm,
+                            )
+                            if recovered_baseline is not None:
+                                baseline_samples = recovered_baseline
+                                has_timing_baseline = True
                     if current_attempt and (
                         active_job.start_time is None
                         or not has_timing_baseline

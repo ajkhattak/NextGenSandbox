@@ -1449,6 +1449,27 @@ class TestLauncherSelection(unittest.TestCase):
 
             self.assertEqual(jobs, {})
 
+    def test_current_slurm_log_recovers_dds_restart_timing_baseline(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_dir = Path(tmp)
+            job = launcher.ActiveSlurmJob(
+                "456",
+                "pet_cfe_ref_01109403",
+                4,
+                "RUNNING",
+            )
+            (log_dir / "pet_cfe_ref_01109403_456.out").write_text(
+                "Starting calib\nStarting Iteration: 3\n"
+            )
+
+            baseline = launcher.slurm_log_timing_baseline(
+                log_dir,
+                job,
+                "dds",
+            )
+
+        self.assertEqual(baseline, 3)
+
     def test_slurm_uses_stage_specific_resources(self):
         slurm = {
             "account": "project123",
