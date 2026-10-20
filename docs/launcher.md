@@ -332,6 +332,12 @@ the newest worker created during the current attempt. It shows `-` when no
 such worker has completed an evaluation; old worker timestamps are not used
 to bridge the downtime between attempts. No reset or resubmission is needed
 to use this fallback.
+For reused workers with unavailable attempt history, status records progress
+in `<experiment_output_dir>/launcher_timing.json`. Run status once to establish
+a baseline, then again after at least one further iteration (or PSO generation)
+finishes. Timing is measured between those completed samples and is retained
+on subsequent checks. A different job, worker, or reset progress starts a new
+baseline. This does not require cancelling jobs or resetting the campaign.
 
 Re-run `sandbox-launcher run` or `sandbox-launcher submit` with the same
 configuration after a failure or wall-clock limit. Completed work is left

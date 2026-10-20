@@ -3631,6 +3631,70 @@ def terminal_campaign_state(
     return "FAILED"
 
 
+def observed_attempt_timing(
+    output_dir: Path,
+    progress: ExperimentProgress,
+    max_iterations: int,
+    job: ActiveSlurmJob,
+) -> tuple[float | None, float | None]:
+    """Measure completed progress between status checks within one job."""
+    completed = progress.completed_iterations
+    if completed is None:
+        completed = progress.current_iteration
+    if completed is None or job.state != "RUNNING":
+        return None, None
+    if progress.algorithm == "pso":
+        evidence = output_dir / "pso_progress.json"
+    elif progress.checkpoint_file is not None:
+        evidence = progress.checkpoint_file.parent / "objective_log.txt"
+    else:
+        logs = list(output_dir.glob("*_worker/objective_log.txt"))
+        if not logs:
+            return None, None
+        evidence = max(logs, key=lambda path: path.stat().st_mtime)
+    try:
+        timestamp = evidence.stat().st_mtime
+        if job.start_time is not None and timestamp < job.start_time:
+            return None, None
+        identity = [job.job_id, job.start_time, progress.algorithm, str(evidence)]
+        # Lock the small observation file so simultaneous status calls cannot
+        # overwrite each other's baseline. Never modify calibration artifacts.
+        with (output_dir / "launcher_timing.json").open("a+") as stream:
+            fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+            stream.seek(0)
+            try:
+                previous = json.load(stream)
+            except (ValueError, OSError):
+                previous = {}
+            if not isinstance(previous, dict):
+                previous = {}
+            if (
+                previous.get("identity") != identity
+                or completed < previous.get("completed", completed)
+                or timestamp < previous.get("timestamp", timestamp)
+            ):
+                previous = {}
+            average = previous.get("average_seconds")
+            if previous and completed > previous["completed"]:
+                elapsed = timestamp - previous["timestamp"]
+                if elapsed > 0:
+                    average = elapsed / (completed - previous["completed"])
+            if not previous or completed > previous["completed"]:
+                stream.seek(0)
+                stream.truncate()
+                json.dump({
+                    "identity": identity,
+                    "completed": completed,
+                    "timestamp": timestamp,
+                    "average_seconds": average,
+                }, stream)
+        if average is not None:
+            return average, average * max(0, max_iterations - completed)
+    except OSError:
+        pass
+    return None, None
+
+
 def estimate_attempt_timing(
     output_dir: Path,
     progress: ExperimentProgress,
@@ -3640,8 +3704,19 @@ def estimate_attempt_timing(
     log_dir: Path,
 ) -> tuple[float | None, float | None]:
     """Select the timing evidence for the current status row."""
-    if job is None or submission is None or str(submission.get("job_id")) != job.job_id:
+    if job is None:
         return estimate_calibration_timing(output_dir, progress, max_iterations)
+
+    observed = observed_attempt_timing(output_dir, progress, max_iterations, job)
+    if observed[0] is not None:
+        return observed
+    if submission is None or str(submission.get("job_id")) != job.job_id:
+        if job.start_time is None:
+            return None, None
+        return estimate_calibration_timing(
+            output_dir, progress, max_iterations,
+            worker_created_after=job.start_time,
+        )
 
     has_baseline = "timing_baseline_samples" in submission
     baseline = submission.get("timing_baseline_samples", 0)

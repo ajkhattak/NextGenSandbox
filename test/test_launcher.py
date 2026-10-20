@@ -2042,6 +2042,38 @@ class TestLauncherSelection(unittest.TestCase):
                 (None, None),
             )
 
+    def test_status_times_reused_worker_without_history_or_stdout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            worker = root / "202610181600_ngen_old_worker"
+            worker.mkdir()
+            log = worker / "objective_log.txt"
+            log.write_text("7, 1.2\n")
+            start = launcher.datetime(2026, 10, 20, 16).timestamp()
+            job = launcher.ActiveSlurmJob("123", "dds", 1, "RUNNING", 1, start)
+
+            def estimate(iteration, timestamp, active_job=job):
+                os.utime(log, (timestamp, timestamp))
+                return launcher.estimate_attempt_timing(
+                    root,
+                    launcher.ExperimentProgress(
+                        configured=True, current_iteration=iteration,
+                        algorithm="dds", checkpoint_file=worker / "state.parquet",
+                    ),
+                    300, active_job, None, root / "logs",
+                )
+
+            self.assertEqual(estimate(7, start - 86400), (None, None))
+            self.assertEqual(estimate(8, start + 300), (None, None))
+            self.assertEqual(estimate(10, start + 900), (300, 87000))
+            # Polling unchanged progress retains the measured duration.
+            self.assertEqual(estimate(10, start + 900), (300, 87000))
+            next_job = launcher.ActiveSlurmJob(
+                "124", "dds", 1, "RUNNING", 1, start + 10000
+            )
+            self.assertEqual(estimate(11, start + 10300, next_job), (None, None))
+            self.assertEqual(estimate(12, start + 10900, next_job), (600, 172800))
+
     def test_restart_walltime_uses_observed_iteration_timing(self):
         with tempfile.TemporaryDirectory() as tmp:
             output_dir = Path(tmp)
