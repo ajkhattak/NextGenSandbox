@@ -1918,6 +1918,7 @@ def generated_configs_need_refresh(
     expected_label: str | None = None,
     expected_output_dir: Path | None = None,
     expected_scenario: str | None = None,
+    expected_partitioning: dict[str, Any] | None = None,
 ) -> bool:
     """Return whether launcher-owned YAML files use an obsolete schema."""
     expected_tasks = {
@@ -1947,6 +1948,11 @@ def generated_configs_need_refresh(
             ):
                 return True
         if simulation.get("scenario") != expected_scenario:
+            return True
+        if (
+            expected_partitioning is not None
+            and (simulation.get("partitioning") or {}) != expected_partitioning
+        ):
             return True
         if expected_label is not None:
             current_label = simulation.get("label") or ""
@@ -2190,6 +2196,42 @@ def get_num_cpus(metadata_index_dir: Path, gage_id: str) -> int:
     if metadata is None:
         return 1
     return int(metadata.get("num_cpus", 1))
+
+
+def refresh_partition_metadata(
+    ctx: LauncherContext,
+    metadata_index_dir: Path,
+    gage_id: str,
+) -> None:
+    metadata_path = metadata_index_dir / f"run_{gage_id}.yml"
+    metadata = load_yaml(metadata_path)
+    gpkg_file = find_gpkg_file(Path(metadata["input_dir"]))
+    partitioning = (
+        ctx.sandbox_cfg.get("simulation", {}).get("partitioning") or {}
+    )
+    metadata["num_cpus"] = helper.prepare_basin_partitioning(
+        REPO_ROOT,
+        gpkg_file,
+        partitioning,
+        create_par_file=False,
+    )
+
+    metadata_files = [metadata_path]
+    metadata_name = (
+        ctx.sandbox_cfg.get("simulation", {})
+        .get("outputs", {})
+        .get("metadata", {})
+        .get("file", "simulation_metadata.yml")
+    )
+    output_metadata_path = Path(metadata["output_dir"]) / metadata_name
+    if output_metadata_path.is_file():
+        metadata_files.append(output_metadata_path)
+
+    for path in metadata_files:
+        current = load_yaml(path)
+        current["num_cpus"] = metadata["num_cpus"]
+        with path.open("w") as file:
+            yaml.safe_dump(current, file, default_flow_style=False, sort_keys=False)
 
 
 def prepare_pso_warm_start_config(
@@ -4035,6 +4077,9 @@ def runner(
             expected_label=launcher_simulation_label(ctx.sandbox_cfg),
             expected_output_dir=ctx.output_dir,
             expected_scenario=scenario.name if scenario else None,
+            expected_partitioning=(
+                ctx.sandbox_cfg.get("simulation", {}).get("partitioning") or {}
+            ),
         )
         if not progress.configured or refresh_generated_configs:
             if not progress.configured and "calibration" not in ctx.stages:
@@ -4061,6 +4106,12 @@ def runner(
                 dryrun=dryrun,
                 configure=not progress.configured,
             )
+            if progress.configured and not dryrun:
+                refresh_partition_metadata(
+                    ctx,
+                    metadata_index_dir,
+                    gage_id,
+                )
             if not dryrun:
                 progress = get_experiment_progress(
                     metadata_index_dir,
