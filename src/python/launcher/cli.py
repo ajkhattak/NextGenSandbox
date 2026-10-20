@@ -3276,6 +3276,7 @@ def estimate_calibration_timing(
     *,
     attempt_start_time: float | None = None,
     baseline_samples: int = 0,
+    worker_created_after: float | None = None,
 ) -> tuple[float | None, float | None]:
     if not progress.started:
         return None, None
@@ -3305,6 +3306,7 @@ def estimate_calibration_timing(
             start
             for worker_dir in output_dir.glob("*_worker")
             if (start := worker_start_time(worker_dir)) is not None
+            and (worker_created_after is None or start >= worker_created_after - 60)
         ]
         if progress_file.is_file() and worker_starts:
             try:
@@ -3321,13 +3323,20 @@ def estimate_calibration_timing(
             ):
                 elapsed_seconds = max(
                     0.0,
-                    progress_mtime - min(worker_starts),
+                    progress_mtime - max(worker_starts),
                 )
                 completed_samples = completed
     else:
-        for objective_log in output_dir.glob("*_worker/objective_log.txt"):
+        objective_logs = sorted(
+            output_dir.glob("*_worker/objective_log.txt"),
+            key=lambda path: worker_start_time(path.parent) or 0,
+            reverse=True,
+        )
+        for objective_log in objective_logs:
             start = worker_start_time(objective_log.parent)
             if start is None:
+                continue
+            if worker_created_after is not None and start < worker_created_after - 60:
                 continue
             evaluations = objective_log_evaluations(objective_log)
             try:
@@ -3338,6 +3347,7 @@ def estimate_calibration_timing(
                 continue
             elapsed_seconds += elapsed
             completed_samples += evaluations
+            break
 
     if completed_samples == 0 or elapsed_seconds == 0:
         return None, None
@@ -3399,24 +3409,33 @@ def detailed_status_sort_key(
     )
 
 
+def read_submission_records(ctx: LauncherContext) -> list[dict[str, Any]]:
+    try:
+        lines = submission_history_path(ctx).read_text().splitlines()
+    except OSError:
+        return []
+    records = []
+    for line in lines:
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(record, dict):
+            records.append(record)
+    return records
+
+
 def submitted_worker_jobs(
     ctx: LauncherContext,
     expected_names: set[str],
+    records: list[dict[str, Any]] | None = None,
 ) -> dict[str, str]:
     """Return submitted Slurm worker job IDs mapped to experiment names."""
     jobs: dict[str, str] = {}
     history_path = submission_history_path(ctx)
     history_exists = history_path.is_file()
     if history_exists:
-        try:
-            lines = history_path.read_text().splitlines()
-        except OSError:
-            lines = []
-        for line in lines:
-            try:
-                record = json.loads(line)
-            except json.JSONDecodeError:
-                continue
+        for record in read_submission_records(ctx) if records is None else records:
             job_id = str(record.get("job_id", "")).strip()
             job_name = str(record.get("job_name", "")).strip()
             if job_id.isdigit() and job_name in expected_names:
@@ -3438,24 +3457,12 @@ def submitted_worker_jobs(
 
 
 def latest_submission_records(
-    ctx: LauncherContext,
+    records: list[dict[str, Any]],
     expected_names: set[str],
 ) -> dict[str, dict[str, Any]]:
     """Return the latest recorded submission for each experiment."""
-    history_path = submission_history_path(ctx)
-    if not history_path.is_file():
-        return {}
-
     latest: dict[str, dict[str, Any]] = {}
-    try:
-        lines = history_path.read_text().splitlines()
-    except OSError:
-        return latest
-    for line in lines:
-        try:
-            record = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+    for record in records:
         job_name = str(record.get("job_name", "")).strip()
         job_id = str(record.get("job_id", "")).strip()
         if job_name not in expected_names or not job_id.isdigit():
@@ -3624,6 +3631,50 @@ def terminal_campaign_state(
     return "FAILED"
 
 
+def estimate_attempt_timing(
+    output_dir: Path,
+    progress: ExperimentProgress,
+    max_iterations: int,
+    job: ActiveSlurmJob | None,
+    submission: dict[str, Any] | None,
+    log_dir: Path,
+) -> tuple[float | None, float | None]:
+    """Select the timing evidence for the current status row."""
+    if job is None or submission is None or str(submission.get("job_id")) != job.job_id:
+        return estimate_calibration_timing(output_dir, progress, max_iterations)
+
+    has_baseline = "timing_baseline_samples" in submission
+    baseline = submission.get("timing_baseline_samples", 0)
+    baseline_samples = (
+        max(0, baseline)
+        if isinstance(baseline, int) and not isinstance(baseline, bool)
+        else 0
+    )
+    if not has_baseline:
+        recovered = slurm_log_timing_baseline(log_dir, job, progress.algorithm)
+        if recovered is not None:
+            baseline_samples = recovered
+            has_baseline = True
+
+    if job.start_time is not None and has_baseline:
+        return estimate_calibration_timing(
+            output_dir, progress, max_iterations,
+            attempt_start_time=job.start_time,
+            baseline_samples=baseline_samples,
+        )
+
+    worker_cutoff = job.start_time
+    if worker_cutoff is None:
+        try:
+            worker_cutoff = datetime.fromisoformat(submission["submitted_at"]).timestamp()
+        except (KeyError, TypeError, ValueError):
+            return None, None
+    return estimate_calibration_timing(
+        output_dir, progress, max_iterations,
+        worker_created_after=worker_cutoff,
+    )
+
+
 def collect_campaign_status(
     ctx: LauncherContext,
 ) -> tuple[list[CampaignStatus], str | None]:
@@ -3640,10 +3691,11 @@ def collect_campaign_status(
                 existing = active_by_name.get(job.name)
                 if existing is None or job.state == "RUNNING":
                     active_by_name[job.name] = job
-            submitted_jobs = submitted_worker_jobs(ctx, expected_names)
+            records = read_submission_records(ctx)
+            submitted_jobs = submitted_worker_jobs(ctx, expected_names, records)
             history_by_name = get_slurm_job_history(submitted_jobs)
             submissions_by_name = latest_submission_records(
-                ctx,
+                records,
                 expected_names,
             )
         except RuntimeError as error:
@@ -3676,51 +3728,14 @@ def collect_campaign_status(
                     gage_id,
                 )
                 if metadata is not None and metadata.get("output_dir"):
-                    baseline_samples = 0
-                    current_attempt = (
-                        active_job is not None
-                        and submission is not None
-                        and str(submission.get("job_id")) == active_job.job_id
+                    average_seconds, remaining_seconds = estimate_attempt_timing(
+                        Path(metadata["output_dir"]),
+                        progress,
+                        max_iter,
+                        active_job,
+                        submission,
+                        getattr(ctx, "log_dir", ctx.output_dir / "logs"),
                     )
-                    has_timing_baseline = (
-                        current_attempt
-                        and "timing_baseline_samples" in submission
-                    )
-                    if current_attempt:
-                        baseline = submission.get("timing_baseline_samples", 0)
-                        if isinstance(baseline, int) and not isinstance(
-                            baseline,
-                            bool,
-                        ):
-                            baseline_samples = max(0, baseline)
-                        if not has_timing_baseline:
-                            recovered_baseline = slurm_log_timing_baseline(
-                                ctx.log_dir,
-                                active_job,
-                                progress.algorithm,
-                            )
-                            if recovered_baseline is not None:
-                                baseline_samples = recovered_baseline
-                                has_timing_baseline = True
-                    if current_attempt and (
-                        active_job.start_time is None
-                        or not has_timing_baseline
-                    ):
-                        average_seconds, remaining_seconds = None, None
-                    else:
-                        average_seconds, remaining_seconds = (
-                            estimate_calibration_timing(
-                                Path(metadata["output_dir"]),
-                                progress,
-                                max_iter,
-                                attempt_start_time=(
-                                    active_job.start_time
-                                    if current_attempt
-                                    else None
-                                ),
-                                baseline_samples=baseline_samples,
-                            )
-                        )
                 else:
                     average_seconds, remaining_seconds = None, None
                 calibration_complete = calibration_is_complete(

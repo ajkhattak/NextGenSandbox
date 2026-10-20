@@ -2013,6 +2013,35 @@ class TestLauncherSelection(unittest.TestCase):
         self.assertEqual(average, 120.0)
         self.assertEqual(remaining, 240.0)
 
+    def test_timing_falls_back_to_new_worker_without_submission_baseline(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            start = launcher.datetime(2026, 10, 20, 16, 0).timestamp()
+            for name, elapsed in (
+                ("202610181600_ngen_old_worker", 100000),
+                ("202610201600_ngen_new_worker", 600),
+            ):
+                worker = output_dir / name
+                worker.mkdir()
+                log = worker / "objective_log.txt"
+                log.write_text("0, 1.2\n1, 1.1\n")
+                os.utime(log, (start + elapsed, start + elapsed))
+            progress = launcher.ExperimentProgress(
+                configured=True, current_iteration=1, algorithm="dds"
+            )
+            self.assertEqual(
+                launcher.estimate_calibration_timing(
+                    output_dir, progress, 300, worker_created_after=start
+                ),
+                (300, 89700),
+            )
+            self.assertEqual(
+                launcher.estimate_calibration_timing(
+                    output_dir, progress, 300, worker_created_after=start + 3600
+                ),
+                (None, None),
+            )
+
     def test_restart_walltime_uses_observed_iteration_timing(self):
         with tempfile.TemporaryDirectory() as tmp:
             output_dir = Path(tmp)
