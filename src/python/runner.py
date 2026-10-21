@@ -408,6 +408,7 @@ class Runner:
                         state_file = configuration.ConfigurationCalib._validate_state_file(
                             ConfigGen.selected_state_file
                         )
+                        new_workers = {Path(state_file).parent}
                     else:
                         state_file = (
                             configuration.ConfigurationCalib
