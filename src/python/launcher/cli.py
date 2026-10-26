@@ -3752,6 +3752,8 @@ def estimate_attempt_timing(
 
 def collect_campaign_status(
     ctx: LauncherContext,
+    *,
+    include_timing: bool = True,
 ) -> tuple[list[CampaignStatus], str | None]:
     scheduler_error = None
     active_by_name: dict[str, ActiveSlurmJob] = {}
@@ -3798,9 +3800,9 @@ def collect_campaign_status(
                     status=True,
                 )
                 max_iter = get_max_iter(exp_config_dir, gage_id)
-                metadata = read_metadata_index_file(
-                    metadata_index_dir,
-                    gage_id,
+                metadata = (
+                    read_metadata_index_file(metadata_index_dir, gage_id)
+                    if include_timing else None
                 )
                 if metadata is not None and metadata.get("output_dir"):
                     average_seconds, remaining_seconds = estimate_attempt_timing(
@@ -3906,7 +3908,9 @@ def check_status(
     detailed: bool = False,
     state_filter: str | None = None,
 ) -> None:
-    statuses, scheduler_error = collect_campaign_status(ctx)
+    statuses, scheduler_error = collect_campaign_status(
+        ctx, include_timing=detailed or state_filter == "RUNNING",
+    )
     if state_filter is not None:
         print_status_filter(statuses, state_filter)
         if scheduler_error is not None:

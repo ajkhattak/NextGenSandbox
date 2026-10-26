@@ -311,6 +311,9 @@ Use the compact campaign report:
 sandbox-launcher status --summary --config launcher_dds.yaml
 ```
 
+The summary skips iteration timing calculations and timing-cache updates. It
+still checks experiment progress and completion to classify campaign states.
+
 Use one row per gage/formulation/scenario for diagnosis:
 
 ```bash

@@ -1724,11 +1724,12 @@ class TestLauncherSelection(unittest.TestCase):
                 launcher,
                 "collect_campaign_status",
                 return_value=(statuses, None),
-            ),
+            ) as collect,
             redirect_stdout(output),
         ):
             launcher.check_status(SimpleNamespace(), detailed=False)
 
+        self.assertFalse(collect.call_args.kwargs["include_timing"])
         report = output.getvalue()
         labels = [
             "TOTAL",
@@ -1894,12 +1895,35 @@ class TestLauncherSelection(unittest.TestCase):
                 return_value=launcher.ExperimentProgress(configured=True),
             ),
             patch.object(launcher, "get_max_iter", return_value=40),
+            patch.object(
+                launcher, "read_metadata_index_file",
+                return_value={"output_dir": "/tmp/outputs/worker"},
+            ),
+            patch.object(
+                launcher, "estimate_attempt_timing", return_value=(60, 2400),
+            ) as estimate,
         ):
             statuses, scheduler_error = launcher.collect_campaign_status(
                 context
             )
+            self.assertEqual(estimate.call_count, len(gages))
+            estimate.reset_mock()
+            summary_statuses, summary_error = launcher.collect_campaign_status(
+                context, include_timing=False,
+            )
+            estimate.assert_not_called()
 
         self.assertIsNone(scheduler_error)
+        self.assertIsNone(summary_error)
+        self.assertEqual(
+            [status.state for status in summary_statuses],
+            [status.state for status in statuses],
+        )
+        self.assertTrue(all(
+            status.average_iteration_seconds is None
+            and status.estimated_remaining_seconds is None
+            for status in summary_statuses
+        ))
         self.assertEqual(
             [status.state for status in statuses],
             ["RUNNING", "QUEUED"],
