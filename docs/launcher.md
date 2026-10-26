@@ -305,6 +305,11 @@ workers so it cannot refill the released capacity.
 
 ## Status and Output
 
+Status resolves regime scenario names from the campaign configuration without
+reloading per-basin regime-year CSVs. Full regime-year selection and validation
+still run for submission and execution. Status does not require GeoPandas to
+be imported for basin partitioning.
+
 Use the compact campaign report:
 
 ```bash

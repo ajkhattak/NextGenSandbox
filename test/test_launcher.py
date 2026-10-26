@@ -2561,6 +2561,18 @@ class TestLauncherSelection(unittest.TestCase):
             )
             by_name = {scenario.name: scenario for scenario in scenarios}
 
+            with patch.object(
+                launcher, "_load_regime_years",
+                side_effect=AssertionError("Status must not read regime CSVs"),
+            ):
+                names = launcher.resolve_regime_scenarios(
+                    config, "08070500", root, names_only=True,
+                )
+            self.assertEqual(
+                [scenario.name for scenario in names],
+                [scenario.name for scenario in scenarios],
+            )
+
             self.assertEqual(set(by_name), {"ref", "wet", "dry"})
             self.assertNotIn("evaluation", by_name["ref"].calibration)
             self.assertEqual(

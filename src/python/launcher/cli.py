@@ -674,6 +674,7 @@ def resolve_regime_scenarios(
     launcher_dir: Path,
     *,
     require_gage_placeholder: bool = False,
+    names_only: bool = False,
 ) -> tuple[CalibrationScenario, ...]:
     if not isinstance(regime_config, dict):
         raise TypeError("regime_calibration must be a YAML dictionary/object")
@@ -803,6 +804,11 @@ def resolve_regime_scenarios(
         "end": reference["end"],
         "spinup": reference["spinup"],
     }
+    if names_only:
+        return tuple(
+            CalibrationScenario(name=name, calibration={})
+            for name in ("ref", *normalized_regimes)
+        )
     eligible_years = _complete_evaluation_years(reference_period, year_type)
     rows = _load_regime_years(source_file, year_column, regime_column)
     missing_years = [year for year in eligible_years if year not in rows]
@@ -896,6 +902,8 @@ def resolve_calibration_scenarios(
     map_cfg: dict[str, Any],
     sandbox_cfg: dict[str, Any],
     launcher_dir: Path,
+    *,
+    names_only: bool = False,
 ) -> dict[str, tuple[CalibrationScenario, ...]]:
     gage_ids = list(map_cfg["mapping"])
     regime_config = launcher_settings.get("regime_calibration")
@@ -921,6 +929,7 @@ def resolve_calibration_scenarios(
             gage_id,
             launcher_dir,
             require_gage_placeholder=len(gage_ids) > 1,
+            names_only=names_only,
         )
         for gage_id in gage_ids
     }
@@ -1021,7 +1030,7 @@ def stage_mpi_tasks(ctx: Any, model_mpi_tasks: int, stage: str) -> int:
     return model_mpi_tasks * stage_worker_count(ctx, stage)
 
 
-def load_context(config_file: Path) -> LauncherContext:
+def load_context(config_file: Path, *, status_only: bool = False) -> LauncherContext:
     config_file = config_file.expanduser()
     if not config_file.is_absolute():
         config_file = Path.cwd() / config_file
@@ -1178,6 +1187,7 @@ def load_context(config_file: Path) -> LauncherContext:
         map_cfg,
         sandbox_cfg,
         launcher_dir,
+        names_only=status_only,
     )
     scenario_execution_mode, scenario_order = resolve_scenario_execution(
         launcher_settings,
@@ -4740,7 +4750,7 @@ def main() -> None:
     reset_requested = getattr(args, "reset", False)
     if reset_requested and args.mode != "submit":
         raise ValueError("--reset may only be used with 'submit'")
-    ctx = load_context(Path(args.config))
+    ctx = load_context(Path(args.config), status_only=args.mode == "status")
     print(f"\n=== Sandbox Launcher Started @ {datetime.now()} ===")
 
     if args.mode == "check":

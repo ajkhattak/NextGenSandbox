@@ -2,9 +2,7 @@ import os
 import sys
 import shutil
 import importlib.util
-import numpy as np
 import subprocess
-import geopandas as gpd
 import re
 import yaml
 from datetime import datetime, timezone
@@ -246,6 +244,8 @@ def prepare_basin_partitioning(
     create_par_file=True,
     config_dir=None,
 ):
+    import numpy as np
+    import geopandas as gpd
 
     nexus     = gpd.read_file(gpkg_file, layer='nexus')
 
