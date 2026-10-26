@@ -92,7 +92,6 @@ from src.python.forcing_files import (
     select_netcdf_forcing_file,
     select_prepared_forcing_file,
 )
-from src.python.observations import ObservationLoader
 from src.python.resource_paths import (
     forcing_dir_for_resource,
     find_gpkg_file,
@@ -245,7 +244,7 @@ class LauncherRunUnit:
 
 def load_yaml(path: Path) -> dict[str, Any]:
     with path.open("r") as file:
-        data = yaml.safe_load(file) or {}
+        data = yaml.load(file, Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader)) or {}
     if not isinstance(data, dict):
         raise ValueError(f"Expected YAML mapping in {path}")
     return data
@@ -1529,6 +1528,8 @@ def validate_launcher_resources(
 
     observations = ctx.sandbox_cfg.get("observations") or {}
     if observations:
+        from src.python.observations import ObservationLoader
+
         try:
             ObservationLoader(
                 observations=observations,

@@ -307,8 +307,10 @@ workers so it cannot refill the released capacity.
 
 Status resolves regime scenario names from the campaign configuration without
 reloading per-basin regime-year CSVs. Full regime-year selection and validation
-still run for submission and execution. Status does not require GeoPandas to
-be imported for basin partitioning.
+still run for submission and execution. Scientific libraries are imported only
+when data-processing functions need them, not at launcher startup. Launcher
+YAML reads use PyYAML's compiled safe loader when available, with the Python
+safe loader as a fallback; status continues to read current files, not a cache.
 
 Use the compact campaign report:
 

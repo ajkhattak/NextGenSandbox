@@ -8,9 +8,6 @@ import sys
 import warnings
 from pathlib import Path
 
-import pandas as pd
-import xarray as xr
-
 
 def select_netcdf_forcing_file(
     forcing_dir: str | Path,
@@ -191,6 +188,9 @@ def select_prepared_forcing_file(
 
 def netcdf_forcing_time_bounds(forcing_file: str | Path):
     """Read the first and last timestamps without loading the forcing array."""
+    import pandas as pd
+    import xarray as xr
+
     forcing_path = Path(forcing_file)
     with xr.open_dataset(forcing_path, decode_times=False) as dataset:
         time_name = next(

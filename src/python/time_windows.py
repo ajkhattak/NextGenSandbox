@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+from datetime import timedelta
 
-import pandas as pd
 
-
-NGEN_TIMESTEP = pd.Timedelta(hours=1)
+NGEN_TIMESTEP = timedelta(hours=1)
 
 
 def normalize_simulation_tasks(simulation_config):
@@ -164,6 +163,8 @@ def resolve_validation_period(period, name, config_dir=None):
 
 
 def resolve_validation_file_periods(period, name, config_dir=None):
+    import pandas as pd
+
     if "start" in period:
         raise ValueError(f"{name}.start is not used when source: file")
     if "end" in period:
@@ -239,6 +240,8 @@ def resolve_validation_file_periods(period, name, config_dir=None):
 
 
 def start_for_year(year, year_type):
+    import pandas as pd
+
     if year_type == "water_year":
         return pd.Timestamp(year=year - 1, month=10, day=1)
     return pd.Timestamp(year=year, month=1, day=1)
@@ -379,6 +382,8 @@ def validate_year_selection(selection, eval_start, eval_end, name):
 
 
 def parse_timestamp(value, name):
+    import pandas as pd
+
     try:
         timestamp = pd.Timestamp(value)
     except Exception as exc:
@@ -389,6 +394,8 @@ def parse_timestamp(value, name):
 
 
 def parse_duration(value, name):
+    import pandas as pd
+
     if isinstance(value, (int, float)):
         if value < 0:
             raise ValueError(f"{name} must be non-negative")
@@ -469,4 +476,6 @@ def validate_time_subset(parent_name, parent_window, child_name, child_window):
 
 
 def format_timestamp(timestamp):
+    import pandas as pd
+
     return pd.Timestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")

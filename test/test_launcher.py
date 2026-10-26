@@ -1,4 +1,5 @@
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -18,6 +19,26 @@ from src.python.launcher import cli as launcher
 
 
 class TestLauncherSelection(unittest.TestCase):
+    def test_launcher_import_does_not_load_scientific_libraries(self):
+        subprocess.run(
+            [sys.executable, "-c",
+             "import sys; from src.python.launcher import cli; "
+             "assert not {'pandas', 'xarray', 'geopandas'}.intersection(sys.modules)"],
+            cwd=REPO_ROOT,
+            check=True,
+        )
+
+    def test_load_yaml_preserves_safe_loader_behavior(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.yaml"
+            path.write_text("gage: '02146507'\nenabled: true\niterations: 50\n")
+            self.assertEqual(
+                launcher.load_yaml(path), yaml.safe_load(path.read_text()),
+            )
+            path.write_text("!!python/object:builtins.object {}\n")
+            with self.assertRaises(yaml.constructor.ConstructorError):
+                launcher.load_yaml(path)
+
     def test_launcher_sample_does_not_duplicate_profile_modules(self):
         config_file = (
             REPO_ROOT / "configs" / "launcher" / "launcher_config.yaml"
