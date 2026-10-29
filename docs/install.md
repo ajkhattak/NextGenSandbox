@@ -201,6 +201,14 @@ In both profiles, let `sandbox_profile.sh` select `mpicc`, `mpicxx`, and
 that creates a mixed compiler build and loads both GNU and Intel Fortran
 runtimes.
 
+For Boost, check `module avail boost` and load a module compatible with your
+compiler stack. Set `BOOST_ROOT="$EBROOTBOOST"` if that module defines
+`EBROOTBOOST`; otherwise use the path reported by the module. If no suitable
+module exists, download and extract a suitable Boost source archive once in a
+persistent directory, then set `BOOST_ROOT` in your profile to the absolute
+path of the extracted Boost directory. Keep downloads out of the sourced
+profile so build and launcher jobs use the same location.
+
 Load the profile and run the initial check:
 
 ```bash

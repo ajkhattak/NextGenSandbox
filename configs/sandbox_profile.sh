@@ -61,6 +61,15 @@ fi
 # export SANDBOX_BUILD_DIR="$SANDBOX_REPO/build/gcc"
 # export SANDBOX_BUILD_JOBS=2
 # export NETCDF_ROOT="$(nf-config --prefix)"
+# Boost: choose one option for the ngen build.
+# Option 1: load a Boost module compatible with your compiler (module avail boost).
+# module load boost/<compatible-version>
+# export BOOST_ROOT="$EBROOTBOOST"
+# Option 2: download Boost outside this profile, then set its path.
+# Run these commands once in the directory where Boost should be kept:
+# BOOST_VERSION=1.88.0  # Example; choose the version you need.
+# wget -O "boost_${BOOST_VERSION//./_}.tar.gz" "https://archives.boost.io/release/$BOOST_VERSION/source/boost_${BOOST_VERSION//./_}.tar.gz"
+# tar -xzf "boost_${BOOST_VERSION//./_}.tar.gz"
 # export BOOST_ROOT="/path/to/boost"
 #
 # Intel builds are optional. Use a separate profile and build directory, and
