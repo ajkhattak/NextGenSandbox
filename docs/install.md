@@ -201,13 +201,18 @@ In both profiles, let `sandbox_profile.sh` select `mpicc`, `mpicxx`, and
 that creates a mixed compiler build and loads both GNU and Intel Fortran
 runtimes.
 
-For Boost, check `module avail boost` and load a module compatible with your
-compiler stack. Set `BOOST_ROOT="$EBROOTBOOST"` if that module defines
-`EBROOTBOOST`; otherwise use the path reported by the module. If no suitable
-module exists, download and extract a suitable Boost source archive once in a
-persistent directory, then set `BOOST_ROOT` in your profile to the absolute
-path of the extracted Boost directory. Keep downloads out of the sourced
-profile so build and launcher jobs use the same location.
+The ngen build requires Boost 1.86 or newer. Set `BOOST_ROOT` in your profile
+to an existing Boost directory that contains its headers. This can be a Boost
+module's installation directory without loading that module, or a downloaded
+and extracted Boost source directory. For example:
+
+```bash
+export BOOST_ROOT="/path/to/Boost/1.88.0"
+```
+
+Using the header directory directly does not require switching the GCC, MPI,
+or NetCDF modules to the compiler used to package that Boost installation.
+Keep downloads out of the sourced profile so build jobs use the same location.
 
 Load the profile and run the initial check:
 
