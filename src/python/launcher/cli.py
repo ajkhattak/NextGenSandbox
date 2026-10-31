@@ -1704,9 +1704,7 @@ def validate_slurm_config(slurm: dict[str, Any]) -> None:
                 f"slurm.{stage} must be provided as a mapping with explicit "
                 "time and memory settings"
             )
-        allowed_settings = {"time", "memory"}
-        if stage == "calibration":
-            allowed_settings.add("mem_per_cpu")
+        allowed_settings = {"time", "memory", "mem_per_cpu"}
         unknown_settings = sorted(set(settings) - allowed_settings)
         if unknown_settings:
             raise ValueError(
@@ -1725,7 +1723,7 @@ def validate_slurm_config(slurm: dict[str, Any]) -> None:
         if not isinstance(value, str) or not value.strip():
             raise ValueError(f"slurm.{stage}.{field_name} must be provided")
         if field_name == "mem_per_cpu":
-            scale_slurm_memory(value, 2, field_name="mem_per_cpu")
+            scale_slurm_memory(value, 2, field_name="mem_per_cpu", stage=stage)
 
 
 def slurm_settings_for_stage(
@@ -1744,23 +1742,27 @@ def slurm_settings_for_stage(
         if key in slurm
     }
     settings.update(slurm[stage])
-    if stage == "calibration":
-        per_cpu = settings.pop("mem_per_cpu", None)
-        if per_cpu is not None:
-            settings["memory"] = scale_slurm_memory(
-                per_cpu, model_mpi_tasks * workers
-            )
-        elif workers > 1:
-            settings["memory"] = scale_slurm_memory(settings["memory"], workers)
+    per_cpu = settings.pop("mem_per_cpu", None)
+    if per_cpu is not None:
+        task_count = model_mpi_tasks * (workers if stage == "calibration" else 1)
+        settings["memory"] = scale_slurm_memory(
+            per_cpu, task_count, field_name="mem_per_cpu", stage=stage
+        )
+    elif stage == "calibration" and workers > 1:
+        settings["memory"] = scale_slurm_memory(settings["memory"], workers)
     return settings
 
 
 def scale_slurm_memory(
-    value: str, workers: int, *, field_name: str = "memory"
+    value: str,
+    workers: int,
+    *,
+    field_name: str = "memory",
+    stage: str = "calibration",
 ) -> str:
-    """Scale a per-worker Slurm memory request to the complete job."""
+    """Scale a Slurm memory request by the number of workers or MPI tasks."""
     if workers < 1:
-        raise ValueError("Calibration worker count must be greater than zero")
+        raise ValueError("Memory multiplier must be greater than zero")
 
     text = str(value).strip()
     if workers == 1:
@@ -1769,13 +1771,13 @@ def scale_slurm_memory(
     match = re.fullmatch(r"(?P<size>\d+)(?P<unit>[KMGT]?)", text, re.IGNORECASE)
     if match is None:
         raise ValueError(
-            f"slurm.calibration.{field_name} must be an integer with an optional "
+            f"slurm.{stage}.{field_name} must be an integer with an optional "
             "K, M, G, or T suffix when scaled; "
             f"received {value!r}"
         )
     size = int(match.group("size"))
     if size < 1:
-        raise ValueError(f"slurm.calibration.{field_name} must be greater than zero")
+        raise ValueError(f"slurm.{stage}.{field_name} must be greater than zero")
     unit = match.group("unit").upper()
     return f"{size * workers}{unit}"
 

@@ -1569,6 +1569,34 @@ class TestLauncherSelection(unittest.TestCase):
             "32G",
         )
 
+    def test_validation_memory_per_cpu_uses_basin_tasks_without_pool(self):
+        slurm = {
+            "calibration": {"time": "04:00:00", "memory": "8G"},
+            "validation": {"time": "12:00:00", "mem_per_cpu": "2G"},
+        }
+
+        launcher.validate_slurm_config({"startup_delay_seconds": 5, **slurm})
+        settings = launcher.slurm_settings_for_stage(
+            slurm, "validation", model_mpi_tasks=8
+        )
+
+        self.assertEqual(settings["memory"], "16G")
+        self.assertNotIn("mem_per_cpu", settings)
+
+    def test_validation_memory_per_cpu_rejects_fixed_memory(self):
+        with self.assertRaisesRegex(
+            ValueError, "slurm.validation must specify exactly one"
+        ):
+            launcher.validate_slurm_config(
+                {
+                    "startup_delay_seconds": 5,
+                    "calibration": {"time": "04:00:00", "memory": "8G"},
+                    "validation": {
+                        "time": "12:00:00", "memory": "64G", "mem_per_cpu": "2G"
+                    },
+                }
+            )
+
     def test_calibration_memory_per_cpu_rejects_fixed_memory(self):
         with self.assertRaisesRegex(ValueError, "exactly one"):
             launcher.validate_slurm_config(

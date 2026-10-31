@@ -170,6 +170,7 @@ launcher:
     validation:
       time: "12:00:00"
       memory: "64G"
+      # Alternatively, replace memory with mem_per_cpu: "2G".
 ```
 
 `local.max_workers` limits simultaneous local experiments. The Slurm limits
@@ -188,15 +189,17 @@ so the launcher multiplies both calibration memory and model MPI ranks by the
 effective pool size. For example, `pool: 4`, `memory: "8G"`, and two MPI ranks
 per model produce one Slurm job requesting `32G` and eight MPI ranks. Walltime
 is not multiplied because the particle workers run concurrently. Validation
-always uses the validation resources directly.
+uses one worker and its own resource settings.
 
-For calibration, `mem_per_cpu` can replace `memory` (do not set both). The
-launcher multiplies it by the basin's requested MPI tasks per model and by the
-effective PSO pool, then submits the result as one `--mem` request. For example,
-`mem_per_cpu: "2G"`, eight partitions, and `pool: 6` request `96G` and 48 MPI
-tasks; a 16-partition basin requests `192G` and 96 tasks. It is per requested
-MPI task, not per extra CPU Slurm might allocate for memory. DDS and DDS
-restarts use a pool of one. Validation continues to use fixed `memory`.
+For either stage, `mem_per_cpu` can replace `memory` (do not set both). The
+launcher multiplies it by the basin's requested MPI tasks per model and, for
+calibration, by the effective PSO pool. It submits the result as one `--mem`
+request. For example, `mem_per_cpu: "2G"`, eight partitions, and `pool: 6`
+request `96G` and 48 MPI tasks; a 16-partition basin requests `192G` and 96
+tasks. It is per requested MPI task, not per extra CPU Slurm might allocate
+for memory. DDS and DDS
+restarts use a pool of one. Validation also uses a pool of one, so eight MPI
+tasks with `mem_per_cpu: "2G"` request `16G`.
 
 `local.max_workers` counts launcher experiments, not PSO particles. Local PSO
 concurrency can therefore reach `local.max_workers * pool` model simulations.
