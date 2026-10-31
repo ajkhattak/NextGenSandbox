@@ -1704,18 +1704,28 @@ def validate_slurm_config(slurm: dict[str, Any]) -> None:
                 f"slurm.{stage} must be provided as a mapping with explicit "
                 "time and memory settings"
             )
-        unknown_settings = sorted(set(settings) - {"time", "memory"})
+        allowed_settings = {"time", "memory"}
+        if stage == "calibration":
+            allowed_settings.add("mem_per_cpu")
+        unknown_settings = sorted(set(settings) - allowed_settings)
         if unknown_settings:
             raise ValueError(
                 f"slurm.{stage} contains unsupported field(s): "
                 f"{', '.join(unknown_settings)}"
             )
-        for field_name in ("time", "memory"):
-            value = settings.get(field_name)
-            if not isinstance(value, str) or not value.strip():
-                raise ValueError(
-                    f"slurm.{stage}.{field_name} must be provided"
-                )
+        if not isinstance(settings.get("time"), str) or not settings["time"].strip():
+            raise ValueError(f"slurm.{stage}.time must be provided")
+        memory_fields = {"memory", "mem_per_cpu"} & settings.keys()
+        if len(memory_fields) != 1:
+            raise ValueError(
+                f"slurm.{stage} must specify exactly one of memory or mem_per_cpu"
+            )
+        field_name = memory_fields.pop()
+        value = settings[field_name]
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"slurm.{stage}.{field_name} must be provided")
+        if field_name == "mem_per_cpu":
+            scale_slurm_memory(value, 2, field_name="mem_per_cpu")
 
 
 def slurm_settings_for_stage(
@@ -1723,6 +1733,7 @@ def slurm_settings_for_stage(
     stage: str,
     *,
     workers: int = 1,
+    model_mpi_tasks: int = 1,
 ) -> dict[str, Any]:
     if stage not in {"calibration", "validation"}:
         raise ValueError(f"Unsupported launcher stage: {stage}")
@@ -1733,12 +1744,20 @@ def slurm_settings_for_stage(
         if key in slurm
     }
     settings.update(slurm[stage])
-    if stage == "calibration" and workers > 1:
-        settings["memory"] = scale_slurm_memory(settings["memory"], workers)
+    if stage == "calibration":
+        per_cpu = settings.pop("mem_per_cpu", None)
+        if per_cpu is not None:
+            settings["memory"] = scale_slurm_memory(
+                per_cpu, model_mpi_tasks * workers
+            )
+        elif workers > 1:
+            settings["memory"] = scale_slurm_memory(settings["memory"], workers)
     return settings
 
 
-def scale_slurm_memory(value: str, workers: int) -> str:
+def scale_slurm_memory(
+    value: str, workers: int, *, field_name: str = "memory"
+) -> str:
     """Scale a per-worker Slurm memory request to the complete job."""
     if workers < 1:
         raise ValueError("Calibration worker count must be greater than zero")
@@ -1750,13 +1769,13 @@ def scale_slurm_memory(value: str, workers: int) -> str:
     match = re.fullmatch(r"(?P<size>\d+)(?P<unit>[KMGT]?)", text, re.IGNORECASE)
     if match is None:
         raise ValueError(
-            "slurm.calibration.memory must be an integer with an optional "
-            "K, M, G, or T suffix when PSO pool is greater than 1; "
+            f"slurm.calibration.{field_name} must be an integer with an optional "
+            "K, M, G, or T suffix when scaled; "
             f"received {value!r}"
         )
     size = int(match.group("size"))
     if size < 1:
-        raise ValueError("slurm.calibration.memory must be greater than zero")
+        raise ValueError(f"slurm.calibration.{field_name} must be greater than zero")
     unit = match.group("unit").upper()
     return f"{size * workers}{unit}"
 
@@ -1798,9 +1817,13 @@ def slurm_settings_for_restart(
     output_dir: Path | None,
     progress: ExperimentProgress,
     max_iterations: int,
+    *,
+    model_mpi_tasks: int = 1,
 ) -> dict[str, Any]:
     """Size a DDS restart from observed iteration timing when available."""
-    settings = slurm_settings_for_stage(slurm, "calibration")
+    settings = slurm_settings_for_stage(
+        slurm, "calibration", model_mpi_tasks=model_mpi_tasks
+    )
     if output_dir is None:
         return settings
 
@@ -3019,12 +3042,14 @@ def run_experiment(
                 output_dir,
                 progress,
                 max_iter,
+                model_mpi_tasks=model_mpi_tasks,
             )
             if stage == "restart"
             else slurm_settings_for_stage(
                 ctx.slurm,
                 stage,
                 workers=workers,
+                model_mpi_tasks=model_mpi_tasks,
             )
         )
         if workers > 1:
@@ -4622,12 +4647,15 @@ def print_check_report(ctx: LauncherContext) -> None:
                 if stage == "calibration"
                 else 1
             )
-            total_memory = scale_slurm_memory(settings["memory"], workers)
-            memory_text = settings["memory"]
-            if workers > 1:
-                memory_text += (
-                    f" per worker ({total_memory} total for {workers} workers)"
-                )
+            if "mem_per_cpu" in settings:
+                memory_text = f"{settings['mem_per_cpu']} per MPI task (varies by basin)"
+            else:
+                total_memory = scale_slurm_memory(settings["memory"], workers)
+                memory_text = settings["memory"]
+                if workers > 1:
+                    memory_text += (
+                        f" per worker ({total_memory} total for {workers} workers)"
+                    )
             print(
                 f"Slurm {stage:<11}: time={settings['time']}, "
                 f"memory={memory_text}"

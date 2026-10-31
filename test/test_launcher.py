@@ -1550,6 +1550,47 @@ class TestLauncherSelection(unittest.TestCase):
         self.assertEqual(launcher.stage_mpi_tasks(context, 2, "calibration"), 8)
         self.assertEqual(launcher.stage_mpi_tasks(context, 2, "validation"), 2)
 
+    def test_calibration_memory_per_cpu_uses_basin_tasks_and_pool(self):
+        slurm = {
+            "calibration": {"time": "04:00:00", "mem_per_cpu": "2G"},
+            "validation": {"time": "12:00:00", "memory": "64G"},
+        }
+
+        settings = launcher.slurm_settings_for_stage(
+            slurm, "calibration", workers=6, model_mpi_tasks=8
+        )
+
+        self.assertEqual(settings["memory"], "96G")
+        self.assertNotIn("mem_per_cpu", settings)
+        self.assertEqual(
+            launcher.slurm_settings_for_stage(
+                slurm, "calibration", model_mpi_tasks=16
+            )["memory"],
+            "32G",
+        )
+
+    def test_calibration_memory_per_cpu_rejects_fixed_memory(self):
+        with self.assertRaisesRegex(ValueError, "exactly one"):
+            launcher.validate_slurm_config(
+                {
+                    "startup_delay_seconds": 5,
+                    "calibration": {
+                        "time": "04:00:00", "memory": "8G", "mem_per_cpu": "2G"
+                    },
+                    "validation": {"time": "12:00:00", "memory": "64G"},
+                }
+            )
+
+    def test_calibration_memory_per_cpu_rejects_ambiguous_units(self):
+        with self.assertRaisesRegex(ValueError, "optional K, M, G, or T"):
+            launcher.validate_slurm_config(
+                {
+                    "startup_delay_seconds": 5,
+                    "calibration": {"time": "04:00:00", "mem_per_cpu": "2GB"},
+                    "validation": {"time": "12:00:00", "memory": "64G"},
+                }
+            )
+
     def test_pso_memory_scaling_rejects_ambiguous_units(self):
         with self.assertRaisesRegex(ValueError, "optional K, M, G, or T"):
             launcher.scale_slurm_memory("8GB", 4)
@@ -2148,6 +2189,17 @@ class TestLauncherSelection(unittest.TestCase):
 
         self.assertEqual(settings["time"], "00:16:00")
         self.assertEqual(settings["memory"], "8G")
+
+    def test_restart_uses_basin_memory_per_cpu(self):
+        settings = launcher.slurm_settings_for_restart(
+            {"calibration": {"time": "24:00:00", "mem_per_cpu": "2G"}},
+            None,
+            launcher.ExperimentProgress(configured=True, algorithm="dds"),
+            max_iterations=5,
+            model_mpi_tasks=8,
+        )
+
+        self.assertEqual(settings["memory"], "16G")
 
     def test_restart_walltime_never_exceeds_calibration_limit(self):
         with tempfile.TemporaryDirectory() as tmp:
