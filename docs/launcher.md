@@ -180,8 +180,15 @@ protect different resources:
 | --- | --- |
 | `max_active_jobs` | Launcher workers running or pending in Slurm. |
 | `max_total_mpi_tasks` | Sum of requested MPI ranks (`--ntasks`). A PSO calibration requests `pool` times the ranks needed by one model simulation. |
-| `max_total_allocated_cpus` | Sum of Slurm CPUs requested by jobs. |
+| `max_total_allocated_cpus` | Sum of Slurm CPUs requested by all your active jobs, including jobs outside this campaign. |
 | `max_failed_attempts` | Hard failures allowed after the last successful worker before automatic retries stop. Defaults to `2`; timeouts and preemptions do not count. |
+
+The launcher submits each worker held, checks Slurm's reported CPU request
+against `max_total_allocated_cpus`, and releases it only when there is room.
+Otherwise it cancels the held submission and retries in a later coordinator
+cycle. This prevents new launcher jobs from exceeding the cap; it does not
+cancel jobs already running or control jobs submitted outside the launcher
+after its check.
 
 The calibration `time` and `memory` values describe one model worker, matching
 a DDS run. DDS runs one worker. PSO runs up to `pool` particle workers at once,

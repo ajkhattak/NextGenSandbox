@@ -2391,6 +2391,62 @@ class TestLauncherSelection(unittest.TestCase):
 
             submit.assert_called_once_with(context, ("123",))
 
+    def test_slurm_runner_counts_other_user_jobs_against_cpu_cap(self):
+        gage_id = "01109403"
+        context = SimpleNamespace(
+            campaign_name="regime",
+            output_dir=Path("/tmp/outputs"),
+            log_dir=Path("/tmp/outputs/logs"),
+            metadata_index_dir_name="metadata",
+            sandbox_cfg={"simulation": {}},
+            stages=("calibration",),
+            slurm={
+                "max_active_jobs": 4,
+                "max_total_mpi_tasks": 16,
+                "max_total_allocated_cpus": 32,
+                "startup_delay_seconds": 0,
+            },
+            map_cfg={
+                "mapping": {gage_id: ["pet_cfe"]},
+                "formulations": {"pet_cfe": {"models": "PET,CFE"}},
+                "groups": {},
+            },
+            calibration_scenarios={
+                gage_id: (
+                    launcher.CalibrationScenario(name=None, calibration={}),
+                )
+            },
+        )
+        outside_job = launcher.ActiveSlurmJob(
+            "123", "other_work", 16, "RUNNING", 32
+        )
+
+        with (
+            patch.object(launcher, "write_slurm_worker_script"),
+            patch.object(
+                launcher, "get_active_slurm_jobs", return_value=[outside_job]
+            ),
+            patch.object(launcher, "submitted_worker_jobs", return_value={}),
+            patch.object(launcher, "is_experiment_complete", return_value=False),
+            patch.object(
+                launcher,
+                "get_experiment_progress",
+                return_value=launcher.ExperimentProgress(configured=True),
+            ),
+            patch.object(
+                launcher, "generated_configs_need_refresh", return_value=False
+            ),
+            patch.object(launcher, "get_num_cpus", return_value=4),
+            patch.object(launcher, "get_max_iter", return_value=10),
+            patch.object(launcher, "run_experiment") as run,
+        ):
+            result = launcher.runner(
+                context, use_slurm=True, schedule_followup=False, quiet=True
+            )
+
+        self.assertTrue(result.incomplete)
+        run.assert_not_called()
+
     def test_slurm_runner_stops_after_failed_attempt_limit(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -3427,6 +3483,170 @@ class TestLauncherSelection(unittest.TestCase):
             stage="calibration",
             timing_baseline_samples=None,
         )
+
+    def test_slurm_releases_held_worker_within_cpu_cap(self):
+        main_config = Path("/tmp/sandbox_main.yaml")
+        context = SimpleNamespace(
+            campaign_name="test",
+            stages=("calibration",),
+            slurm={"calibration": {"time": "24:00:00", "memory": "8G"}},
+            log_dir=Path("/tmp/logs"),
+            output_dir=Path("/tmp/outputs"),
+        )
+        held_job = launcher.ActiveSlurmJob(
+            "456", "pet_cfe_01109403", 4, "PENDING", 8
+        )
+        other_job = launcher.ActiveSlurmJob(
+            "123", "other_campaign", 50, "RUNNING", 90
+        )
+        with (
+            patch.object(
+                launcher,
+                "generated_config_paths",
+                return_value={
+                    "sandbox_main": main_config,
+                    "sandbox_restart": Path("/tmp/restart.yaml"),
+                    "sandbox_validation": Path("/tmp/validation.yaml"),
+                },
+            ),
+            patch.object(launcher, "get_max_iter", return_value=10),
+            patch.object(launcher, "get_num_cpus", return_value=4),
+            patch.object(
+                launcher.subprocess,
+                "run",
+                side_effect=[
+                    SimpleNamespace(stdout="456\n"),
+                    SimpleNamespace(stdout=""),
+                ],
+            ) as run,
+            patch.object(
+                launcher, "get_active_slurm_jobs", return_value=[held_job, other_job]
+            ),
+            patch.object(launcher, "record_slurm_submission") as record,
+        ):
+            result = launcher.run_experiment(
+                context,
+                "pet_cfe",
+                "01109403",
+                "pet_cfe_01109403",
+                Path("/tmp/configs"),
+                Path("/tmp/metadata"),
+                launcher.ExperimentProgress(configured=True),
+                0,
+                use_slurm=True,
+                max_total_allocated_cpus=100,
+            )
+
+        self.assertIn("--hold", run.call_args_list[0].args[0])
+        self.assertEqual(run.call_args_list[1].args[0], ["scontrol", "release", "456"])
+        self.assertEqual(result.allocated_cpus, 8)
+        record.assert_called_once()
+
+    def test_slurm_cancels_held_worker_exceeding_cpu_cap(self):
+        main_config = Path("/tmp/sandbox_main.yaml")
+        context = SimpleNamespace(
+            campaign_name="test",
+            stages=("calibration",),
+            slurm={"calibration": {"time": "24:00:00", "memory": "8G"}},
+            log_dir=Path("/tmp/logs"),
+            output_dir=Path("/tmp/outputs"),
+        )
+        held_job = launcher.ActiveSlurmJob(
+            "456", "pet_cfe_01109403", 4, "PENDING", 8
+        )
+        other_job = launcher.ActiveSlurmJob(
+            "123", "other_campaign", 50, "RUNNING", 95
+        )
+        with (
+            patch.object(
+                launcher,
+                "generated_config_paths",
+                return_value={
+                    "sandbox_main": main_config,
+                    "sandbox_restart": Path("/tmp/restart.yaml"),
+                    "sandbox_validation": Path("/tmp/validation.yaml"),
+                },
+            ),
+            patch.object(launcher, "get_max_iter", return_value=10),
+            patch.object(launcher, "get_num_cpus", return_value=4),
+            patch.object(
+                launcher.subprocess,
+                "run",
+                side_effect=[
+                    SimpleNamespace(stdout="456\n"),
+                    SimpleNamespace(stdout=""),
+                ],
+            ) as run,
+            patch.object(
+                launcher, "get_active_slurm_jobs", return_value=[held_job, other_job]
+            ),
+            patch.object(launcher, "record_slurm_submission") as record,
+        ):
+            result = launcher.run_experiment(
+                context,
+                "pet_cfe",
+                "01109403",
+                "pet_cfe_01109403",
+                Path("/tmp/configs"),
+                Path("/tmp/metadata"),
+                launcher.ExperimentProgress(configured=True),
+                0,
+                use_slurm=True,
+                max_total_allocated_cpus=100,
+            )
+
+        self.assertEqual(run.call_args_list[1].args[0], ["scancel", "456"])
+        self.assertTrue(result.deferred)
+        record.assert_not_called()
+
+    def test_slurm_cancels_worker_when_held_allocation_cannot_be_verified(self):
+        context = SimpleNamespace(
+            campaign_name="test",
+            stages=("calibration",),
+            slurm={"calibration": {"time": "24:00:00", "memory": "8G"}},
+            log_dir=Path("/tmp/logs"),
+            output_dir=Path("/tmp/outputs"),
+        )
+        with (
+            patch.object(
+                launcher,
+                "generated_config_paths",
+                return_value={
+                    "sandbox_main": Path("/tmp/sandbox_main.yaml"),
+                    "sandbox_restart": Path("/tmp/restart.yaml"),
+                    "sandbox_validation": Path("/tmp/validation.yaml"),
+                },
+            ),
+            patch.object(launcher, "get_max_iter", return_value=10),
+            patch.object(launcher, "get_num_cpus", return_value=4),
+            patch.object(launcher.time, "sleep"),
+            patch.object(launcher, "get_active_slurm_jobs", return_value=[]),
+            patch.object(
+                launcher.subprocess,
+                "run",
+                side_effect=[
+                    SimpleNamespace(stdout="456\n"),
+                    SimpleNamespace(stdout=""),
+                ],
+            ) as run,
+            patch.object(launcher, "record_slurm_submission") as record,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "Cannot verify Slurm CPU"):
+                launcher.run_experiment(
+                    context,
+                    "pet_cfe",
+                    "01109403",
+                    "pet_cfe_01109403",
+                    Path("/tmp/configs"),
+                    Path("/tmp/metadata"),
+                    launcher.ExperimentProgress(configured=True),
+                    0,
+                    use_slurm=True,
+                    max_total_allocated_cpus=100,
+                )
+
+        self.assertEqual(run.call_args_list[1].args[0], ["scancel", "456"])
+        record.assert_not_called()
 
     def test_slurm_pso_run_scales_worker_resources(self):
         main_config = Path("/tmp/sandbox_main.yaml")

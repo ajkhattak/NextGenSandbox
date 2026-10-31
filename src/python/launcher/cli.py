@@ -211,6 +211,8 @@ class SlurmJobHistory:
 class ExperimentRun:
     config_file: Path | None
     slurm_job_id: str | None = None
+    allocated_cpus: int | None = None
+    deferred: bool = False
 
 
 @dataclass(frozen=True)
@@ -2999,6 +3001,7 @@ def run_experiment(
     *,
     use_slurm: bool,
     dryrun: bool = False,
+    max_total_allocated_cpus: int | None = None,
 ) -> ExperimentRun:
     paths = generated_config_paths(exp_config_dir, gage_id)
     max_iter = get_max_iter(exp_config_dir, gage_id)
@@ -3071,6 +3074,8 @@ def run_experiment(
             log_dir=ctx.log_dir,
             work_dir=ctx.output_dir,
         )
+        if max_total_allocated_cpus is not None and not dryrun:
+            cmd.insert(2, "--hold")
         if dryrun:
             print(f"[DRYRUN] [{gage_id}] Would submit: {' '.join(cmd)}")
         else:
@@ -3131,6 +3136,45 @@ def run_experiment(
         if message:
             print(message)
         job_id = parse_sbatch_job_id(result.stdout)
+        allocated_cpus = None
+        if max_total_allocated_cpus is not None:
+            try:
+                for _ in range(5):
+                    jobs = get_active_slurm_jobs()
+                    held_job = next(
+                        (job for job in jobs if job.job_id == job_id), None
+                    )
+                    if held_job is not None:
+                        break
+                    time.sleep(1)
+                if (
+                    held_job is None
+                    or held_job.state != "PENDING"
+                    or held_job.num_cpus is None
+                    or held_job.num_cpus < num_mpi_tasks
+                ):
+                    raise RuntimeError(
+                        f"Cannot verify Slurm CPU allocation for held job {job_id}"
+                    )
+                allocated_cpus = held_job.num_cpus
+                total_cpus = sum(
+                    job.num_cpus if job.num_cpus is not None else job.num_tasks
+                    for job in jobs
+                )
+                if total_cpus > max_total_allocated_cpus:
+                    print(
+                        f"[{gage_id}] Deferring '{job_name}': Slurm requests "
+                        f"{allocated_cpus} CPUs; active user jobs plus this "
+                        f"job would use {total_cpus}/{max_total_allocated_cpus}."
+                    )
+                    subprocess.run(["scancel", job_id], check=True)
+                    return ExperimentRun(
+                        sandbox_file, allocated_cpus=allocated_cpus, deferred=True
+                    )
+                subprocess.run(["scontrol", "release", job_id], check=True)
+            except Exception:
+                subprocess.run(["scancel", job_id], check=True)
+                raise
         record_slurm_submission(
             ctx,
             job_id=job_id,
@@ -3141,6 +3185,7 @@ def run_experiment(
         return ExperimentRun(
             sandbox_file,
             job_id,
+            allocated_cpus,
         )
 
     subprocess.run(cmd, check=True)
@@ -4257,6 +4302,7 @@ def runner(
     active_job_count = 0
     active_mpi_tasks = 0
     active_allocated_cpus = 0
+    observed_cpus_per_task = 1.0
     max_active_jobs = 0
     max_total_mpi_tasks = 0
     max_total_allocated_cpus = 0
@@ -4281,9 +4327,10 @@ def runner(
         )
         if not dryrun:
             expected_names = expected_slurm_job_names(ctx)
+            user_jobs = get_active_slurm_jobs()
             campaign_jobs = [
                 job
-                for job in get_active_slurm_jobs()
+                for job in user_jobs
                 if job.name in expected_names
             ]
             active_job_names = {job.name for job in campaign_jobs}
@@ -4292,7 +4339,15 @@ def runner(
             active_mpi_tasks = sum(job.num_tasks for job in campaign_jobs)
             active_allocated_cpus = sum(
                 job.num_cpus if job.num_cpus is not None else job.num_tasks
-                for job in campaign_jobs
+                for job in user_jobs
+            )
+            observed_cpus_per_task = max(
+                (
+                    job.num_cpus / job.num_tasks
+                    for job in campaign_jobs
+                    if job.num_cpus is not None and job.num_tasks > 0
+                ),
+                default=1.0,
             )
             submitted_jobs = submitted_worker_jobs(ctx, expected_names)
             failed_attempts_by_name = get_slurm_failure_counts(
@@ -4432,7 +4487,10 @@ def runner(
                 active_mpi_tasks=active_mpi_tasks,
                 active_allocated_cpus=active_allocated_cpus,
                 requested_mpi_tasks=requested_mpi_tasks,
-                requested_allocated_cpus=requested_mpi_tasks,
+                requested_allocated_cpus=min(
+                    max_total_allocated_cpus,
+                    math.ceil(requested_mpi_tasks * observed_cpus_per_task),
+                ),
                 max_active_jobs=max_active_jobs,
                 max_total_mpi_tasks=max_total_mpi_tasks,
                 max_total_allocated_cpus=max_total_allocated_cpus,
@@ -4459,40 +4517,31 @@ def runner(
                 delay_seconds,
                 use_slurm=True,
                 dryrun=dryrun,
+                max_total_allocated_cpus=(
+                    max_total_allocated_cpus if not dryrun else None
+                ),
             )
+            if run_result.deferred:
+                if run_result.allocated_cpus is not None:
+                    observed_cpus_per_task = max(
+                        observed_cpus_per_task,
+                        run_result.allocated_cpus / requested_mpi_tasks,
+                    )
+                continue
             if run_result.slurm_job_id is not None:
                 dependency_job_ids.add(run_result.slurm_job_id)
             active_job_names.add(job_name)
             active_job_count += 1
             active_mpi_tasks += requested_mpi_tasks
-            submitted_allocated_cpus = requested_mpi_tasks
-            if run_result.slurm_job_id is not None:
-                try:
-                    submitted_job = next(
-                        (
-                            job
-                            for job in get_active_slurm_jobs()
-                            if job.job_id == run_result.slurm_job_id
-                        ),
-                        None,
-                    )
-                except RuntimeError:
-                    submitted_job = None
-                if submitted_job is not None:
-                    submitted_allocated_cpus = (
-                        submitted_job.num_cpus
-                        if submitted_job.num_cpus is not None
-                        else submitted_job.num_tasks
-                    )
-            active_allocated_cpus += submitted_allocated_cpus
-            if active_allocated_cpus > max_total_allocated_cpus:
-                print(
-                    "[WARNING] Slurm increased the submitted job's CPU "
-                    "request to satisfy its memory request. Campaign "
-                    "allocated CPUs are now "
-                    f"{active_allocated_cpus}/{max_total_allocated_cpus}; "
-                    "no additional jobs will be admitted until capacity "
-                    "returns below the limit."
+            active_allocated_cpus += (
+                run_result.allocated_cpus
+                if run_result.allocated_cpus is not None
+                else requested_mpi_tasks
+            )
+            if run_result.allocated_cpus is not None:
+                observed_cpus_per_task = max(
+                    observed_cpus_per_task,
+                    run_result.allocated_cpus / requested_mpi_tasks,
                 )
             scheduled_run_index += 1
         elif dryrun:
