@@ -2276,6 +2276,7 @@ def refresh_partition_metadata(
 def prepare_pso_warm_start_config(
     paths: dict[str, Path],
     checkpoint_file: Path,
+    completed_generations: int,
 ) -> Path:
     sandbox_config = load_yaml(paths["sandbox_main"])
     calibration = sandbox_config.get("calibration") or {}
@@ -2303,6 +2304,7 @@ def prepare_pso_warm_start_config(
             f"PSO initialization must be a mapping in {settings_file}"
         )
     initialization["best_path"] = str(checkpoint_file.resolve())
+    initialization["start_generation"] = completed_generations
 
     warm_settings_file = paths["pso_warm_start_settings"]
     warm_settings_file.parent.mkdir(parents=True, exist_ok=True)
@@ -2324,8 +2326,8 @@ def prepare_pso_warm_start_config(
         )
 
     print(
-        "INFO: Starting a new PSO swarm from the previous global-best "
-        f"parameters in {checkpoint_file}."
+        f"INFO: Resuming PSO from generation {completed_generations} "
+        f"using {checkpoint_file}."
     )
     return warm_config_file
 
@@ -2981,6 +2983,7 @@ def select_experiment_config(
             return prepare_pso_warm_start_config(
                 paths,
                 progress.checkpoint_file,
+                completed_iterations,
             )
         return paths["sandbox_restart"]
 

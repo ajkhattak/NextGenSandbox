@@ -3268,6 +3268,10 @@ class TestLauncherSelection(unittest.TestCase):
                 warm_settings["initialization"]["best_path"],
                 str(checkpoint.resolve()),
             )
+            self.assertEqual(
+                warm_settings["initialization"]["start_generation"],
+                10,
+            )
             self.assertNotIn(
                 "best_path",
                 yaml.safe_load(source_settings.read_text())["initialization"],

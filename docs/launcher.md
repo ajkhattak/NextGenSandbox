@@ -113,9 +113,11 @@ simulation:
 
 Allowed choices are `[calibration]`, `[validation]`, and
 `[calibration, validation]`. Restart is automatic: an incomplete DDS
-calibration resumes from its checkpoint, while an incomplete PSO calibration
-starts a new swarm from its saved global-best parameters. Validation-only work
-requires a completed calibration state.
+calibration resumes from its checkpoint. PSO also resumes from its last
+completed generation, restoring the saved swarm state when available. Older
+PSO runs without swarm state continue the remaining generations from their
+saved global-best parameters; their earlier optimizer trajectory cannot be
+recovered. Validation-only work requires a completed calibration state.
 
 For a DDS restart, the launcher estimates walltime from completed iterations,
 adds a 50% margin and a 10-minute startup buffer, and requests at least 15
