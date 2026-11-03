@@ -806,6 +806,10 @@ class ConfigurationCalib:
 
             state_file = self.find_state_file()
             self.selected_state_file = Path(state_file)
+            if self.ngen_cal_type == "restart" and self.ctx.calibration_algorithm == "dds":
+                df_new["general"]["restart_workdir"] = str(
+                    self.selected_state_file.resolve().parent
+                )
 
             df_parq = pd.read_parquet(state_file)
             df_params = pd.read_csv(

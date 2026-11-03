@@ -80,6 +80,18 @@ percentile).
 The `nonzero_low_flow_log_mae` component uses only observed streamflow greater
 than `1e-6` and below the 30th percentile of positive observed streamflow.
 
+## DDS Restart
+
+Sandbox uses the selected calibration checkpoint to generate DDS restart
+configuration, including its exact worker directory. Other calibration and
+validation workers can remain in the output directory. If the run index cannot
+identify one checkpoint, select an explicit state file rather than deleting
+other workers. Missing or ambiguous restart state produces an error instead
+of silently starting at iteration zero.
+
+This requires the updated ngen-cal submodule. After updating it, run
+`./bootstrap.sh --sandbox` before submitting restarts.
+
 ## PSO Parameters
 
 Set `algorithm: pso` and point `settings_file` to a PSO settings YAML. Relative
