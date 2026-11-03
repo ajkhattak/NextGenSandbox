@@ -257,7 +257,7 @@ def prepare_basin_partitioning(
         raise RuntimeError(f"Partitioning mode OPTIONS: serial or parallel, provided {par_mode}")
 
     if par_mode == "serial":
-        return None, 1
+        return (None, 1) if create_par_file else 1
 
     if max_procs <= 1:
         raise RuntimeError(

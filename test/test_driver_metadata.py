@@ -2,13 +2,46 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import yaml
 
 from src.python.driver import Driver
+from src.python.helper import prepare_basin_partitioning
+from src.python.launcher.cli import get_num_cpus
 
 
 class TestDriverMetadata(unittest.TestCase):
+    def test_serial_partitioning_writes_integer_launcher_cpu_count(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output_dir = root / "01109403"
+            output_dir.mkdir()
+            with patch("geopandas.read_file"):
+                num_cpus = prepare_basin_partitioning(
+                    root, root / "gage.gpkg", {"mode": "serial"},
+                    create_par_file=False,
+                )
+                self.assertEqual(
+                    prepare_basin_partitioning(root, root / "gage.gpkg", {"mode": "serial"}),
+                    (None, 1),
+                )
+            self.assertIs(type(num_cpus), int)
+            ctx = SimpleNamespace(
+                metadata_file="simulation_metadata.yml",
+                metadata_index_dir="metadata",
+                task_type="calibration",
+                formulation="PET,CFE,T-ROUTE",
+                sandbox_config_path="sandbox.yaml",
+            )
+            Driver(ctx).write_simulation_metadata(
+                gpkg_id="01109403", num_cpus=num_cpus,
+                input_dir=root / "inputs", output_dir=output_dir,
+            )
+            metadata = yaml.safe_load((output_dir / "simulation_metadata.yml").read_text())
+            self.assertEqual(metadata["num_cpus"], 1)
+            self.assertEqual(get_num_cpus(root / "metadata", "01109403"), 1)
+
     def test_configuration_generation_rejects_mismatched_resource_counts(self):
         with tempfile.TemporaryDirectory() as tmp:
             output_dir = Path(tmp)
