@@ -808,9 +808,11 @@ class ConfigurationCalib:
             self.selected_state_file = Path(state_file)
 
             df_parq = pd.read_parquet(state_file)
-            df_params = pd.read_csv(Path(state_file).parent / "best_params.txt", header = None)
+            df_params = pd.read_csv(
+                Path(state_file).parent / "best_params.txt", header=None, dtype=str
+            )
 
-            best_itr = str(int(df_params.values[1]))
+            best_itr = df_params.iloc[1, 0].strip()
 
             best_params_set = df_parq[best_itr]
             calib_params = best_params_set.index.to_list()
