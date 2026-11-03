@@ -272,6 +272,46 @@ With `retention: all`, outputs are stored by iteration. This is useful for
 diagnostics but can require substantial storage for long or highly distributed
 calibrations.
 
+### Job-local routing output
+
+To avoid writing temporary t-route NetCDF files to shared storage on every
+evaluation, enable:
+
+```yaml
+simulation:
+  outputs:
+    local_routing_output: true
+    calibration:
+      retention: best
+```
+
+Rebuild the Sandbox Python environment (`./bootstrap.sh --sandbox`) with the
+updated ngen-cal submodule, and regenerate the experiment configurations before
+enabling this option. It applies to calibration, restart, and validation, not
+standalone control runs. Default shared-storage behavior is unchanged.
+
+Worker setup creates a unique directory under the compute job's writable
+`TMPDIR`, copies the routing configuration into the shared worker directory,
+and directs both t-route and ngen-cal to the same local NetCDF. Hourly sampling
+and routing loop size are unchanged. Do not set a fixed `/local/job_ID` path in
+the basefiles. Multi-node Slurm allocations are rejected; all processes for an
+experiment must have access to the same node-local filesystem.
+
+Retained routing results are copied to a temporary file in the shared retention
+directory, then atomically published before the local source is deleted.
+Best-only and all-iteration retention policies still apply; validation output
+is retained. Non-retained routing files are deleted locally. Empty temporary
+directories are left for job cleanup. Checkpoints, metrics, parameter files,
+and other model outputs remain on shared storage. A restart prepares fresh
+local paths and reruns unfinished evaluations; old node-local files are not
+required. This does not change the optimizer's checkpoint algorithm.
+
+Before scaling up, compare hourly values with local output disabled/enabled,
+run two PSO generations with concurrent workers and validation, then test a
+checkpoint restart in a new allocation. Verify retained outputs remain readable
+after the original temporary directory is removed. Compare routing output time
+and campaign throughput with pool size, memory, and loop size held constant.
+
 ### Per-candidate streamflow diagnostics
 
 The metrics plugin writes lightweight scalar diagnostics for every evaluated

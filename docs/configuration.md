@@ -393,6 +393,7 @@ partitioning, and output behavior.
 | `outputs.per_formulation_nexus_files` | Request one NetCDF nexus-output file per formulation instead of per-nexus CSV files. Defaults to `false`. |
 | `outputs.divide_variables` | BMI variables written to divide CSV files. Each variable requires units. |
 | `outputs.calibration.retention` | Calibration output retention: `best` or `all`. |
+| `outputs.local_routing_output` | Optional job-local t-route NetCDF output for calibration/restart/validation. Defaults to `false`; requires writable `TMPDIR`, updated ngen-cal, and single-node execution. Not supported with ensemble calibration. |
 | `outputs.metadata.enabled` | Write run metadata during configuration generation. |
 | `outputs.metadata.file` | Metadata filename inside each gage output directory. Default: `simulation_metadata.yml`. |
 | `outputs.metadata.index_dir` | Optional metadata index used by Sandbox Launcher. |

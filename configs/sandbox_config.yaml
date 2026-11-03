@@ -63,6 +63,7 @@ simulation:
         spinup: "12 months"
         evaluation: "1 year"
   outputs:
+    local_routing_output: false # Use job TMPDIR for temporary t-route NetCDF (single-node jobs).
     divide_variables: {}
     calibration:
       retention: best

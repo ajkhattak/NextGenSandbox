@@ -1,6 +1,11 @@
 from __future__ import annotations
 
 import itertools
+import os
+import shutil
+import tempfile
+
+import yaml
 
 from ngen.cal import hookimpl
 from ngen.cal.meta import JobMeta
@@ -11,7 +16,7 @@ from pathlib import Path
 _workdir: Path | None = None
 
 
-def save_output(sim_dir: Path, output_suffix: str):
+def save_output(sim_dir: Path, output_suffix: str, local_output: Path | None = None):
     runoff_pattern = "cat-*.csv"
     lateral_pattern = "nex-*.csv"
     terminal_pattern = "tnx-*.csv"
@@ -24,6 +29,17 @@ def save_output(sim_dir: Path, output_suffix: str):
     out_dir = sim_dir / f"output_{output_suffix}"
     Path.mkdir(out_dir, exist_ok=True)
 
+    if local_output is not None:
+        # Publish a complete file on shared storage before removing the local source.
+        with tempfile.NamedTemporaryFile(dir=out_dir, prefix=".routing-", delete=False) as f:
+            staged = Path(f.name)
+        try:
+            shutil.copy2(local_output, staged)
+            staged.replace(out_dir / local_output.name)
+        finally:
+            staged.unlink(missing_ok=True)
+        local_output.unlink()
+
     globs = [
         sim_dir.glob(runoff_pattern),
         sim_dir.glob(lateral_pattern),
@@ -35,6 +51,8 @@ def save_output(sim_dir: Path, output_suffix: str):
         sim_dir.glob(ngen_json),
     ]
     for f in itertools.chain(*globs):
+        if local_output is not None and f.name == local_output.name:
+            continue
         f.rename(out_dir / f.name)
 
 def clean_output(sim_dir: Path):
@@ -66,9 +84,45 @@ def clean_output(sim_dir: Path):
 class SaveData:
     def __init__(self):
         self.output_retention = "best"
+        self.local_output: Path | None = None
+
+    @hookimpl(tryfirst=True, optionalhook=True)
+    def ngen_cal_model_prepare(self, config: ModelExec) -> None:
+        self.local_output = None
+        if not config.plugin_settings.get("local_routing_output", {}).get("enabled", False):
+            return
+        for key in ("SLURM_JOB_NUM_NODES", "SLURM_NNODES"):
+            if int(os.environ.get(key, "1")) != 1:
+                raise ValueError("Local routing output requires a single-node job")
+        tmpdir = os.environ.get("TMPDIR")
+        if not tmpdir or not Path(tmpdir).is_dir() or not os.access(tmpdir, os.W_OK):
+            raise ValueError("Local routing output requires a writable TMPDIR")
+
+        routing = config.ngen_realization.routing
+        if routing is None:
+            raise ValueError("Local routing output requires t-route")
+        with Path(routing.config).open() as f:
+            troute = yaml.safe_load(f)
+        output = troute.get("output_parameters", {}).get("netcdf_output")
+        if not isinstance(output, dict) or not output.get("output_path"):
+            raise ValueError("Local routing output requires netcdf_output.output_path")
+
+        local_dir = Path(tempfile.mkdtemp(prefix="troute_", dir=tmpdir)).resolve()
+        self.local_output = local_dir / Path(output["output_path"]).name
+        output["output_path"] = str(self.local_output)
+        worker_config = Path(config.workdir) / "troute_local_config.yaml"
+        with worker_config.open("w") as f:
+            yaml.safe_dump(troute, f, sort_keys=False)
+        routing.config = worker_config
+        config.routing_output = self.local_output
+        validation = config.plugin_settings.get("ngen_cal_troute_output")
+        if validation is not None:
+            validation["validation_routing_output"] = str(self.local_output)
 
     @hookimpl
     def ngen_cal_model_configure(self, config: ModelExec) -> None:
+        if config.plugin_settings.get("local_routing_output", {}).get("enabled", False) and self.local_output is None:
+            raise RuntimeError("Local routing output requires ngen-cal worker preparation support; rebuild ngen-cal")
         settings = config.plugin_settings.get("output_retention", {})
         self.output_retention = settings.get("mode", "best")
         if self.output_retention not in {"best", "all"}:
@@ -87,17 +141,19 @@ class SaveData:
         evaluation and inspection.
         """
         path = info.workdir
-        if self.output_retention == "all":
-            save_output(path, str(iteration))
+        if self.output_retention == "all" or iteration == "validation":
+            save_output(path, str(iteration), self.local_output)
             return
 
         if not (path / "best_params.txt").exists():
-            save_output(path, str(iteration))
+            save_output(path, str(iteration), self.local_output)
             return
 
         if self._is_best_iteration(path, iteration):
-            save_output(path, "best")
+            save_output(path, "best", self.local_output)
         else:
+            if self.local_output is not None:
+                self.local_output.unlink(missing_ok=True)
             clean_output(path)
 
     @staticmethod

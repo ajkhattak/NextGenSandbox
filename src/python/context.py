@@ -416,6 +416,10 @@ class SandboxContext:
             )
         self.per_formulation_nexus_files = per_formulation_nexus_files
 
+        self.local_routing_output = outputs.get("local_routing_output", False)
+        if type(self.local_routing_output) is not bool:
+            raise TypeError("simulation.outputs.local_routing_output must be true or false")
+
         calibration_outputs = outputs.get("calibration", {}) or {}
         if not isinstance(calibration_outputs, dict):
             raise TypeError("simulation.outputs.calibration must be a mapping")

@@ -618,6 +618,14 @@ class ConfigurationCalib:
         ] = observation_settings
 
     def write_calib_input_files(self):
+        if (
+            getattr(self.ctx, "local_routing_output", False)
+            and self.ctx.ensemble_enabled
+        ):
+            raise ValueError(
+                "simulation.outputs.local_routing_output is not supported "
+                "with ensemble calibration"
+            )
         
         conf_dir = self.config_dir
         realization_file =  sorted(
@@ -748,6 +756,10 @@ class ConfigurationCalib:
             }
 
         df_new["model"]["plugins"] = list(self.DEFAULT_PLUGINS)
+        if getattr(self.ctx, "local_routing_output", False):
+            df_new["model"].setdefault("plugin_settings", {})[
+                "local_routing_output"
+            ] = {"enabled": True}
         output_retention = (
             self.ctx.calibration_output_retention
             if self.ngen_cal_type in {"calibration", "restart"}
