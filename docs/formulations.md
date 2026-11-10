@@ -42,7 +42,10 @@ CASAM is an LGAR-based, catchment-scale rainfall-runoff model.
 Use `SACSMA` as the formulation component name. `SAC-SMA` is the model's
 display name and repository name.
 
-- `SNOW17, PET, SACSMA, T-ROUTE`
+- `PET, SACSMA, T-ROUTE`: Use where snow accumulation and melt can be
+  neglected. SAC-SMA receives precipitation directly from the forcing data.
+- `SNOW17, PET, SACSMA, T-ROUTE`: Use when snow accumulation and melt
+  need to be modeled. SAC-SMA receives rain plus melt from Snow17.
 
 ## Machine-Learning Models
 
