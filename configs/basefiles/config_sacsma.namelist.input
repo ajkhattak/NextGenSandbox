@@ -10,8 +10,8 @@ sac_param_file        = "/Users/ahmadjankhattak/Code/ngen/ngen/extern/sac-sma/sa
 output_hrus           = 0           ! output HRU results? (1=yes; 0=no)
 
 ! -- run period information
-start_datehr          = 2015120112  ! start date time, backward looking (check)
-end_datehr            = 2015123012  ! end date time
+start_datehr          = "2015120112"  ! start date time, backward looking (check)
+end_datehr            = "2015123012"  ! end date time
 model_timestep        = 3600       ! in seconds (86400 seconds = 1 day)
 
 ! -- state start/write flags and files
