@@ -183,7 +183,7 @@ protect different resources:
 | `max_active_jobs` | Launcher workers running or pending in Slurm. |
 | `max_total_mpi_tasks` | Sum of requested MPI ranks (`--ntasks`). A PSO calibration requests `pool` times the ranks needed by one model simulation. |
 | `max_total_allocated_cpus` | Sum of Slurm CPUs requested by all your active jobs, including jobs outside this campaign. |
-| `max_failed_attempts` | Hard failures allowed after the last successful worker before automatic retries stop. Defaults to `2`; timeouts and preemptions do not count. |
+| `max_failed_attempts` | Hard failures, including node failures, allowed after the last successful worker before automatic retries stop. Defaults to `2`; timeouts and preemptions do not count. |
 
 The launcher submits each worker held, checks Slurm's reported CPU request
 against `max_total_allocated_cpus`, and releases it only when there is room.
@@ -373,6 +373,15 @@ baseline. This does not require cancelling jobs or resetting the campaign.
 Re-run `sandbox-launcher run` or `sandbox-launcher submit` with the same
 configuration after a failure or wall-clock limit. Completed work is left
 alone; incomplete calibrations use their available restart state.
+
+The launcher submits Slurm workers with `--no-requeue`. After a worker fails,
+an active coordinator can submit a new job, subject to the campaign's retry
+and resource limits. This does not change the coordinator job's own requeue
+policy or the policy of workers already submitted.
+
+For DDS, the coordinator uses the existing restart path to pass the selected
+checkpoint's worker directory to ngen-cal. An unusable checkpoint still
+requires manual recovery.
 
 To forget previous Slurm failures, cancellations, and retry counts before
 submitting incomplete work again, reset the campaign history:

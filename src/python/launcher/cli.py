@@ -74,6 +74,7 @@ HARD_FAILURE_STATES = {
     "BOOT_FAIL",
     "DEADLINE",
     "FAILED",
+    "NODE_FAIL",
     "OUT_OF_MEMORY",
     "OUT_OF_ME",
     "OOM",
@@ -2381,6 +2382,7 @@ def build_slurm_submit_command(
     command = [
         "sbatch",
         "--parsable",
+        "--no-requeue",
         "--cpus-per-task=1",
         f"--ntasks-per-node={num_mpi_tasks}",
         f"--job-name={job_name}",

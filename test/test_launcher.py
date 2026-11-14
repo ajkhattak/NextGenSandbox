@@ -1002,6 +1002,7 @@ class TestLauncherSelection(unittest.TestCase):
         self.assertIn("--ntasks-per-node=4", command)
         self.assertIn("--cpus-per-task=1", command)
         self.assertIn("--parsable", command)
+        self.assertIn("--no-requeue", command)
         self.assertNotIn("--cpus-per-task=4", command)
         self.assertIn("SANDBOX_STAGE=calibration", command[-2])
 
@@ -1026,6 +1027,7 @@ class TestLauncherSelection(unittest.TestCase):
         self.assertIn("--partition=shared", command)
         self.assertIn("--time=12:00:00", command)
         self.assertIn("--mem=8G", command)
+        self.assertIn("--no-requeue", command)
         self.assertIn("SANDBOX_STAGE=validation", command[-2])
 
     def test_slurm_command_routes_worker_logs_to_output_directory(self):
@@ -1063,6 +1065,7 @@ class TestLauncherSelection(unittest.TestCase):
 
         self.assertIn("--job-name=launcher_pso_launcher", command)
         self.assertIn("--parsable", command)
+        self.assertNotIn("--no-requeue", command)
         self.assertIn(
             "--output=/project/outputs/pso/logs/%x_%j.out",
             command,
@@ -1729,7 +1732,7 @@ class TestLauncherSelection(unittest.TestCase):
             launcher.subprocess,
             "check_output",
             return_value=(
-                "104|FAILED\n"
+                "104|NODE_FAIL\n"
                 "102|FAILED\n"
                 "101|FAILED\n"
                 "103|COMPLETED\n"
