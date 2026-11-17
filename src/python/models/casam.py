@@ -58,7 +58,22 @@ class CASAMConfigurationGenerator(ConfigurationGenerator):
         )
 
         # Copy the shared parameter file into the model configuration directory.
-        shutil.copy2(casam_params_file, casam_dir)
+        casam_params_file = shutil.copy2(casam_params_file, casam_dir)
+
+        # LGAR applies log_mode to the soil table as well as BMI parameters.
+        # The bundled table stores physical alpha and Ksat values.
+        if self.casam_template.get("log_mode", False):
+            with open(casam_params_file, "r") as f:
+                lines = f.readlines()
+            for i in range(1, len(lines)):
+                soil, theta_r, theta_e, alpha, n, ksat = lines[i].rsplit(maxsplit=5)
+                lines[i] = (
+                    f"{soil}\t{theta_r}\t{theta_e}\t"
+                    f"{np.log10(float(alpha)):.16g}\t{n}\t"
+                    f"{np.log10(float(ksat)):.16g}\n"
+                )
+            with open(casam_params_file, "w") as f:
+                f.writelines(lines)
 
         
         for catID in self.static_data.catids:
@@ -106,10 +121,16 @@ class CASAMConfigurationGenerator(ConfigurationGenerator):
         any_nans = np.any(np.isnan(giuh_cat["frequency"]))
         if any_nans:
             giuh_ordinates = "1.0"
+
+        thickness = self.casam_template["layer_thickness"]
+        num_layers = (
+            len(thickness) if isinstance(thickness, list)
+            else len(str(thickness).split(","))
+        )
                     
         dynamic = {
             "soil_params_file" : casam_params_file,
-            "layer_soil_type": gdf["ISLTYP"][cat_name],
+            "layer_soil_type": [gdf["ISLTYP"][cat_name]] * num_layers,
             "giuh_ordinates": giuh_ordinates,
             "calib_params": self.ctx.task_type in [
                 "calibration",
