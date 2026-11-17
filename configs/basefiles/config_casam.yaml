@@ -2,7 +2,7 @@ verbosity           : none
 
 soil_params_file    : null
 
-layer_thickness     : 200.0          # [cm]
+layer_thickness     : [50.0, 150.0]  # individual thicknesses [cm]
 initial_psi         : 2000.0         # [cm]
 
 timestep            : 3600           # [sec]
@@ -14,7 +14,7 @@ ponded_depth_max    : 0.0            # [cm]
 use_closed_form_G   : true
 
 layer_soil_type       : null
-max_valid_soil_types  : 25
+max_valid_soil_types  : 12
 
 wilting_point_psi     : 15495.0        # [cm]
 field_capacity_psi    : 340.9          # [cm]
@@ -23,7 +23,7 @@ adaptive_timestep     : true
 
 giuh_ordinates        : null
 
-a                     : 0.0001
+a                     : -4.0          # log10(0.0001), with log_mode enabled
 b                     : 3.0
 
 frac_to_GW            : 0.4
@@ -31,6 +31,9 @@ frac_to_GW            : 0.4
 PET_affects_precip    : false
 
 spf_factor            : 0.6
+
+interflow_psi_threshold: 2.5           # log10(cm), approximately 316 cm
+interflow_factor       : 0.0           # log10(multiplier), 1.0
 
 free_drainage_enabled : true
 free_drainage_to_CR   : true
